@@ -43,7 +43,7 @@ Crystal + BasisSpec ──▶ SLCEBasis ──▶ SLCEDataset ──▶ fit ─�
 
 - **`SLCEBasis`** analyzes symmetry, enumerates cluster orbits, and builds the
   symmetry-adapted SALC basis for a `Crystal` and a `BasisSpec` (body order, cutoff,
-  per-species `l`, isotropy).
+  per-species `l`, SOC selection).
 - **`SLCEDataset`** pairs the basis with training data and materializes the energy
   (and torque) design matrices.
 - **`fit`** solves for the coefficients with a pluggable estimator, optionally co-fitting

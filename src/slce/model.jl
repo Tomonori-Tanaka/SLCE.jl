@@ -1,28 +1,40 @@
 """
-    BasisSpec([labels_or_crystal]; nbody, lmax, cutoff, lsum = nothing,
-              isotropy = false)
+    BasisSpec([labels_or_crystal]; nbody, lmax, cutoff, lsum = nothing, soc = true)
+    BasisSpec([labels_or_crystal]; sectors, lmax, pmax = nothing, ...)
 
-An SCE basis **specification** — the knobs that define the basis, not an
+An SLCE basis **specification** — the knobs that define the basis, not an
 interaction term itself. Stored in resolved, dense canonical form:
 
-- `nbody::Int` — maximum body order.
-- `lmax::Vector{Int}` — per-species maximum `l` (per site, every body order;
-  `0` removes the species from the basis entirely).
-- `lsum::Vector{Int}` — per-body-order cap on `Σl` over the cluster sites
+- `nbody::Int` — maximum body order (decorated-site count).
+- `lmax::Vector{Int}` — per-species maximum spin rank `l` (per site, every body
+  order; `0` makes a species spin-inactive).
+- `pmax::Vector{Int}` — per-species per-site maximum displacement degree
+  `2k + l` (`0` clamps the species; a ligand is `lmax = 0, pmax > 0`).
+- `lsum::Vector{Int}` — per-body-order cap on `Σl` over the **spin** factors
   (index = body order; `LSUM_UNCAPPED` where uncapped).
 - `cutoff::Vector{Matrix{Float64}}` — per-body-order symmetric species-pair
   cutoff radii in Å (`cutoff[N - 1][a, b]` for body order `N ≥ 2`); an
   `N`-body cluster is kept iff **every** internal edge is within its own
   species-pair radius. `Inf` = no cutoff (every resolvable pair — the whole
-  Wigner–Seitz cell under [`MinimumImage`](@ref)); `0` excludes the pair.
-- `isotropy::Bool` — keep only the scalar (`Lf = 0`) channel.
+  Wigner–Seitz cell under [`MinimumImage`](@ref)); `0` excludes the pair. In
+  sector mode this is the derived per-body **envelope** (elementwise max over
+  the sectors admitting each body order); each sector re-admits within its own
+  radii.
+- `soc::Bool` — dense pure-spin form only: `false` keeps only the total-spin
+  scalar (`L_S = 0`, here `≡ Lf = 0`) channel. In sector mode SOC selection is
+  per sector and this field is `true`.
+- `sectors::Vector{SLCE.SectorRule}` — the resolved sector table (empty = the
+  dense pure-spin specification above; see [`Sector`](@ref)).
+- `disp_scale::Float64` — the fixed displacement scale (Å) the displacement
+  kernels are evaluated in units of; persisted with the basis (like the `(4π)`
+  spin normalization, it is part of the model definition, not a fit knob).
 - `species_labels::Vector{String}` — the labels the spec was resolved against
   (empty when constructed index-keyed).
 
-The keyword constructor also accepts ergonomic forms and resolves them here:
+# Dense pure-spin form
 
 ```julia
-BasisSpec(crystal; nbody = 3, isotropy = true,          # or BasisSpec(labels; ...)
+BasisSpec(crystal; nbody = 3, soc = true,               # or BasisSpec(labels; ...)
     lmax   = ["*" => 3, "B" => 0],                       # label-keyed, "*" fallback
     lsum   = [1 => 0, 2 => 4, 3 => 4],                   # body-keyed (or one Int)
     cutoff = [2 => Inf, 3 => ["Fe-*" => 6.0, "*-*" => 8.0]])
@@ -36,23 +48,52 @@ unordered (`"Fe-Nd" ≡ "Nd-Fe"`) and resolve by specificity (concrete beats
 `"A-*"` beats `"*-*"`); equal-specificity conflicts, unknown labels, uncovered
 species/pairs, and body orders outside `nbody` are errors. Label-keyed forms
 need the labels: pass them (or a `Crystal`) as the first argument.
+
+The former `isotropy` keyword is a deprecation error: `isotropy = true` kept
+only the scalar channel, which is exactly `soc = false` (for a pure-spin basis
+`L_S ≡ Lf`).
+
+# Sector-table (joint spin–lattice) form
+
+```julia
+BasisSpec(crystal; lmax = 2, pmax = ["*" => 0, "Fe" => 3], sectors = [
+    Sector(disp = (degree = 2:3,), cutoff = 6.0),                # force constants
+    Sector(spin = (nbody = 2:4, lmax = 2), cutoff = 8.0),        # pure-spin SCE
+    Sector(spin = [1, 1], disp = (degree = 1,), soc = false, cutoff = 5.0)])
+```
+
+The admitted decoration labels are the **union over the sector rows**,
+intersected with the global per-species `lmax`/`pmax` caps and the per-body
+`lsum`. In sector mode `nbody` is derived from the sectors (an explicit value
+caps it), the per-body `cutoff` envelope is derived (the keyword is rejected —
+radii are per sector), `soc` is per sector, and `pmax` is required as soon as
+any sector carries displacement content.
 """
 struct BasisSpec
     nbody::Int
     lmax::Vector{Int}
+    pmax::Vector{Int}
     lsum::Vector{Int}
     cutoff::Vector{Matrix{Float64}}
-    isotropy::Bool
+    soc::Bool
+    sectors::Vector{SectorRule}
+    disp_scale::Float64
     species_labels::Vector{String}
 
     # Positional canonical-form constructor; all construction paths validate here.
-    function BasisSpec(nbody::Int, lmax::Vector{Int}, lsum::Vector{Int},
-                       cutoff::Vector{Matrix{Float64}}, isotropy::Bool,
+    function BasisSpec(nbody::Int, lmax::Vector{Int}, pmax::Vector{Int},
+                       lsum::Vector{Int}, cutoff::Vector{Matrix{Float64}},
+                       soc::Bool, sectors::Vector{SectorRule}, disp_scale::Float64,
                        species_labels::Vector{String})
         nbody >= 1 || throw(ArgumentError("nbody must be ≥ 1; got $nbody"))
         isempty(lmax) && throw(ArgumentError("lmax must have one entry per species"))
         all(>=(0), lmax) ||
             throw(ArgumentError("lmax entries must be ≥ 0; got $lmax"))
+        length(pmax) == length(lmax) ||
+            throw(ArgumentError("pmax has $(length(pmax)) entries for " *
+                                "$(length(lmax)) species"))
+        all(>=(0), pmax) ||
+            throw(ArgumentError("pmax entries must be ≥ 0; got $pmax"))
         length(lsum) == nbody ||
             throw(ArgumentError("lsum has $(length(lsum)) entries for nbody = $nbody"))
         all(>=(0), lsum) || throw(ArgumentError("lsum entries must be ≥ 0; got $lsum"))
@@ -69,48 +110,121 @@ struct BasisSpec
             all(v -> !isnan(v) && v >= 0, M) ||
                 throw(ArgumentError("cutoff body$(k + 1) entries must be ≥ 0 or Inf"))
         end
+        if isempty(sectors)
+            all(==(0), pmax) ||
+                throw(ArgumentError("pmax > 0 needs a sector table with " *
+                                    "displacement content (`sectors = ...`)"))
+        else
+            soc || throw(ArgumentError("with a sector table, SOC selection is " *
+                                       "per sector (`Sector(; soc = false)`), " *
+                                       "not a global flag"))
+            for (i, r) in enumerate(sectors)
+                size(r.cutoff) == (nkd, nkd) ||
+                    throw(ArgumentError("sectors[$i] cutoff matrix is " *
+                                        "$(size(r.cutoff)), expected ($nkd, $nkd)"))
+                r.nbody[1] <= nbody ||
+                    throw(ArgumentError("sectors[$i] admits only body orders " *
+                                        "$(r.nbody[1]):$(r.nbody[2]) but nbody = " *
+                                        "$nbody — the sector would contribute " *
+                                        "nothing"))
+            end
+        end
+        isfinite(disp_scale) && disp_scale > 0 ||
+            throw(ArgumentError("disp_scale must be a finite positive length (Å); " *
+                                "got $disp_scale"))
         isempty(species_labels) || length(species_labels) == nkd ||
             throw(ArgumentError("$(length(species_labels)) species labels for " *
                                 "$nkd lmax entries"))
         allunique(species_labels) ||
             throw(ArgumentError("species labels must be unique; got $species_labels"))
-        return new(nbody, lmax, lsum, cutoff, isotropy, species_labels)
+        return new(nbody, lmax, pmax, lsum, cutoff, soc, sectors, disp_scale,
+                   species_labels)
     end
 end
 
 function BasisSpec(labels::AbstractVector{<:AbstractString} = String[];
-                   nbody::Integer, lmax, cutoff, lsum = nothing,
-                   isotropy::Bool = false, pair_cutoff = nothing)
+                   lmax, nbody = nothing, cutoff = nothing, lsum = nothing,
+                   soc::Bool = true, sectors = nothing, pmax = nothing,
+                   disp_scale::Real = 1.0, isotropy = nothing, pair_cutoff = nothing)
+    isotropy === nothing ||
+        throw(ArgumentError("`isotropy` was replaced by the SOC selection rule: " *
+                            "use `soc = false` for the scalar channel (note the " *
+                            "inversion — `isotropy = true` ⇔ `soc = false`; in a " *
+                            "sector table SOC is per sector, `Sector(; soc)`)"))
     pair_cutoff === nothing ||
         throw(ArgumentError("`pair_cutoff` was replaced by `cutoff` (a scalar is " *
                             "equivalent: cutoff = $pair_cutoff; see the BasisSpec " *
                             "docstring for per-body / per-pair forms)"))
-    nbody >= 1 || throw(ArgumentError("nbody must be ≥ 1; got $nbody"))
     lv = collect(String, labels)
     nkd = !isempty(lv) ? length(lv) :
           lmax isa AbstractVector{<:Integer} ? length(lmax) :
           throw(ArgumentError("the species count is unknown: pass the labels " *
                               "(`BasisSpec(labels; ...)` / `BasisSpec(crystal; ...)`) " *
                               "or give `lmax` as a per-species Vector{Int}"))
-    return BasisSpec(Int(nbody),
+    if sectors === nothing
+        # dense pure-spin form
+        nbody === nothing &&
+            throw(ArgumentError("the dense (sector-less) form needs `nbody`"))
+        cutoff === nothing &&
+            throw(ArgumentError("the dense (sector-less) form needs `cutoff`"))
+        pmax === nothing ||
+            throw(ArgumentError("`pmax` needs a sector table with displacement " *
+                                "content (`sectors = ...`)"))
+        nb = Int(nbody)
+        nb >= 1 || throw(ArgumentError("nbody must be ≥ 1; got $nbody"))
+        return BasisSpec(nb,
+                         _resolve_species_table(lmax, nkd, lv, "lmax"),
+                         zeros(Int, nkd),
+                         _resolve_lsum(lsum, nb),
+                         _resolve_cutoff(cutoff, nb, nkd, lv),
+                         soc, SectorRule[], Float64(disp_scale), lv)
+    end
+    # sector-table form
+    cutoff === nothing ||
+        throw(ArgumentError("with a sector table, cutoffs are per sector " *
+                            "(`Sector(; cutoff = ...)`); the per-body envelope " *
+                            "is derived"))
+    soc || throw(ArgumentError("with a sector table, SOC selection is per sector " *
+                               "(`Sector(; soc = false)`), not a global flag"))
+    rules, nb, envelope = _resolve_sectors(sectors, nkd, lv, nbody)
+    has_disp_content = any(r -> r.disp_degree[2] > 0, rules)
+    pmax_v = pmax === nothing ?
+        (has_disp_content ?
+             throw(ArgumentError("the sector table has displacement content — " *
+                                 "give `pmax` (per-species per-site displacement " *
+                                 "degree cap; 0 clamps a species)")) :
+             zeros(Int, nkd)) :
+        _resolve_species_table(pmax, nkd, lv, "pmax")
+    maxdeg = maximum(r.disp_degree[2] for r in rules; init = 0)
+    if maxdeg > 0 && isodd(maxdeg)
+        @warn "the maximum total displacement degree $maxdeg is odd: the leading " *
+              "displacement form is unbounded below (a necessary boundedness " *
+              "condition only — see the design record §5)"
+    end
+    return BasisSpec(nb,
                      _resolve_species_table(lmax, nkd, lv, "lmax"),
-                     _resolve_lsum(lsum, Int(nbody)),
-                     _resolve_cutoff(cutoff, Int(nbody), nkd, lv),
-                     isotropy, lv)
+                     pmax_v,
+                     _resolve_lsum(lsum, nb),
+                     envelope,
+                     true, rules, Float64(disp_scale), lv)
 end
 
 BasisSpec(crystal::Crystal; kwargs...) = BasisSpec(crystal.species_labels; kwargs...)
 
 Base.:(==)(a::BasisSpec, b::BasisSpec) =
-    a.nbody == b.nbody && a.lmax == b.lmax && a.lsum == b.lsum &&
-    a.cutoff == b.cutoff && a.isotropy == b.isotropy &&
+    a.nbody == b.nbody && a.lmax == b.lmax && a.pmax == b.pmax &&
+    a.lsum == b.lsum && a.cutoff == b.cutoff && a.soc == b.soc &&
+    a.sectors == b.sectors && a.disp_scale == b.disp_scale &&
     a.species_labels == b.species_labels
 
 function Base.show(io::IO, ::MIME"text/plain", sp::BasisSpec)
     nkd = length(sp.lmax)
     labels = isempty(sp.species_labels) ? ["#$k" for k = 1:nkd] : sp.species_labels
-    println(io, "BasisSpec: nbody = ", sp.nbody, ", isotropy = ", sp.isotropy)
+    println(io, "BasisSpec: nbody = ", sp.nbody, ", soc = ", sp.soc)
     println(io, "  lmax:  ", join(("$(labels[k]) = $(sp.lmax[k])" for k = 1:nkd), ", "))
+    any(>(0), sp.pmax) &&
+        println(io, "  pmax:  ",
+                join(("$(labels[k]) = $(sp.pmax[k])" for k = 1:nkd), ", "))
     lsumstr(v) = v == LSUM_UNCAPPED ? "—" : string(v)
     println(io, "  lsum:  ",
             join(("body$N = $(lsumstr(sp.lsum[N]))" for N = 1:sp.nbody), ", "))
@@ -125,6 +239,11 @@ function Base.show(io::IO, ::MIME"text/plain", sp::BasisSpec)
                         join((string(M[i, j]) for j = 1:nkd), "  "))
             end
         end
+    end
+    sp.disp_scale == 1.0 ||
+        println(io, "  disp_scale: ", sp.disp_scale, " Å")
+    for (i, r) in enumerate(sp.sectors)
+        println(io, "  sector $i: ", sprint(show, r))
     end
 end
 
@@ -159,6 +278,10 @@ function SLCEBasis(crystal::Crystal, spec::BasisSpec;
     isempty(spec.species_labels) || spec.species_labels == crystal.species_labels ||
         throw(ArgumentError("spec species labels $(spec.species_labels) do not match " *
                             "the crystal's $(crystal.species_labels)"))
+    isempty(spec.sectors) ||
+        throw(ArgumentError("sector-driven basis construction is not wired up " *
+                            "yet (M2b-3b) — only the dense pure-spin BasisSpec " *
+                            "form builds an SLCEBasis in this version"))
     sg = analyze_symmetry(backend, crystal; tol = tol)
     # The neighbor list is built at the per-pair superset radius (element-wise max
     # over body orders); each body order's own radii then trim edges per cluster in
@@ -168,7 +291,7 @@ function SLCEBasis(crystal::Crystal, spec::BasisSpec;
                               cutoff = spec.cutoff)
     salcs = build_salc_basis(crystal, sg, clusters;
                              lmax_by_species = spec.lmax, lsum_by_body = spec.lsum,
-                             isotropy = spec.isotropy)
+                             isotropy = !spec.soc)
     return SLCEBasis(crystal, sg, salcs, spec)
 end
 

@@ -69,7 +69,7 @@ const _EMBSET_SAMPLE = """
         cr = Crystal(lat, [0.2 -0.2 0.5; 0.0 0.0 0.5; 0.0 0.0 0.5],
                      [1, 1, 2], ["Fe", "B"])
         basis = SLCEBasis(cr, BasisSpec(cr; nbody = 2, cutoff = 1.5,
-                                       lmax = ["Fe" => 1, "B" => 0], isotropy = true))
+                                       lmax = ["Fe" => 1, "B" => 0], soc = false))
         ds = SLCEDataset(basis, src)                  # zero-moment B passes the guard
         @test length(ds) == 2 && has_torque(ds)
         @test ds.y_E == [-12.5, -13.0]

@@ -20,7 +20,7 @@ frac = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
 chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
 
 # Nearest-neighbor 2-body interaction, isotropic (Heisenberg) channel only.
-interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true)
+interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], soc = false)
 basis = SLCEBasis(chain, interaction; backend = SpglibBackend())
 println("space group : ", basis.spacegroup.symbol, " (#", basis.spacegroup.number, ")")
 println("# SALCs     : ", n_salcs(basis))

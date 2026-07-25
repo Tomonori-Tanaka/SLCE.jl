@@ -112,9 +112,9 @@ end
     # NoSymmetry (P1): anisotropic basis with several (orbit, ls) groups split into
     # Lf/block channels, plus a small isotropic basis for by-hand entry counting
     basis = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
-                                        isotropy = false))
+                                        soc = true))
     small = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
-                                        isotropy = true))
+                                        soc = false))
 
     @testset "salc_groups: contiguous labels matching (body, orbit_id, ls) runs" begin
         ks = basis.salc_basis.keys

@@ -33,6 +33,9 @@ const _SCHEMA_MODEL = "scefitting/sce-model"
 #     and the total spin rank "L_S" instead of "ls". v4 keys are mapped on read
 #     (per-site l → a pure-spin decor, L_S := Lf — total and value-preserving),
 #     so v4 files load with identical predictions and no migration tool.
+#     The spec section stores "soc" (= !isotropy), "pmax", "disp_scale", and the
+#     resolved "sectors" table; legacy "isotropy"-keyed spec docs are still
+#     readable (`_spec_from` branches on the "soc" key, not the version).
 const PERSIST_SCHEMA_VERSION = 5
 const _PERSIST_READABLE_VERSIONS = (2, 3, 4, 5)
 
@@ -88,12 +91,28 @@ function _symmetry_doc(sg::SpaceGroup)
         "rotations_frac" => rots, "translations_frac" => trans)
 end
 
+_cutoff_rows(M::AbstractMatrix) =
+    [[_jnum(M[i, j]) for j in axes(M, 2)] for i in axes(M, 1)]      # row-major
+
+_sector_doc(r::SectorRule) = Dict{String,Any}(
+    "spin_mode" => String(r.spin_mode),
+    "spin_ls" => collect(Int, r.spin_ls),
+    "spin_nsites" => Int[r.spin_nsites...],
+    "spin_lmax" => r.spin_lmax,                             # typemax(Int64) = uncapped
+    "spin_lsum" => r.spin_lsum,                             # typemax(Int64) = uncapped
+    "disp_degree" => Int[r.disp_degree...],
+    "nbody" => Int[r.nbody...],
+    "soc" => r.soc,
+    "cutoff" => _cutoff_rows(r.cutoff))
+
 _spec_doc(sp::BasisSpec) = Dict{String,Any}(
     "nbody" => sp.nbody, "lmax" => collect(Int, sp.lmax),
+    "pmax" => collect(Int, sp.pmax),
     "lsum" => collect(Int, sp.lsum),                       # typemax(Int64) = uncapped
-    "cutoff" => [[[_jnum(M[i, j]) for j in axes(M, 2)] for i in axes(M, 1)]
-                 for M in sp.cutoff],                       # per body order, row-major
-    "isotropy" => sp.isotropy,
+    "cutoff" => [_cutoff_rows(M) for M in sp.cutoff],       # per body order
+    "soc" => sp.soc,
+    "sectors" => [_sector_doc(r) for r in sp.sectors],
+    "disp_scale" => _jnum(sp.disp_scale),
     "species_labels" => collect(String, sp.species_labels))
 
 function _basis_doc(b::SLCEBasis)
@@ -221,21 +240,36 @@ function _symmetry_from(crystal::Crystal, d)::SpaceGroup
                                 String(d["symbol"]), Int(d["number"]); tol = Float64(d["tol"]))
 end
 
+_cutoff_matrix(M) =
+    Matrix{Float64}(reduce(hcat, (_floatvec(row) for row in M))')  # stored row-major
+
+_tuple2(v) = (Int(v[1]), Int(v[2]))
+
+_sector_from(d)::SectorRule =
+    SectorRule(Symbol(String(d["spin_mode"])), _intvec(d["spin_ls"]),
+               _tuple2(d["spin_nsites"]), Int(d["spin_lmax"]),
+               Int(d["spin_lsum"]), _tuple2(d["disp_degree"]),
+               _tuple2(d["nbody"]), Bool(d["soc"]), _cutoff_matrix(d["cutoff"]))
+
 function _spec_from(d)::BasisSpec
     nbody = Int(d["nbody"])
     lmax = _intvec(d["lmax"])
-    isotropy = Bool(d["isotropy"])
     if haskey(d, "pair_cutoff")     # legacy v2: one scalar radius, no lsum, no labels
-        return BasisSpec(; nbody = nbody, lmax = lmax, isotropy = isotropy,
+        return BasisSpec(; nbody = nbody, lmax = lmax, soc = !Bool(d["isotropy"]),
                          cutoff = Float64(d["pair_cutoff"]))
     end
     labels = String[String(s) for s in d["species_labels"]]
     lsum = _intvec(d["lsum"])
-    cutoff = Matrix{Float64}[Matrix{Float64}(reduce(hcat, (_floatvec(row) for row in M))')
-                             for M in d["cutoff"]]           # stored row-major
-    return BasisSpec(labels; nbody = nbody, lmax = lmax,
-                     lsum = [n => v for (n, v) in enumerate(lsum)],
-                     cutoff = cutoff, isotropy = isotropy)
+    cutoff = Matrix{Float64}[_cutoff_matrix(M) for M in d["cutoff"]]
+    if !haskey(d, "soc")            # legacy v3/v4 layout: "isotropy", no channels
+        return BasisSpec(labels; nbody = nbody, lmax = lmax,
+                         lsum = [n => v for (n, v) in enumerate(lsum)],
+                         cutoff = cutoff, soc = !Bool(d["isotropy"]))
+    end
+    # v5 sector-capable layout — dense already, so use the canonical constructor.
+    return BasisSpec(nbody, lmax, _intvec(d["pmax"]), lsum, cutoff, Bool(d["soc"]),
+                     SectorRule[_sector_from(s) for s in d["sectors"]],
+                     Float64(d["disp_scale"]), labels)
 end
 
 function _check_schema(d, allowed::Tuple)

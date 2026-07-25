@@ -174,7 +174,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
     @testset "full-WS basis builds; under symmetry it has no collinear columns" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
-        inter = BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], isotropy = true)
+        inter = BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], soc = false)
         @test n_salcs(SLCEBasis(cr, inter)) ≥ 1                    # default (NoSymmetry) build succeeds
         # with the cubic sign symmetry the 8 WS-corner ties collapse to one orbit;
         # the centered energy design matrix must then have full column rank — i.e. the
@@ -204,7 +204,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         nbody       = 2
         cutoff = inf
         lmax        = [1]
-        isotropy    = true
+        soc    = false
         """
         # default images = MinimumImage
         p1 = joinpath(dir, "mi.toml"); write(p1, body)
@@ -225,7 +225,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
     @testset "persistence round-trips a cutoff = Inf basis" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
-        b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], isotropy = true))
+        b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], soc = false))
         path = joinpath(mktempdir(), "wsbasis.toml")
         SLCE.save(path, b)
         b2 = SLCE.load(SLCEBasis, path)

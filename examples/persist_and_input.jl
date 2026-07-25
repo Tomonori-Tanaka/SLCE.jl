@@ -24,7 +24,7 @@ species_labels = ["Fe"]
 nbody = 2
 cutoff = 2.6
 lmax = [1]
-isotropy = true
+soc = false
 
 [symmetry]
 backend = "spglib"

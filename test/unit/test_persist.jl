@@ -3,6 +3,7 @@ using SLCE
 using LinearAlgebra
 using StaticArrays
 using Random
+using TOML
 
 const MR = SLCE
 
@@ -39,7 +40,7 @@ end
     rng = MersenneTwister(11)
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false)
+    interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], soc = true)
     basis = SLCEBasis(crystal, interaction)   # NoSymmetry (P1); small but exercises Lf > 0
     m = length(basis.salc_basis)
     @test m > 0
@@ -209,6 +210,37 @@ end
             @test o2.is_proper == o1.is_proper
             @test o2.is_translation == o1.is_translation
         end
+    end
+
+    @testset "sector-table spec doc round-trips (TOML) and legacy layouts read" begin
+        labels = ["Nd", "Fe", "B"]
+        sp = BasisSpec(labels; lmax = 2, pmax = ["*" => 0, "Fe" => 2],
+                       disp_scale = 0.05, sectors = [
+            Sector(spin = (nbody = 2:3, lmax = 2, lsum = 4), cutoff = 8.0),
+            Sector(spin = [1, 1], disp = 1:2, soc = false,
+                   cutoff = ["Fe-*" => 6.0, "*-*" => Inf])])
+        d = MR._spec_doc(sp)
+        # exercise the actual serializer (Symbols → Strings, Inf, typemax sentinels)
+        buf = IOBuffer()
+        TOML.print(buf, Dict("spec" => d))
+        d2 = TOML.parse(String(take!(buf)))["spec"]
+        sp2 = MR._spec_from(d2)
+        @test sp2 == sp
+        @test sp2.sectors[2].soc == false && isinf(sp2.sectors[2].cutoff[1, 1])
+        @test sp2.sectors[1].spin_lmax == 2 && sp2.sectors[1].spin_lsum == 4
+        @test sp2.sectors[2].spin_lmax == SLCE.LSUM_UNCAPPED
+        @test sp2.disp_scale == 0.05 && sp2.pmax == [0, 2, 0]
+        # a legacy "isotropy"-keyed spec doc (v3/v4 layout) reads with the inversion
+        dl = MR._spec_doc(BasisSpec(labels; nbody = 2, cutoff = 3.7, lmax = 1))
+        @test dl["soc"] === true && !haskey(dl, "isotropy")
+        delete!(dl, "soc")
+        delete!(dl, "pmax")
+        delete!(dl, "sectors")
+        delete!(dl, "disp_scale")
+        dl["isotropy"] = true
+        spl = MR._spec_from(dl)
+        @test spl.soc == false && isempty(spl.sectors)
+        @test spl.pmax == [0, 0, 0] && spl.disp_scale == 1.0
     end
 
     @testset "-0.0 is normalized to +0.0 on write" begin

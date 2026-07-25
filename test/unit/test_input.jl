@@ -15,14 +15,14 @@ pbc = [true, true, true]
 nbody = 2
 cutoff = 1.5
 lmax = [2]
-isotropy = false
+soc = true
 
 [symmetry]
 backend = "none"
 tol = 1.0e-5
 """
 
-# minimal: no [symmetry], no isotropy, no pbc → defaults apply
+# minimal: no [symmetry], no soc, no pbc → defaults apply
 const _INPUT_MINIMAL = """
 [structure]
 lattice = [[3.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 0.0, 3.0]]
@@ -51,7 +51,7 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
         @test inp.spec.nbody == 2
         @test inp.spec.cutoff[1][1, 1] == 1.5
         @test inp.spec.lmax == [2]
-        @test inp.spec.isotropy == false
+        @test inp.spec.soc == true
         @test inp.backend isa NoSymmetry
         @test inp.tol == 1.0e-5
     end
@@ -69,7 +69,7 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
         inp = read_setup(_writetoml(_INPUT_MINIMAL))
         @test inp.backend isa NoSymmetry          # no [symmetry] → NoSymmetry
         @test inp.tol == 1.0e-5                    # default tol
-        @test inp.spec.isotropy == false    # default isotropy
+        @test inp.spec.soc == true    # default soc
         @test inp.crystal.lattice.pbc == SVector{3,Bool}(true, true, true)  # default pbc
     end
 

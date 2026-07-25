@@ -16,7 +16,7 @@ using Random
 
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = true)
+    interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], soc = false)
     basis = SLCEBasis(crystal, interaction)
     salcs = basis.salc_basis.salcs
     m = length(salcs)

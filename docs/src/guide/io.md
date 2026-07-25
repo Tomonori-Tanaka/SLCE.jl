@@ -47,7 +47,7 @@ species_labels = ["Fe"]
 nbody    = 2
 cutoff   = 2.6              # or `inf` for the whole Wigner–Seitz cell
 lmax     = [1]
-isotropy = true
+soc      = false
 
 [symmetry]
 backend = "spglib"          # or "none"
@@ -66,7 +66,7 @@ and species pair:
 ```toml
 [interaction]
 nbody    = 3
-isotropy = true
+soc      = false
 
 [interaction.lmax]
 "*" = 3

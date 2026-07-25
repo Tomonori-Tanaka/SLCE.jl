@@ -109,7 +109,7 @@ data   = read_embset(joinpath(inputs, "EMBSET"), poscar.nat)
 
 Build the crystal from the parsed `POSCAR`, then the symmetry-adapted SCE basis. We keep an
 **isotropic two-body** model: `nbody = 2`, all pairs (`cutoff = Inf`), on-site angular
-momentum `lmax = [1]`, and `isotropy = true` to restrict to the rotationally invariant
+momentum `lmax = [1]`, and `soc = false` to restrict to the rotationally invariant
 (``L_f = 0``) channels — i.e. ordinary isotropic exchange. Spglib detects the cubic
 ``Im\bar 3m`` space group, so the thousands of pairs collapse to a handful of invariants.
 
@@ -117,7 +117,7 @@ momentum `lmax = [1]`, and `isotropy = true` to restrict to the rotationally inv
 lattice = Lattice(poscar.lattice)
 crystal = Crystal(lattice, poscar.frac, poscar.kinds, poscar.species)
 
-interaction = BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], isotropy = true)
+interaction = BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], soc = false)
 basis       = SLCEBasis(crystal, interaction; backend = SpglibBackend())
 
 (space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))
@@ -332,7 +332,7 @@ gradient that sets the dispersion). This reproduces the comparison in the corres
 
 ## Where this generalizes
 
-- Drop `isotropy = true` to keep the anisotropic (``L_f > 0``) channels — Dzyaloshinskii–Moriya
+- Drop `soc = false` to keep the anisotropic (``L_f > 0``) channels — Dzyaloshinskii–Moriya
   and symmetric-``\Gamma`` bilinears — which [`bilinear_terms`](@ref) returns in the
   off-diagonal and antisymmetric parts of ``M``.
 - Raise `lmax` to `[2]` for biquadratic / single-ion channels (the latter appear in

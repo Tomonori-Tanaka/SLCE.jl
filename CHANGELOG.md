@@ -6,6 +6,38 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — sector-table BasisSpec + `soc` (joint spin–lattice M2b-3a, BREAKING)
+
+- **`BasisSpec` gains the sector-table (joint spin–lattice) form**: the new
+  exported [`Sector`](src/slce/truncation.jl) sugar
+  (`Sector(; spin, disp, soc = true, cutoff, nbody)`) declares one row of the
+  truncation table — spin content as `nothing` / an explicit even-`Σl` rank
+  multiset / a `(nbody, lmax, lsum)` truncation, displacement content as a
+  total-degree budget (the `(k, l)` harmonic labels are derived), per-sector
+  `soc` (`false` = the exact `L_S = 0` SOC-free column set), and a per-sector
+  cluster cutoff. `BasisSpec(labels; sectors = [...], lmax, pmax, ...)`
+  resolves the sugar once into the dense canonical `SLCE.SectorRule` form
+  (public unexported); the admitted labels are the **union of the rows ∩ the
+  global caps**. In sector mode `nbody` and the per-body `cutoff` envelope are
+  derived, and `pmax` (per-species per-site displacement-degree cap; `0` =
+  clamped, a ligand is `lmax = 0, pmax > 0`) is required as soon as a sector
+  carries displacement content. New canonical fields: `pmax`, `sectors`,
+  `disp_scale` (the fixed, persisted displacement scale in Å). Sector-driven
+  *basis construction* is the next slice (M2b-3b) — an `SLCEBasis` build from
+  a sector spec currently throws an explicit not-wired-yet error.
+- **BREAKING — `isotropy` is replaced by `soc` (inverted!)**: the dense
+  pure-spin form now takes `soc::Bool = true`; `soc = false` keeps only the
+  total-spin scalar channel (`L_S = 0 ≡ Lf = 0` at `p = 0`) — exactly the old
+  `isotropy = true`. The `isotropy` keyword (and the `[interaction].isotropy`
+  TOML key) now throw an `ArgumentError` naming the replacement and the
+  inversion. Rationale: the physical content of the filter is the SOC-free
+  selection rule, which generalizes per sector in the joint expansion (design
+  record §5); `Lf = 0` does not (`dJ/dr`-type sectors are `L_S = 0, Lf ≠ 0`).
+- **Persistence**: the spec document now stores `soc`, `pmax`, `disp_scale`,
+  and the resolved `sectors` table; legacy `isotropy`-keyed spec documents
+  (v2–v4, and early-v5 local files) still read via the `soc = !isotropy` map —
+  reloads are value-preserving as before.
+
 ### Changed — decoration labels + SALCKey v5 (joint spin–lattice M2a, BREAKING)
 
 - **`SALCKey` layout**: the sorted `ls::Vector{Int}` label is replaced by the

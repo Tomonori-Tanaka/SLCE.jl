@@ -16,7 +16,7 @@ const Zlm = SLCE.Harmonics.Zlm
 function _multichannel_basis()
     lat = Lattice(Matrix(3.0 * I(3)))
     cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    return SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false))
+    return SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], soc = true))
 end
 
 # Random unit-column spin configuration (3 × n).

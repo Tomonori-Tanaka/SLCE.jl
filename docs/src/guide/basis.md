@@ -38,7 +38,7 @@ A [`BasisSpec`](@ref) fixes the body order, the cutoff radii, the angular trunca
 channel:
 
 ```@example basis
-interaction = BasisSpec(; nbody = 2, cutoff = 2.7, lmax = [1], isotropy = true)
+interaction = BasisSpec(; nbody = 2, cutoff = 2.7, lmax = [1], soc = false)
 ```
 
 - `nbody` — maximum cluster size. `2` is pairwise; `nbody = 3` adds triplets, and so on
@@ -53,15 +53,16 @@ interaction = BasisSpec(; nbody = 2, cutoff = 2.7, lmax = [1], isotropy = true)
   no cap). This is how a Magesty-style `lsum` model is expressed: `lsum = [2 => 4]` keeps
   the pair channels `(1,1), (1,3), (2,2)` while `lmax = [3]` alone would also admit
   `(3,3)`.
-- `isotropy` — `true` keeps only the rotation-invariant `Lf = 0` channel (e.g. Heisenberg
-  `eᵢ·eⱼ`); `false` keeps the anisotropic channels too.
+- `soc` — `false` keeps only the rotation-invariant scalar channel (`L_S = 0`, e.g.
+  Heisenberg `eᵢ·eⱼ`) — the exact SOC-free selection; `true` (the default) keeps the
+  anisotropic channels too. (The former `isotropy = true` keyword is this `soc = false`.)
 
 With several species the ergonomic forms keep a spec readable — species by **label**
 (with a `"*"` fallback), cutoffs per body order and species pair (unordered keys,
 resolved by specificity: concrete beats `"A-*"` beats `"*-*"`):
 
 ```julia
-spec = BasisSpec(crystal; nbody = 3, isotropy = true,
+spec = BasisSpec(crystal; nbody = 3, soc = false,
     lmax   = ["*" => 3, "B" => 0],
     lsum   = [1 => 0, 2 => 4, 3 => 4],
     cutoff = [2 => Inf, 3 => ["Fe-*" => 6.0, "*-*" => 8.0]])

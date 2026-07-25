@@ -218,7 +218,7 @@ end
         frac = [zeros(2, 4); [0.0 0.25 0.5 0.75]]
         chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
         interaction = SLCE.BasisSpec(; nbody = 2, cutoff = 2.6,
-                                                 lmax = [1], isotropy = true)
+                                                 lmax = [1], soc = false)
         basis = SLCE.SLCEBasis(chain, interaction; backend = SpglibBackend())
         @test length(basis.salc_basis) == 1          # only the nearest-neighbor Heisenberg SALC
         heis = basis.salc_basis.salcs[1]
@@ -391,7 +391,7 @@ end
 
         chain = SLCE.Crystal(SLCE.Lattice(lat_m), frac, [1, 1, 1, 1], ["Fe"])
         spec = SLCE.BasisSpec(; nbody = 2, cutoff = rcut, lmax = [3],
-                                    lsum = [1 => 2, 2 => 4], isotropy = false)
+                                    lsum = [1 => 2, 2 => 4], soc = true)
         ours_basis = SLCE.SLCEBasis(chain, spec;
                                          backend = SLCE.SpglibBackend())
         theirs_basis = Magesty.SCEBasis(;

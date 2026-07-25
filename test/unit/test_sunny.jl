@@ -79,14 +79,14 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         me, terms = _recon_max_err(
-            SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1], isotropy = false)))
+            SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1], soc = true)))
         @test me < 1e-12
         @test isempty(terms.skipped)
         @test !isempty(terms.pairs)
 
         cr1 = Crystal(lat, reshape([0.0, 0, 0], 3, 1), [1], ["Fe"])
         meo, termso = _recon_max_err(
-            SLCEBasis(cr1, BasisSpec(; nbody = 1, cutoff = 1.5, lmax = [2], isotropy = false)))
+            SLCEBasis(cr1, BasisSpec(; nbody = 1, cutoff = 1.5, lmax = [2], soc = true)))
         @test meo < 1e-12
         @test isempty(termso.skipped)
         @test !isempty(termso.onsites)
@@ -97,7 +97,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         # scalar multiple of the identity (no DM, no Γ).
         lat = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
         cr = Crystal(lat, [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75], [1, 1, 1, 1], ["Fe"])
-        b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true))
+        b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], soc = false))
         model = SLCEModel(b, 0.0, [0.0137], b.salc_basis.keys)
         terms = _bilinear_terms(model)
         for (_, M) in terms.pairs
@@ -108,7 +108,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
     @testset "unsupported channels are reported, not silently dropped" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-        b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false))
+        b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], soc = true))
         model = SLCEModel(b, 0.0, ones(n_salcs(b)), b.salc_basis.keys)
         terms = _bilinear_terms(model)
         @test !isempty(terms.skipped)                         # ls=[2,2] pairs reported
@@ -127,7 +127,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         cls = build_clusters(cr, nl, sg; nbody = 2, selection = MinimumImage())
         salcs = build_salc_basis(cr, sg, cls; lmax_by_species = [1], isotropy = false)
         basis = SLCEBasis(cr, sg, salcs,
-                         BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = false))
+                         BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], soc = true))
         rng = MersenneTwister(3)
         model = SLCEModel(basis, 0.5, randn(rng, n_salcs(basis)), basis.salc_basis.keys)
 
@@ -150,7 +150,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
     @testset "no symmetry ⇒ primitive fold is the supercell itself (clean, trivial)" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-        b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1], isotropy = false))
+        b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1], soc = true))
         model = SLCEModel(b, 0.0, ones(n_salcs(b)), b.salc_basis.keys)
         prim = _sunny_primitive(model)               # NoSymmetry ⇒ only the identity translation
         @test prim.clean
@@ -161,7 +161,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
     @testset "to_sunny without Sunny gives a helpful error" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-        b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1], isotropy = true))
+        b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1], soc = false))
         model = SLCEModel(b, 0.0, zeros(n_salcs(b)), b.salc_basis.keys)
         @test_throws ErrorException to_sunny(model; spins = 1)
     end

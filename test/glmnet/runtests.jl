@@ -21,7 +21,7 @@ avg(x) = sum(x) / length(x)
 @testset "GLMNet estimators" begin
     lat = MR.Lattice(Matrix(3.0 * I(3)))
     crystal = MR.Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    inter = MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false)
+    inter = MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], soc = true)
     basis = MR.SLCEBasis(crystal, inter)          # NoSymmetry ⇒ a wide (44-column) basis
     m = MR.n_salcs(basis)
     @test m > 10

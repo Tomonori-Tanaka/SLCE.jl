@@ -175,6 +175,20 @@ capability consumed by both the introspection and the Sunny interop.
   and the per-slot `√(2l+1)` channel asymmetry biases un-standardized
   ridge/GAR penalties across channels (standardize columns, or fold the factor
   into per-sector penalty weights, when mixed fitting lands in M3).
+- **Sector-table spec surface (M2b-3a)**: the exported `Sector(; spin, disp,
+  soc, cutoff, nbody)` sugar declares one truncation-table row (theory note
+  §3/§7); `BasisSpec(labels; sectors, lmax, pmax, ...)` resolves it once into
+  the dense canonical `SectorRule` (`spin_mode ∈ :none/:explicit/:any`, range
+  tuples, resolved per-pair cutoff — validated, comparable, persisted). The
+  admitted label set is the union of the rows ∩ the global per-species
+  `lmax`/`pmax` and per-body `lsum` caps; `nbody` and the per-body `cutoff`
+  envelope are derived (elementwise max over the sectors admitting each body
+  order). `soc` is per sector (`false` ⇔ enumerate only `L_S = 0`; exact
+  together with the even-`Σl_spin` screen). The dense pure-spin form replaces
+  `isotropy` with the inverted `soc` flag (deprecation errors at the keyword,
+  the TOML input key, and nowhere silently); `disp_scale` is fixed in the spec
+  and persisted. Driving `_orbit_salcs_decors` from the resolved table is
+  M2b-3b; until then a sector spec refuses to build an `SLCEBasis`.
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled
@@ -183,8 +197,10 @@ capability consumed by both the introspection and the Sunny interop.
 
 ### fitting + SCE API (M8, M9)
 - `BasisSpec` (validated: `nbody ≥ 1`, symmetric per-body `cutoff` matrices with
-  entries `≥ 0` or `Inf`, `lsum ≥ 0` per body order, nonempty `lmax`
-  with entries ≥ 0), `SLCEBasis` (carries its spec in the `spec` field), `SLCEDataset`
+  entries `≥ 0` or `Inf`, `lsum ≥ 0` per body order, nonempty `lmax`/`pmax`
+  with entries ≥ 0, `disp_scale` finite positive, sector-rule consistency —
+  see the M2b-3a bullet for the sector-table form and the `isotropy → soc`
+  replacement), `SLCEBasis` (carries its spec in the `spec` field), `SLCEDataset`
   (energy design matrix `X_E`, and the
   torque design matrix `X_T` via the four-argument form; supports `length`,
   configuration slicing `dataset[idx]` — integer/`Bool`/`:` — and `vcat` of
@@ -217,7 +233,9 @@ capability consumed by both the introspection and the Sunny interop.
   stores the resolved truncation — per-body `cutoff` matrices, `lsum`, labels — and
   still reads v2's scalar `pair_cutoff`; version 4 stores SALC members in the
   canonical duplicate-free form — one member per physical cluster instance, up to
-  `N!`× smaller — and folds v2/v3 members on load),
+  `N!`× smaller — and folds v2/v3 members on load; version 5 also stores the
+  sector-capable spec layout — `soc`, `pmax`, `disp_scale`, `sectors` — and
+  reads legacy `isotropy`-keyed spec docs via `soc = !isotropy`),
   and the *full* SALC basis (every member / term / folded tensor); a model adds `j0`
   and per-`SALCKey` coefficients. Reload reconstructs the basis verbatim (no
   re-projection) and re-pairs coefficients to the basis **by key**, not by position.

@@ -12,7 +12,7 @@ using Random
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     basis = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
-                                        isotropy = true))
+                                        soc = false))
     rng = MersenneTwister(31)
     n = 6
     nat = 2
@@ -73,7 +73,7 @@ using Random
 
     @testset "vcat validation" begin
         basis2 = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
-                                             isotropy = true))
+                                             soc = false))
         ds2 = SLCEDataset(basis2, configs, energies)
         @test_throws ArgumentError vcat(dse, ds2)            # fingerprint mismatch
         @test_throws ArgumentError vcat(ds, dse)             # torque vs energy-only

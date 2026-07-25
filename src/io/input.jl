@@ -22,7 +22,7 @@ Schema:
     cutoff   = 3.0                # Å; `inf` = the full Wigner–Seitz cell; or a table, below
     lmax     = [2,2]              # per species (index order), or a label table, below
     lsum     = 4                  # optional Σl cap per body order (scalar or table)
-    isotropy = false              # optional, default false
+    soc      = true               # optional; false = scalar (L_S = 0) channel only
     images   = "minimum_image"    # optional: "minimum_image" (default) or "all_images"
 
     # Label-keyed alternatives ("*" = fallback; pair keys are unordered, resolved by
@@ -138,13 +138,17 @@ function _interaction_from_input(d, labels::Vector{String})::BasisSpec
         throw(ArgumentError("[interaction].pair_cutoff was replaced by `cutoff` " *
                             "(a scalar is equivalent; see the input-schema docstring " *
                             "for per-body / per-pair tables)"))
+    haskey(d, "isotropy") &&
+        throw(ArgumentError("[interaction].isotropy was replaced by `soc` (note " *
+                            "the inversion: isotropy = true ⇔ soc = false — the " *
+                            "scalar channel is the SOC-free selection)"))
     nbody = Int(_input_require(d, "nbody", "interaction"))
     lmax = _lmax_from_input(_input_require(d, "lmax", "interaction"))
     cutoff = _cutoff_from_input(_input_require(d, "cutoff", "interaction"))
     lsum = haskey(d, "lsum") ? _lsum_from_input(d["lsum"]) : nothing
-    isotropy = haskey(d, "isotropy") ? Bool(d["isotropy"]) : false
+    soc = haskey(d, "soc") ? Bool(d["soc"]) : true
     return BasisSpec(labels; nbody = nbody, lmax = lmax, cutoff = cutoff, lsum = lsum,
-                     isotropy = isotropy)
+                     soc = soc)
 end
 
 function _backend_from_name(name)::AbstractSymmetryBackend

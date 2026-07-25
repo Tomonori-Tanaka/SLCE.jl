@@ -32,7 +32,7 @@ lat   = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
 frac  = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
 chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
 
-interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true)
+interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], soc = false)
 basis       = SLCEBasis(chain, interaction; backend = SpglibBackend())
 
 (space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))
@@ -153,7 +153,7 @@ isapprox(predict_torque(fc, configs[1]), torques[1]; atol = 1e-8)
 
 ## Where this generalizes
 
-- Drop `isotropy = true` to keep the anisotropic (`Lf > 0`) channels — the Dzyaloshinskii–
+- Drop `soc = false` to keep the anisotropic (`Lf > 0`) channels — the Dzyaloshinskii–
   Moriya and symmetric-Γ bilinears.
 - Raise `lmax` to `[2]` for biquadratic / single-ion channels.
 - Raise `nbody` to `3` for the [kagome three-body tutorial](kagome_threebody.md).

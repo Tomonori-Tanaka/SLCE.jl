@@ -185,7 +185,27 @@ Easy to break silently — confirm before touching the algorithm.
   `cutoff` → `candidate_clusters` per-edge admission, `lsum` → `_enumerate_ls`),
   persistence, `show` — reads only the dense fields. Add a sugar form or change the
   specificity rule → update the TOML reader (`_cutoff_from_input` etc.), the BasisSpec
-  docstring, and `test/unit/test_truncation.jl` together.
+  docstring, and `test/unit/test_truncation.jl` together. The sector table follows the
+  same discipline: `Sector` is unresolved sugar, `_resolve_sector(s)` (truncation.jl)
+  produces the dense `SectorRule` rows, and `nbody` / the per-body `cutoff` envelope
+  are DERIVED from them — a new sector knob must be resolved there, persisted in
+  `_sector_doc`/`_sector_from`, compared in `==`, and printed in `show`, or specs stop
+  round-tripping. Renaming a spec keyword touches FOUR surfaces at once: the keyword
+  constructor (deprecation error, `isotropy` precedent), the `[interaction]` TOML
+  schema (`io/input.jl`), the persist spec doc (back-read branch on the NEW key,
+  never on the version), and every BasisSpec call in test/ + examples/ + docs/ —
+  and beware multi-line calls: `build_salc_basis`'s internal `isotropy` kwarg (the
+  literal `Lf == 0` filter) deliberately kept its name, so a blind sed on
+  continuation lines breaks it.
+- **Example/tutorial hand-built ground truths ↔ canonical member semantics**
+  (`examples/*.jl`, `docs/src/tutorials/*.md`): synthetic energies/torques written as
+  sums over `salc.members` assume each physical cluster instance appears ONCE (the
+  canonical duplicate-free form, persist v4). The pre-v4 examples were written against
+  ordered-image lists (each bond twice) and silently encoded half the coupling after
+  the member fold landed — caught only by the example's own `@assert` because the
+  examples are outside the unit suites. Changing member multiplicity/canonicalization →
+  re-run every example AND the executable tutorials (`docs/make.jl` runs them, but
+  asserts exist only in `examples/`).
 - **`coeftable` columns ↔ `SALCKey` fields** (`slce/coeftable.jl`): each result row is
   read straight off a `SALCKey` (`body` / `orbit_id` / `ls`→comma string / `Lf` /
   `block`) plus `jphi`; the `J` column pairs with `basis.salc_basis.keys` **positionally**

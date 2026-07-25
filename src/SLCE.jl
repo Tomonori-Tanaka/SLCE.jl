@@ -88,7 +88,8 @@ export Lattice, Crystal, n_atoms, cartesian_positions
 export AbstractImageSelection, MinimumImage, AllImages
 export AbstractSymmetryBackend, NoSymmetry, SpglibBackend
 # the SCE pipeline
-export BasisSpec, SLCEBasis, SLCEDataset, SLCEModel, SLCEFit, fit, refit, n_salcs, read_setup
+export BasisSpec, Sector, SLCEBasis, SLCEDataset, SLCEModel, SLCEFit, fit, refit,
+    n_salcs, read_setup
 export predict_energy, predict_torque, has_torque
 # estimators
 export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, AdaptiveLasso, AdaptiveRidge,
@@ -127,6 +128,7 @@ public analyze_symmetry, n_ops, SymOp, SpaceGroup, AbstractTrainingDatum
 public build_clusters, ClusterMember, ClusterOrbit, ClusterSet
 public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
 public Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor                # decoration labels
+public SectorRule                                                     # resolved sector row
 public has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin
 public spin_decors, spin_ls
 public islinear, solve_coefficients

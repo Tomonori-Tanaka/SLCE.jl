@@ -103,6 +103,8 @@ hand-set coefficients (both are documented under [`SLCEModel`](@ref)).
 
 ```@docs
 BasisSpec
+Sector
+SLCE.SectorRule
 SLCEBasis
 SLCEDataset
 SLCEModel
