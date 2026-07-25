@@ -79,6 +79,36 @@ capability consumed by both the introspection and the Sunny interop.
   + on-sphere central difference, and bit-for-bit agreement with Magesty's
   `TesseralHarmonics` (oracle).
 
+### basis — `SolidHarmonics` submodule (joint spin–lattice M1)
+- The displacement-channel kernel: real solid harmonics `Rₗₘ(u)` evaluated as
+  homogeneous polynomials in the Cartesian components (homogenized
+  associated-Legendre recurrence — regular and exact at `u = 0`, the densest
+  sampling point of a reference-structure expansion), plus the **Euclidean**
+  gradient `∂Rₗₘ/∂(x,y,z)` (no tangent projection — what force rows need; the
+  spin-side on-sphere `grad_Zlm` is a different object and neither kernel
+  substitutes for the other).
+- **Normalization is 4π-free (Racah-type)**: `Rₗₘ(û) = √(4π/(2l+1))·Zₗₘ(û)` on
+  the unit sphere, so `R₁₋₁, R₁₀, R₁₁ = y, z, x` exactly and only spin sites
+  contribute to the per-term `(4π)^(n_spin/2)` design-matrix scale
+  (`docs/specs/spin-lattice-ce-design.md` §3).
+- API: batch `solid_harmonics`/`solid_harmonics_grad` (+ allocation-free `!`
+  forms), single-`(l,m)` `Rlm`/`grad_Rlm`, `solid_harmonic_index` (same layout
+  as `Harmonics.lm_index`).
+- Validated by: the explicit-factor cross-check against `Harmonics.Zlm` up to
+  `l = 16`, homogeneity `R(λu) = λˡR(u)`, exact `u = 0` values/gradients, and
+  central-difference gradients (`test/unit/test_solidharmonics.jl`).
+- Test support (`test/support/countingoracle.jl`): the **CountingOracle** — the
+  independent decorated-cluster invariant-counting and Reynolds-projection
+  oracle (polynomial-composition slot matrices, cycle-wise characters with
+  pair-orientation swap signs, plethysm `Sym^p`), ported from the prototype
+  with its review blockers fixed (per-slot swap flags, slot quantum-number
+  validation, repeated-slot rejection, closure/integrality guards). Scope: no
+  time reversal (Σl_spin-even comparisons only), no translation folding, no
+  strain slot. Gate infrastructure for count ≡ projector-rank comparisons
+  (`test/unit/test_countingoracle.jl`: the cubic 2-invariant count, the
+  axial-vs-polar inversion kill-shot, the ⟨C4z⟩ two-pair swap regression, the
+  bent/collinear ligand pair, the chirality-twist decoration).
+
 ### basis — `AngularMomentum` submodule (M3, M4)
 - `clebsch_gordan` (Racah formula); `wignerD_real(l, R)` (real Wigner-D, built
   from the package's own `Zₗₘ` by an exact least-squares fit — handles improper

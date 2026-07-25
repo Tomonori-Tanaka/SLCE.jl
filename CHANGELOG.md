@@ -6,6 +6,29 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — displacement kernel + counting oracle (joint spin–lattice M1)
+
+- **`SolidHarmonics` submodule** (`src/basis/solidharmonics.jl`, public
+  unexported): real solid harmonics `Rₗₘ(u)` as homogeneous Cartesian
+  polynomials (regular/exact at `u = 0`) with Euclidean gradients, in the
+  **4π-free Racah-type normalization** pinned by the joint design record
+  (`Rₗₘ(û) = √(4π/(2l+1))·Zₗₘ(û)`; rank-1 factors are literally `y, z, x`).
+  Batch + allocation-free in-place + single-`(l,m)` APIs. Unit gates: the
+  explicit-factor cross-check vs `Harmonics.Zlm` to `l = 16`, homogeneity,
+  exact `u = 0` values and gradients, central-difference gradients.
+- **CountingOracle test-support module** (`test/support/countingoracle.jl`):
+  the independent invariant-counting / Reynolds-projection oracle for
+  decorated clusters (mixed axial spin and polar displacement slots), ported
+  from the prototype with its review blockers fixed — per-slot pair-orientation
+  swap flags consumed by both the representation matrices and the cycle-wise
+  characters (regression: 4-site/2-pair cluster under ⟨C4z⟩), slot
+  quantum-number validation, repeated same-(site, channel) slot rejection,
+  and group-closure/integrality guards. Gate-(g) infrastructure wired in
+  `test/unit/test_countingoracle.jl`: count ≡ projector rank on permuting and
+  mixed-channel clusters, the axial-vs-polar inversion kill-shot
+  (spin l=1 × disp l=1 ⇒ 0 invariants), the bent/collinear ligand case, and
+  the chirality-twist decoration.
+
 ### Changed — BREAKING: package renamed SCEFitting.jl → SLCE.jl (SLCE family, M0)
 
 - The whole family is renamed to the **spin–lattice cluster expansion (SLCE)**
