@@ -153,6 +153,23 @@ capability consumed by both the introspection and the Sunny interop.
   `SlotRef`s (member-site index + `SiteFactor`, canonical order SPIN axes before
   DISP axes each by site) — the slot → site map that admits several axes on one
   site; pure-spin terms are the identity list `spin_slots(ls)`.
+- **Mixed-channel engine (M2b-2)**: `_orbit_salcs_decors(crystal, sg, N,
+  orbit_id, O, labels, soc, wcache)` projects explicit decoration labels on a
+  cluster orbit — multiset arrangements split into site-permutation orbits,
+  spin-first slot coupling (`L_S` per path via `_path_LS`), per-`(L_S, Lf)`
+  block projection (`_project_and_fold_decors`; the blocks are exactly the
+  L_S-block-diagonal structure of the grey-group projector), canonical-slot
+  transport, Σl_spin-even label validation, `soc = false` ⇔ `L_S = 0` only.
+  Both channels rotate through the single polar Wigner cache (parity theorem,
+  design record §4); `l = 0` trace axes skip rotation. Joint evaluation
+  `evaluate_salc(salc, e, u)`: spin axes `Z_{lm}(ê)`, displacement axes
+  `|u|^{2k}R_{lm}(u)`, scale `(4π)^(n_spin/2)`; displacement-decorated SALCs
+  vanish exactly at `u = 0`. Gates in `test/unit/test_mixedsalc.jl`:
+  engines-agree on pure spin (anti-drift), gate (e) cubic 2/0, gate (g)
+  count ≡ CountingOracle 9 on the doubly-decorated bond, gate (g2)
+  chirality-twist `L_S = 1` sector, gate (i) core, mixed space-group
+  invariance + grey-group T. The sector-spec surface driving this engine from
+  `BasisSpec` is M2b-3.
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled

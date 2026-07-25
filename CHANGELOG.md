@@ -36,6 +36,32 @@ release, so everything lives under *Unreleased*.
   serialized by the pre-refactor commit). `multipole_terms` now throws on a
   displacement-decorated basis (it is the pure-spin introspection surface).
 
+### Added — mixed-channel SALC engine (joint spin–lattice M2b-2)
+
+- **Decor projection engine** (`src/basis/salcbasis.jl`): `_orbit_salcs_decors`
+  builds SALCs for explicit decoration labels (sorted `SiteDecor` multisets) on
+  a cluster orbit — multiset arrangements grouped into site-permutation orbits,
+  spin-first slot coupling with `L_S` read off each path (`_path_LS`),
+  projection per `(L_S, Lf)` block (`_project_and_fold_decors`), transport in
+  canonical slot order, Σl_spin-even validation at the label, and per-sector
+  `soc::Bool` (`false` ⇒ `L_S = 0` only). Both channels rotate through the one
+  polar Wigner cache (exact under the parity screen, design record §4);
+  `l = 0` trace axes skip rotation (`D⁰ = 1`). The pure-spin production path
+  is untouched; the "engines agree on pure spin" testset is the anti-drift
+  gate coupling the two.
+- **Joint evaluation** `evaluate_salc(salc, e, u[, scratch])`: spin axes
+  `Z_{lm}(ê)`, displacement axes `|u|^{2k} R_{lm}(u)` (`SolidHarmonics`),
+  scale `(4π)^(n_spin/2)`; displacement-decorated SALCs vanish exactly at
+  `u = 0` (`SALCScratch` gains the solid-harmonics buffer).
+- Engine-level gates (`test/unit/test_mixedsalc.jl`, hand-assembled O_h /
+  bond-d4h fixtures): gate (e) cubic single-site `l=2×(0,2)` = 2 and
+  `l=2×(1,0)` = 0, with `soc = false` emptying the sector; gate (g) count ≡
+  the CountingOracle's 9 on the doubly-decorated bond; gate (g2) the
+  chirality-twist `L_S = 1` sector present with `soc = true`, absent under
+  `soc = false`; gate (i) core `u = 0` degeneracy + pure-spin consistency
+  (`===`); mixed space-group invariance (axial spins, polar displacements)
+  and grey-group time reversal.
+
 ### Added — displacement kernel + counting oracle (joint spin–lattice M1)
 
 - **`SolidHarmonics` submodule** (`src/basis/SolidHarmonics.jl`, public
