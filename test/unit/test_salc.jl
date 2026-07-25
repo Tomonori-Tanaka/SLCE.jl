@@ -61,7 +61,7 @@ end
 
     @testset "no odd-Σl channels survive (time reversal)" begin
         for s in basis.salcs
-            @test iseven(sum(s.ls))
+            @test iseven(sum(SLCE.spin_ls(s.key)))
         end
     end
 

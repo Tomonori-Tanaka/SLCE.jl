@@ -111,9 +111,9 @@ end
     end
 
     @testset "multi-term SALCs exist (unequal l on equivalent sites)" begin
-        @test any(s -> s.ls == [1, 1, 2], basis.salcs)
+        @test any(s -> SLCE.spin_ls(s.key) == [1, 1, 2], basis.salcs)
         # an (1,1,2) channel must combine the 3 orderings → 3 terms per member
-        s112 = first(s for s in basis.salcs if s.ls == [1, 1, 2])
+        s112 = first(s for s in basis.salcs if SLCE.spin_ls(s.key) == [1, 1, 2])
         @test length(s112.members[1].terms) == 3
         @test any(s -> length(s.members[1].terms) > 1, basis.salcs)
     end
@@ -142,7 +142,7 @@ end
     end
 
     @testset "time reversal: only even-Σl channels" begin
-        @test all(s -> iseven(sum(s.ls)), basis.salcs)
+        @test all(s -> iseven(sum(SLCE.spin_ls(s.key))), basis.salcs)
     end
 
     @testset "SALCs are linearly independent (no spurious channels)" begin
@@ -162,7 +162,7 @@ end
         @test issorted(basis_cs.keys)
         @test basis_cs.fingerprint == hash(basis_cs.keys)
         # ls=[1,1,2] splits into two distinct SALCs (apex vs base carries l=2)
-        @test count(s -> s.ls == [1, 1, 2] && s.Lf == 0, basis_cs.salcs) == 2
+        @test count(s -> SLCE.spin_ls(s.key) == [1, 1, 2] && s.Lf == 0, basis_cs.salcs) == 2
         # and they are still individually space-group invariant
         rng = MersenneTwister(13)
         for _ = 1:15

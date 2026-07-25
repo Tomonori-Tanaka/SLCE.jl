@@ -142,8 +142,8 @@ end
         b_all = build(BasisSpec(; nbody = 2, cutoff = Inf, lmax = [3]))
         b_044 = build(BasisSpec(; nbody = 2, cutoff = Inf, lmax = [3], lsum = [2 => 4]))
         @test 0 < n_salcs(b_044) < n_salcs(b_all)
-        @test all(k -> sum(k.ls) <= 4, (s.key for s in salcs(b_044)))
-        @test any(k -> sum(k.ls) > 4, (s.key for s in salcs(b_all)))
+        @test all(k -> sum(SLCE.spin_ls(k)) <= 4, (s.key for s in salcs(b_044)))
+        @test any(k -> sum(SLCE.spin_ls(k)) > 4, (s.key for s in salcs(b_all)))
         # lsum[1] = 0 removes single-site terms without touching pairs
         b_no1 = build(BasisSpec(; nbody = 2, cutoff = Inf, lmax = [2],
                                 lsum = [1 => 0]))

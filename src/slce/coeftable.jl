@@ -10,12 +10,19 @@ meaningful rows); the caller brings the table / IO package. The reference energy
 is the model intercept (not a per-row quantity); read it with [`intercept`](@ref).
 """
 
-const _COEF_NAMES = (:body, :orbit_id, :ls, :Lf, :block, :J)
-const _COEF_COLTYPES = (Int, Int, String, Int, Int, Float64)
-const _CoefRow = NamedTuple{_COEF_NAMES,Tuple{Int,Int,String,Int,Int,Float64}}
+const _COEF_NAMES = (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J)
+const _COEF_COLTYPES = (Int, Int, String, Int, Int, Int, Float64)
+const _CoefRow = NamedTuple{_COEF_NAMES,Tuple{Int,Int,String,Int,Int,Int,Float64}}
 
-# the sorted l-multiset label as a flat string, e.g. [1,1,2] -> "1,1,2"
-_ls_string(ls::AbstractVector{<:Integer})::String = join(ls, ",")
+# The sorted decoration label as a flat string. A pure-spin decor renders as its
+# bare `l` (so a v4-shaped key reads "1,1,2" exactly as before); a displacement
+# factor renders as `u(k,l)`, a combined decor as `l+u(k,l)`.
+function _decor_string(decors::AbstractVector{SiteDecor})::String
+    token(d) = is_pure_spin(d) ? string(d.spin_l) :
+               has_spin(d) ? "$(d.spin_l)+u($(d.disp_k),$(d.disp_l))" :
+               "u($(d.disp_k),$(d.disp_l))"
+    return join((token(d) for d in decors), ",")
+end
 
 """
     SCECoefficients
@@ -37,7 +44,8 @@ struct SCECoefficients
 end
 
 @inline _coef_row(c::SCECoefficients, i::Int)::_CoefRow =
-    (body = c.keys[i].body, orbit_id = c.keys[i].orbit_id, ls = _ls_string(c.keys[i].ls),
+    (body = c.keys[i].body, orbit_id = c.keys[i].orbit_id,
+     decors = _decor_string(c.keys[i].decors), L_S = c.keys[i].L_S,
      Lf = c.keys[i].Lf, block = c.keys[i].block, J = c.jphi[i])
 
 """
@@ -45,9 +53,10 @@ end
     coeftable(m::SLCEModel) -> SCECoefficients
 
 A Tables.jl-compatible table of the fitted coefficients — one row per SALC with
-columns `body`, `orbit_id`, `ls` (the sorted `l`-multiset as a string, e.g.
-`"1,1,2"`), `Lf`, `block`, and `J` (the coefficient `Jϕ`). The intercept `j0` is
-available via [`intercept`](@ref). Example: `using DataFrames; DataFrame(coeftable(f))`.
+columns `body`, `orbit_id`, `decors` (the sorted decoration label as a string:
+a pure-spin key reads like `"1,1,2"`, displacement factors as `u(k,l)`), `L_S`,
+`Lf`, `block`, and `J` (the coefficient `Jϕ`). The intercept `j0` is available
+via [`intercept`](@ref). Example: `using DataFrames; DataFrame(coeftable(f))`.
 """
 coeftable(f::SLCEFit)::SCECoefficients =
     SCECoefficients(copy(f.dataset.basis.salc_basis.keys), copy(f.jphi), f.j0)
@@ -90,7 +99,8 @@ function Base.show(io::IO, ::MIME"text/plain", c::SCECoefficients)
     nshow = min(n, 20)
     cols = (["body"; [string(c.keys[i].body) for i = 1:nshow]],
             ["orbit_id"; [string(c.keys[i].orbit_id) for i = 1:nshow]],
-            ["ls"; [_ls_string(c.keys[i].ls) for i = 1:nshow]],
+            ["decors"; [_decor_string(c.keys[i].decors) for i = 1:nshow]],
+            ["L_S"; [string(c.keys[i].L_S) for i = 1:nshow]],
             ["Lf"; [string(c.keys[i].Lf) for i = 1:nshow]],
             ["block"; [string(c.keys[i].block) for i = 1:nshow]],
             ["J"; [_fmtj(c.jphi[i]) for i = 1:nshow]])

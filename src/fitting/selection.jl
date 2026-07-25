@@ -8,9 +8,10 @@
     salc_groups(basis::SLCEBasis) -> Vector{Int}
 
 Per-design-matrix-column group labels (contiguous `1:G`, one label per SALC in
-`SALCKey` order): columns grouped by `(key.body, key.orbit_id, key.ls)`. This is the
-granularity at which Monte-Carlo contraction entries vanish — all `Lf` / `block`
-channels of one cluster orbit and `l`-multiset share their entry support, so an entry
+`SALCKey` order): columns grouped by `(key.body, key.orbit_id, key.decors)`. This is
+the granularity at which Monte-Carlo contraction entries vanish — all `L_S` / `Lf` /
+`block` channels of one cluster orbit and decoration multiset share their entry
+support, so an entry
 disappears only when **every** coefficient of the group is zero. Feed the labels to
 [`GroupAdaptiveRidge`](@ref) (or use the `GroupAdaptiveRidge(basis; ...)` convenience
 constructor, which calls this for you).
@@ -20,10 +21,10 @@ function salc_groups(basis::SLCEBasis)::Vector{Int}
     labels = Vector{Int}(undef, length(ks))
     g = 0
     for j in eachindex(ks)
-        # keys are sorted by (body, orbit_id, ls, Lf, block), so equal
-        # (body, orbit_id, ls) runs are contiguous — label at the change points
-        if j == 1 || (ks[j].body, ks[j].orbit_id, ks[j].ls) !=
-                     (ks[j-1].body, ks[j-1].orbit_id, ks[j-1].ls)
+        # keys are sorted by (body, orbit_id, decors, L_S, Lf, block), so equal
+        # (body, orbit_id, decors) runs are contiguous — label at the change points
+        if j == 1 || (ks[j].body, ks[j].orbit_id, ks[j].decors) !=
+                     (ks[j-1].body, ks[j-1].orbit_id, ks[j-1].decors)
             g += 1
         end
         labels[j] = g

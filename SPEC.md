@@ -143,6 +143,13 @@ capability consumed by both the introspection and the Sunny interop.
   axis-pivoted gauge; per-ordering fold into a multi-term SALC (one `SALCTerm` per
   ordering). `SALCKey` (canonical, injective column address — `block` runs across split
   ordering orbits) + `SALCBasis` (sorted keys + fingerprint). `evaluate_salc(salc, e)`.
+  Since M2a the key carries the **joint decoration label**: a sorted
+  `Vector{SiteDecor}` (per-site `isbits` combination of at most one factor per
+  channel — `SiteFactor(SPIN, 0, l)` / `SiteFactor(DISP, k, l)`, `Channel` order
+  `SPIN < DISP < OCC` with `OCC` reserved; `basis/decor.jl`) plus the total spin
+  rank `L_S` (spin-first coupling; a good quantum number of the projection).
+  The pure-spin construction emits `decors = spin_decors(ls)` with `L_S = Lf`
+  (the v4 shape); `spin_ls(key)` reads the `ls` label back.
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled

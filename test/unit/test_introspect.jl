@@ -115,7 +115,7 @@ end
         # Keep only the Sunny-representable channels (ls = [1,1] pair, ls = [2] single-ion);
         # then the bilinear extraction captures the whole energy (the skipped channels exist
         # in the basis but carry a zero coefficient, so they contribute nothing).
-        jphi = [keys[k].ls in ([1, 1], [2]) ? randn(rng) : 0.0 for k = 1:K]
+        jphi = [SLCE.spin_ls(keys[k]) in ([1, 1], [2]) ? randn(rng) : 0.0 for k = 1:K]
         model = SLCEModel(b, 0.0, jphi, keys)
         bt = bilinear_terms(model)
         for _ = 1:8

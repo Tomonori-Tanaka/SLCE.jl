@@ -109,7 +109,7 @@ into one SALC, stored as several *terms* per member:
 
 ```@example kagome
 s112 = first(s for s in SLCE.salcs(basis)
-             if s.key.body == 3 && s.ls == [1, 1, 2] && s.Lf == 0)
+             if s.key.body == 3 && SLCE.spin_ls(s.key) == [1, 1, 2] && s.Lf == 0)
 length(s112.members[1].terms)        # number of l-orderings folded into this one SALC
 ```
 

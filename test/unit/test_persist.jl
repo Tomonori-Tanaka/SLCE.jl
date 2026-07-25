@@ -21,7 +21,8 @@ function _basis_identical(a::SLCEBasis, b::SLCEBasis)
     a.salc_basis.keys == b.salc_basis.keys || return false
     length(a.salc_basis.salcs) == length(b.salc_basis.salcs) || return false
     for (sa, sb) in zip(a.salc_basis.salcs, b.salc_basis.salcs)
-        (sa.key == sb.key && sa.body == sb.body && sa.ls == sb.ls && sa.Lf == sb.Lf) || return false
+        (sa.key == sb.key && sa.body == sb.body && sa.decors == sb.decors &&
+         sa.L_S == sb.L_S && sa.Lf == sb.Lf) || return false
         length(sa.members) == length(sb.members) || return false
         for (ma, mb) in zip(sa.members, sb.members)
             (ma.atoms == mb.atoms && ma.shifts == mb.shifts) || return false
@@ -139,13 +140,50 @@ end
                     [MR.SALCTerm(t.ls[p], 0.5 .* permutedims(t.folded, p))
                      for t in m.terms]))
             end
-            MR.SALC(s.key, s.body, s.ls, s.Lf, members)
+            MR.SALC(s.key, s.body, s.decors, s.L_S, s.Lf, members)
         end
         doc["salcs"] = [MR._salc_doc(s) for s in red]
         b2 = MR._basis_from_doc(doc)
         @test _basis_identical(b2, model.basis)
-        # a v4 document is NOT re-folded (loaded verbatim) — and is already canonical
-        @test Int(MR._to_doc(model)["schema_version"]) == 4
+        # a v4+ document is NOT re-folded (loaded verbatim) — and is already canonical
+        @test Int(MR._to_doc(model)["schema_version"]) == 5
+    end
+
+    @testset "v4 docs back-read through the pure-spin relabel (gate a)" begin
+        # Fabricate a v4 document: keys carry the legacy sorted "ls" (no decors,
+        # no L_S). Loading must apply the total, value-preserving v4→v5 map
+        # (per-site l → pure-spin decor, L_S := Lf) with bit-identical numerics.
+        doc = MR._to_doc(model)
+        doc["schema_version"] = 4
+        function _v4key!(kd)
+            kd["ls"] = Int[t[1] for t in kd["decors"]]   # pure-spin: spin_l list
+            delete!(kd, "decors")
+            delete!(kd, "L_S")
+            return kd
+        end
+        for sd in doc["salcs"]
+            _v4key!(sd["key"])
+        end
+        for cd in doc["couplings"]
+            _v4key!(cd["key"])
+        end
+        m2 = MR._model_from_doc(doc)
+        @test m2.basis.salc_basis.keys == model.basis.salc_basis.keys
+        @test all(k.L_S == k.Lf && SLCE.is_pure_spin(k)
+                  for k in m2.basis.salc_basis.keys)
+        @test m2.basis.salc_basis.fingerprint == model.basis.salc_basis.fingerprint
+        @test m2.jphi == model.jphi
+        @test _basis_identical(m2.basis, model.basis)
+        @test predict_energy(m2, testcfgs) == predict_energy(model, testcfgs)
+        @test predict_torque(m2, testcfgs[1]) == predict_torque(model, testcfgs[1])
+        # MC program-array proxy: the introspection dump the downstream adjacency
+        # build consumes is identical term-by-term.
+        ta = multipole_terms(model)
+        tb = multipole_terms(m2)
+        @test length(ta) == length(tb)
+        @test all(a.coef === b.coef && a.body == b.body && a.atoms == b.atoms &&
+                  a.shifts == b.shifts && a.ls == b.ls && a.folded == b.folded
+                  for (a, b) in zip(ta, tb))
     end
 
     @testset "space-group ops round-trip (multi-op P-1)" begin

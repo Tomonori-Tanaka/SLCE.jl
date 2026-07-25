@@ -6,6 +6,27 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — decoration labels + SALCKey v5 (joint spin–lattice M2a, BREAKING)
+
+- **`SALCKey` layout**: the sorted `ls::Vector{Int}` label is replaced by the
+  joint decoration label `decors::Vector{SiteDecor}` plus the total spin rank
+  `L_S` (`(body, orbit_id, decors, L_S, Lf, block)`). New `isbits` label types
+  in `src/basis/decor.jl`: `Channel` (`SPIN < DISP < OCC`, `OCC` reserved),
+  `SiteFactor` (constructor-validated per channel), `SiteDecor` (at most one
+  factor per `(site, channel)` slot), with accessors `has_spin` / `has_disp` /
+  `spin_rank` / `disp_degree` / `factors` / `is_pure_spin` and the relabel
+  helpers `spin_decors` / `spin_ls` (all public unexported). The pure-spin
+  construction emits `decors = spin_decors(ls)`, `L_S = Lf` — the total,
+  value-preserving v4 → v5 map.
+- **Persistence schema v5**: keys store `decors` + `L_S` instead of `ls`.
+  v2–v4 documents load transparently (pure-spin relabel on read; predictions,
+  fingerprint, and `multipole_terms` are unchanged — gated bit-identically in
+  `test/unit/test_persist.jl`). No migration tool; `save` always writes v5.
+- **`coeftable` columns**: `ls` → `decors` (pure-spin rows render as the old
+  comma string, displacement factors as `u(k,l)`), new `L_S` column.
+- `salc_groups` now groups on `(body, orbit_id, decors)` (same granularity;
+  pure-spin bases produce identical groups).
+
 ### Added — displacement kernel + counting oracle (joint spin–lattice M1)
 
 - **`SolidHarmonics` submodule** (`src/basis/SolidHarmonics.jl`, public

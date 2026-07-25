@@ -1,23 +1,48 @@
 """
     SALCKey
 
-Canonical structural address of a SALC (design-matrix column): a tuple of
-integers that identifies the column independent of construction order. The
-`(body, orbit_id, ls, Lf)` part is gauge-invariant; `block` indexes within a
-degenerate invariant subspace (made reproducible by the canonical gauge).
+Canonical structural address of a SALC (design-matrix column): a tuple of value
+labels that identifies the column independent of construction order. The
+`(body, orbit_id, decors, L_S, Lf)` part is gauge-invariant; `block` indexes
+within a degenerate invariant subspace (made reproducible by the canonical
+gauge).
+
+`decors` is the sorted [`SiteDecor`](@ref) multiset label — the joint
+(spin + displacement) generalization of the v4 sorted `ls` (a pure-spin key's
+label is `spin_decors(ls)`, and [`spin_ls`](@ref) reads the `ls` back). `L_S`
+is the total **spin** rank of the spin-first coupling — a good quantum number
+of the grey-group projection; for a pure-spin key `L_S == Lf` (the v4 → v5
+map).
 """
 struct SALCKey
     body::Int
     orbit_id::Int
-    ls::Vector{Int}
+    decors::Vector{SiteDecor}
+    L_S::Int
     Lf::Int
     block::Int
 end
 
-_keytuple(k::SALCKey) = (k.body, k.orbit_id, k.ls, k.Lf, k.block)
+_keytuple(k::SALCKey) = (k.body, k.orbit_id, k.decors, k.L_S, k.Lf, k.block)
 Base.isless(a::SALCKey, b::SALCKey) = _keytuple(a) < _keytuple(b)
 Base.:(==)(a::SALCKey, b::SALCKey) = _keytuple(a) == _keytuple(b)
 Base.hash(k::SALCKey, h::UInt) = hash(_keytuple(k), h)
+
+"""
+    spin_ls(k::SALCKey) -> Vector{Int}
+
+The spin ranks of the key's spin-carrying decors, in decor order. For a
+pure-spin key this is exactly the v4 sorted `ls` label.
+"""
+spin_ls(k::SALCKey)::Vector{Int} =
+    Int[d.spin_l for d in k.decors if has_spin(d)]
+
+"""
+    is_pure_spin(k::SALCKey) -> Bool
+
+Whether every decor of the key is a bare spin factor (the v4 decoration shape).
+"""
+is_pure_spin(k::SALCKey)::Bool = all(is_pure_spin, k.decors)
 
 """
     SALCTerm
@@ -115,13 +140,15 @@ end
 One symmetry-adapted, time-reversal-even scalar basis function over a cluster
 orbit. The function is the orbit sum `Φ(e) = (4π)^(N/2) Σ_members Σ_terms Σ_μ
 folded[μ] ∏ᵢ Z_{lsᵢ,μᵢ}(e_{site})`, where each member contributes one term per
-site→`l` assignment. `SALC.ls` is the sorted `l`-multiset label (the per-term
-`ls` are its assignments). See [`build_salc_basis`](@ref).
+site→`l` assignment. `decors` / `L_S` / `Lf` mirror the key's gauge-invariant
+labels (`decors` is the sorted decoration multiset; the per-term `ls` are its
+spin assignments). See [`build_salc_basis`](@ref).
 """
 struct SALC
     key::SALCKey
     body::Int
-    ls::Vector{Int}
+    decors::Vector{SiteDecor}
+    L_S::Int
     Lf::Int
     members::Vector{SALCMember}
 end

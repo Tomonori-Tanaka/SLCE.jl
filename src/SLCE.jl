@@ -35,6 +35,7 @@ include("basis/Harmonics.jl")
 include("basis/SolidHarmonics.jl")
 include("basis/AngularMomentum.jl")
 include("basis/coupledbasis.jl")
+include("basis/decor.jl")
 
 # --- clusters: enumeration + symmetry orbit reduction ---
 include("clusters/enumerate.jl")
@@ -125,6 +126,9 @@ public build_neighbor_list, NeighborPair, NeighborList, interplanar_spacing
 public analyze_symmetry, n_ops, SymOp, SpaceGroup, AbstractTrainingDatum
 public build_clusters, ClusterMember, ClusterOrbit, ClusterSet
 public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
+public Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor                # decoration labels
+public has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin
+public spin_decors, spin_ls
 public islinear, solve_coefficients
 public salc_groups, group_costs, cost_weights                        # MC-cost grouping
 public save, load                                                    # TOML persistence

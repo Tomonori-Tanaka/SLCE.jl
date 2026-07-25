@@ -123,7 +123,7 @@ end
         @test length(labels) == m == n_salcs(basis)
         G = maximum(labels)
         @test sort(unique(labels)) == 1:G
-        tup = [(k.body, k.orbit_id, k.ls) for k in ks]
+        tup = [(k.body, k.orbit_id, k.decors) for k in ks]
         @test G == length(unique(tup))
         @test all((labels[i] == labels[j]) == (tup[i] == tup[j])
                   for i = 1:m for j = 1:m)

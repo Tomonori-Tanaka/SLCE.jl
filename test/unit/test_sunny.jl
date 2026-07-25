@@ -46,12 +46,16 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
     end
 
     @testset "_classify_salc" begin
-        @test _classify_salc([0, 0]) === :drop      # defensive; l=0 is not enumerated
-        @test _classify_salc(Int[]) === :drop
-        @test _classify_salc([1, 1]) === :pair
-        @test _classify_salc([2]) === :onsite
-        @test _classify_salc([2, 2]) === :unsupported
-        @test _classify_salc([1, 1, 2]) === :unsupported
+        sd(ls...) = SLCE.spin_decors(collect(Int, ls))
+        @test _classify_salc(sd(1, 1)) === :pair
+        @test _classify_salc(sd(2)) === :onsite
+        @test _classify_salc(sd(2, 2)) === :unsupported
+        @test _classify_salc(sd(1, 1, 2)) === :unsupported
+        # any displacement decoration disqualifies the bilinear extraction
+        @test _classify_salc([SLCE.SiteDecor(; spin = 1),
+                              SLCE.SiteDecor(; spin = 1, disp = (0, 1))]) ===
+              :unsupported
+        @test _classify_salc([SLCE.SiteDecor(; disp = (0, 1))]) === :unsupported
     end
 
     # Reconstruct the SCE energy from the exported matrices: for a model whose only

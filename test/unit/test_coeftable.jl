@@ -19,41 +19,46 @@ using Random
         @test Tables.istable(typeof(c))
         @test Tables.rowaccess(typeof(c))
         sch = Tables.schema(c)
-        @test sch.names == (:body, :orbit_id, :ls, :Lf, :block, :J)
-        @test sch.types == (Int, Int, String, Int, Int, Float64)
+        @test sch.names == (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J)
+        @test sch.types == (Int, Int, String, Int, Int, Int, Float64)
         @test length(c) == m
     end
 
     @testset "columns carry the right data and types" begin
         ct = Tables.columntable(c)
-        @test keys(ct) == (:body, :orbit_id, :ls, :Lf, :block, :J)
+        @test keys(ct) == (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J)
         @test collect(ct.J) == f.jphi                         # J column == fitted coefficients, in order
         @test eltype(ct.body) == Int
         @test eltype(ct.Lf) == Int
-        @test eltype(ct.ls) == String
+        @test eltype(ct.decors) == String
         # columns agree with the basis keys, positionally
         ks = basis.salc_basis.keys
         @test collect(ct.body) == [k.body for k in ks]
         @test collect(ct.orbit_id) == [k.orbit_id for k in ks]
+        @test collect(ct.L_S) == [k.L_S for k in ks]
         @test collect(ct.Lf) == [k.Lf for k in ks]
         @test collect(ct.block) == [k.block for k in ks]
     end
 
-    @testset "ls is the sorted multiset as a comma string" begin
+    @testset "decors renders pure-spin labels as the comma ls string" begin
         ks = basis.salc_basis.keys
-        @test all(c[i].ls == join(ks[i].ls, ",") for i = 1:m)
+        @test all(c[i].decors == join(SLCE.spin_ls(ks[i]), ",") for i = 1:m)
         # this 2-body lmax=[2] basis has both single-l (body 1) and multi-l (body 2) labels
-        ls_vals = [c[i].ls for i = 1:m]
+        ls_vals = [c[i].decors for i = 1:m]
         @test "2" in ls_vals          # a body-1 l=2 term
         @test "1,1" in ls_vals        # a 2-body (1,1) term, comma-joined
+        # mixed decors render the displacement factor explicitly
+        mixed = [SLCE.SiteDecor(; spin = 2, disp = (0, 1)), SLCE.SiteDecor(; disp = (1, 0))]
+        @test SLCE._decor_string(mixed) == "2+u(0,1),u(1,0)"
     end
 
     @testset "rows, indexing, iteration, accessors" begin
-        @test eltype(c) == NamedTuple{(:body, :orbit_id, :ls, :Lf, :block, :J),
-                                      Tuple{Int,Int,String,Int,Int,Float64}}
-        @test c[1] == (body = basis.salc_basis.keys[1].body, orbit_id = basis.salc_basis.keys[1].orbit_id,
-                       ls = join(basis.salc_basis.keys[1].ls, ","), Lf = basis.salc_basis.keys[1].Lf,
-                       block = basis.salc_basis.keys[1].block, J = f.jphi[1])
+        @test eltype(c) == NamedTuple{(:body, :orbit_id, :decors, :L_S, :Lf, :block, :J),
+                                      Tuple{Int,Int,String,Int,Int,Int,Float64}}
+        k1 = basis.salc_basis.keys[1]
+        @test c[1] == (body = k1.body, orbit_id = k1.orbit_id,
+                       decors = join(SLCE.spin_ls(k1), ","), L_S = k1.L_S, Lf = k1.Lf,
+                       block = k1.block, J = f.jphi[1])
         @test length(collect(c)) == m
         @test Tables.rowtable(c) == collect(c)
         @test coef(c) == f.jphi
@@ -69,7 +74,7 @@ using Random
         @test length(ce) == 0
         @test Tables.istable(typeof(ce))
         ct = Tables.columntable(ce)
-        @test keys(ct) == (:body, :orbit_id, :ls, :Lf, :block, :J)
+        @test keys(ct) == (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J)
         @test isempty(ct.J)
         @test intercept(ce) === 0.5
     end
@@ -78,7 +83,7 @@ using Random
         @test m > 20                                  # this basis exercises the row cap
         s = sprint(show, MIME("text/plain"), c)
         @test occursin("$m terms", s)
-        @test occursin("body", s) && occursin("ls", s)   # header
+        @test occursin("body", s) && occursin("decors", s)   # header
         @test occursin("⋮ ($(m - 20) more)", s)          # truncation count
         one = repr(c)
         @test occursin("$m terms", one) && occursin("j0=", one)

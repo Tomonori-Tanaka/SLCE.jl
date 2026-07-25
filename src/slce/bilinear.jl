@@ -68,17 +68,21 @@ function _l2_onsite_matrix(folded::AbstractArray)::SMatrix{3,3,Float64,9}
                                 Bxz, Byz, Bzz)
 end
 
-# Which bilinear channel an SALC maps to, from its sorted l-multiset label.
-function _classify_salc(ls::AbstractVector{<:Integer})::Symbol
-    all(==(0), ls) && return :drop          # spin-independent constant (in j0)
+# Which bilinear channel an SALC maps to, from its sorted decoration label. Any
+# displacement-decorated SALC is unsupported here by construction (the bilinear
+# spin form has no lattice factor).
+function _classify_salc(decors::AbstractVector{SiteDecor})::Symbol
+    all(is_pure_spin, decors) || return :unsupported
+    ls = Int[d.spin_l for d in decors]
     ls == [1, 1] && return :pair            # bilinear exchange
     ls == [2] && return :onsite             # single-ion anisotropy
     return :unsupported                      # 3-body+, higher-l pairs
 end
 
 _unsupported_salc_string(k::SALCKey) =
-    "SALC(body=$(k.body), ls=$(k.ls), Lf=$(k.Lf)): not representable as a bilinear " *
-    "pair or single-ion term (only ls=[1,1] pairs and ls=[2] single-ion extract)"
+    "SALC(body=$(k.body), decors=$(k.decors), Lf=$(k.Lf)): not representable as a " *
+    "bilinear pair or single-ion term (only pure-spin ls=[1,1] pairs and ls=[2] " *
+    "single-ion extract)"
 
 """
     BilinearTerms
@@ -122,8 +126,7 @@ function _bilinear_terms(model::SLCEModel)::BilinearTerms
     @inbounds for k in eachindex(model.jphi)
         salc = salcs[k]
         j = model.jphi[k]
-        cls = _classify_salc(salc.ls)
-        cls === :drop && continue
+        cls = _classify_salc(salc.decors)
         if cls === :unsupported
             push!(skipped, _unsupported_salc_string(salc.key))
             continue

@@ -28,8 +28,13 @@ const _SCHEMA_MODEL = "scefitting/sce-model"
 #     one per ordered image (up to N! smaller). Older docs are still readable —
 #     `_basis_from_doc` folds v2/v3 members on load (exact regrouping; SALC keys,
 #     coefficients, and the fingerprint are unaffected).
-const PERSIST_SCHEMA_VERSION = 4
-const _PERSIST_READABLE_VERSIONS = (2, 3, 4)
+# v5: joint spin–lattice key layout — SALC keys store the decoration multiset
+#     ("decors": per-site [spin_l, disp_k, disp_l] triples, 0 = channel absent)
+#     and the total spin rank "L_S" instead of "ls". v4 keys are mapped on read
+#     (per-site l → a pure-spin decor, L_S := Lf — total and value-preserving),
+#     so v4 files load with identical predictions and no migration tool.
+const PERSIST_SCHEMA_VERSION = 5
+const _PERSIST_READABLE_VERSIONS = (2, 3, 4, 5)
 
 # Normalize -0.0 → +0.0 so two builds of the same object serialize byte-identically
 # (eigensolvers on different BLAS can flip a sign of zero); -0.0 == 0.0 anyway.
@@ -41,7 +46,8 @@ _jnum(x::Real)::Float64 = (y = Float64(x); y == 0.0 ? 0.0 : y)
 
 _key_doc(k::SALCKey) = Dict{String,Any}(
     "body" => k.body, "orbit_id" => k.orbit_id,
-    "ls" => collect(Int, k.ls), "Lf" => k.Lf, "block" => k.block)
+    "decors" => [Int[d.spin_l, d.disp_k, d.disp_l] for d in k.decors],
+    "L_S" => k.L_S, "Lf" => k.Lf, "block" => k.block)
 
 _term_doc(t::SALCTerm) = Dict{String,Any}(
     "ls" => collect(Int, t.ls),
@@ -137,8 +143,22 @@ function _mat3(rows)::SMatrix{3,3,Float64,9}
     return SMatrix(M)
 end
 
-_key_from(d) = SALCKey(Int(d["body"]), Int(d["orbit_id"]),
-                       _intvec(d["ls"]), Int(d["Lf"]), Int(d["block"]))
+# v5 keys carry "decors" + "L_S"; v2–v4 keys carry "ls" and are mapped through
+# the total, value-preserving v4→v5 relabel (pure-spin decors, L_S := Lf).
+function _key_from(d)::SALCKey
+    Lf = Int(d["Lf"])
+    if haskey(d, "decors")
+        decors = SiteDecor[
+            SiteDecor(; spin = Int(t[1]),
+                      disp = (Int(t[2]), Int(t[3])) == (0, 0) ? nothing :
+                             (Int(t[2]), Int(t[3])))
+            for t in d["decors"]]
+        return SALCKey(Int(d["body"]), Int(d["orbit_id"]), decors,
+                       Int(d["L_S"]), Lf, Int(d["block"]))
+    end
+    return SALCKey(Int(d["body"]), Int(d["orbit_id"]), spin_decors(_intvec(d["ls"])),
+                   Lf, Lf, Int(d["block"]))
+end
 
 function _term_from(d)::SALCTerm
     ls = _intvec(d["ls"])
@@ -161,8 +181,8 @@ end
 function _salc_from(d)::SALC
     key = _key_from(d["key"])
     members = SALCMember[_member_from(m) for m in d["members"]]
-    # body / ls / Lf are fully determined by the key (the sorted-multiset label is key.ls).
-    return SALC(key, key.body, copy(key.ls), key.Lf, members)
+    # body / decors / L_S / Lf are fully determined by the key.
+    return SALC(key, key.body, copy(key.decors), key.L_S, key.Lf, members)
 end
 
 function _crystal_from(d)::Crystal
@@ -242,7 +262,8 @@ function _basis_from_doc(d)::SLCEBasis
         # Pre-v4 docs store one member per ordered image; fold them to the canonical
         # form (exact regrouping — see `_canonicalize_members`). A SALC is kept even
         # if folding empties it, so the stored coefficients still pair by key.
-        salcs = SALC[SALC(s.key, s.body, s.ls, s.Lf, _canonicalize_members(s.members))
+        salcs = SALC[SALC(s.key, s.body, s.decors, s.L_S, s.Lf,
+                          _canonicalize_members(s.members))
                      for s in salcs]
     end
     keyvec = SALCKey[s.key for s in salcs]

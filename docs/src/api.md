@@ -61,6 +61,30 @@ ClusterSet
 build_clusters
 ```
 
+## Decoration labels (joint spin–lattice keys)
+
+The `isbits` value labels of the joint spin–lattice basis: a
+[`SiteFactor`](@ref) is one per-site decoration factor (channel + `(k, l)`
+labels), a [`SiteDecor`](@ref) the combined decoration of one site (at most one
+factor per channel), and a [`SALCKey`](@ref) carries the sorted `SiteDecor`
+multiset plus the total spin rank `L_S`. All public but unexported
+(`SLCE.SiteDecor` etc.; `SLCE.Channel` would shadow `Base.Channel` if
+exported).
+
+```@docs
+SLCE.Channel
+SLCE.SiteFactor
+SLCE.SiteDecor
+SLCE.has_spin
+SLCE.has_disp
+SLCE.spin_rank
+SLCE.disp_degree
+SLCE.factors
+SLCE.is_pure_spin
+SLCE.spin_decors
+SLCE.spin_ls
+```
+
 ## SALC basis
 
 ```@docs

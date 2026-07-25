@@ -200,7 +200,7 @@ end
         # the isotropic (1,1)/Lf=0 SALC is the Heisenberg invariant. Canonical members
         # are one per undirected bond (the two directed images fold together), so
         # Φ = 2√3 Σ_members e_i·e_j.
-        heis = only(filter(s -> s.ls == [1, 1] && s.Lf == 0, basis.salcs))
+        heis = only(filter(s -> SLCE.spin_ls(s.key) == [1, 1] && s.Lf == 0, basis.salcs))
         for _ = 1:10
             e = randcfg()
             ref = 2 * sqrt(3.0) *
@@ -300,7 +300,7 @@ end
         basis = SLCE.build_salc_basis(xtal, sg, cs; lmax_by_species = [2])
         mrcount = Dict{Tuple{Int,Vector{Int},Int},Int}()
         for s in basis.salcs
-            k = (s.key.body, sort(s.key.ls), s.key.Lf)
+            k = (s.key.body, sort(SLCE.spin_ls(s.key)), s.key.Lf)
             mrcount[k] = get(mrcount, k, 0) + 1
         end
 
