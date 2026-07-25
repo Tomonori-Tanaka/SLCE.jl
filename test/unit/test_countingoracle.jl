@@ -82,6 +82,15 @@ _rz(θ) = [cos(θ) -sin(θ) 0.0; sin(θ) cos(θ) 0.0; 0.0 0.0 1.0]
             @test CountingOracle._chi_sym_power(p, Matrix(1.0I, 3, 3)) ≈
                   sym_dimension(p) atol = 1e-10
         end
+        # Defensive branches of the polynomial layer.
+        q1 = solid_harmonic_polynomial(1, 0)
+        q2 = solid_harmonic_polynomial(2, 0)
+        @test_throws ArgumentError q1 + q2
+        @test_throws ArgumentError q1 - q2
+        @test_throws ArgumentError CountingOracle._compose_linear(q1, zeros(2, 2))
+        @test_throws ArgumentError HomogeneousPolynomial(1, [1.0])
+        # Explicit call: a literal `q^-1` would lower through literal_pow/inv.
+        @test_throws ArgumentError Base.:^(q1, -1)
     end
 
     @testset "group closure guard" begin
@@ -94,6 +103,16 @@ _rz(θ) = [cos(θ) -sin(θ) 0.0; sin(θ) cos(θ) 0.0; 0.0 0.0 1.0]
         slots = CountingOracle.AbstractSlot[SpinSlot(1, 2)]
         notagroup = [identity_op(1), cluster_op(_rz(0.7), origin)]
         @test_throws ArgumentError count_invariants(slots, notagroup)
+        # The same non-group average is asymmetric — invariant_basis's symmetry
+        # guard catches it.
+        @test_throws ErrorException invariant_basis(slots, notagroup)
+        # {E, C4z, C4z⁻¹} (missing C2z) averages to a symmetric but
+        # non-idempotent matrix (eigenvalues 1, 1/3, 1/3 on l = 1): this hits
+        # the eigenvalue-neither-0-nor-1 guard specifically.
+        slots1 = CountingOracle.AbstractSlot[SpinSlot(1, 1)]
+        c4open = [identity_op(1), cluster_op(_rz(π / 2), origin),
+                  cluster_op(_rz(3π / 2), origin)]
+        @test_throws ErrorException invariant_basis(slots1, c4open)
     end
 
     @testset "gate (e): cubic single-site l=2 × p=2 count" begin
@@ -162,6 +181,20 @@ _rz(θ) = [cos(θ) -sin(θ) 0.0; sin(θ) cos(θ) 0.0; 0.0 0.0 1.0]
                 count(i -> inv_op.perm[i] == i, 1:2)
         @test naive == 0.0
         @test !(naive ≈ correct)
+
+        # Aggregate counterexample (the paper's Table row): on the 4-slot mixed
+        # cluster the group-averaged naive formula no longer coincides with the
+        # correct count — 9 (correct = projector rank) vs 11 (naive).
+        slots4 = CountingOracle.AbstractSlot[SpinSlot(1, 1), SpinSlot(2, 1),
+                                             DispSlot(1, 0, 1), DispSlot(2, 0, 1)]
+        correct4 = count_invariants(slots4, d4h)
+        @test correct4 == 9
+        @test correct4 == rank(invariant_projector(slots4, d4h), atol = 1e-6)
+        naive4 = sum(CountingOracle._chi_rotation(1, op.spin_rotation)^2 *
+                     CountingOracle._chi_rotation(1, op.rotation)^2 *
+                     count(i -> op.perm[i] == i, 1:2) for op in d4h) / length(d4h)
+        @test naive4 ≈ 11.0
+        @test !(naive4 ≈ correct4)
     end
 
     # The §12 _pair_swapped regression: two coupled pair slots exchanged by C4z.
@@ -249,25 +282,27 @@ _rz(θ) = [cos(θ) -sin(θ) 0.0; sin(θ) cos(θ) 0.0; 0.0 0.0 1.0]
         n = count_invariants(slots, d4h)
         @test n == rank(invariant_projector(slots, d4h), atol = 1e-6)
         @test n >= 1   # the twist invariant survives inversion + swap
-        # The twist function itself is invariant under every stabilizer op:
-        # F = (ê₁ × ê₂)·(u₁ × u₂), realized against the invariant basis.
-        B = invariant_basis(slots, d4h)
-        for _ = 1:4
-            e1, e2 = normalize(randn(rng, 3)), normalize(randn(rng, 3))
-            u1, u2 = randn(rng, 3) * 0.3, randn(rng, 3) * 0.3
-            F0 = dot(cross(e1, e2), cross(u1, u2))
-            for op in d4h
-                R = Matrix(op.rotation)
-                S = Matrix(op.spin_rotation)
-                if op.perm == [1, 2]
-                    e1g, e2g = S * e1, S * e2
-                    u1g, u2g = R * u1, R * u2
-                else
-                    e1g, e2g = S * e2, S * e1
-                    u1g, u2g = R * u2, R * u1
-                end
-                @test dot(cross(e1g, e2g), cross(u1g, u2g)) ≈ F0 atol = 1e-10
-            end
+        # Operational check of the oracle's representation (this is what catches
+        # a wrong CG exchange sign — n == rank alone is blind to it, both routes
+        # sharing the sign code): the twist F = (ê₁ × ê₂)·(u₁ × u₂) has the
+        # explicit coefficient vector c over the slot 1-fastest tensor basis
+        # (pair slot realized as tess(ê₁ × ê₂); tesseral order (y, z, x) maps
+        # position α to Cartesian component (2, 3, 1)[α], so c is the Levi-Civita
+        # tensor reindexed). It must be fixed by every D(g) and lie in the span
+        # of the invariant basis. Dropping the exchange sign moves the residual
+        # from ~1e-16 to ‖c‖.
+        eps3(i, j, k) = ((j - i) * (k - i) * (k - j)) / 2
+        tessidx = (2, 3, 1)
+        c = zeros(27)
+        for α = 1:3, β = 1:3, γ = 1:3
+            c[α + 3 * (β - 1) + 9 * (γ - 1)] =
+                eps3(tessidx[α], tessidx[β], tessidx[γ])
         end
+        for op in d4h
+            @test norm(representation_matrix(slots, op) * c - c) < 1e-10
+        end
+        B = invariant_basis(slots, d4h)
+        @test size(B, 2) == n
+        @test norm(c - B * (B' * c)) < 1e-10
     end
 end

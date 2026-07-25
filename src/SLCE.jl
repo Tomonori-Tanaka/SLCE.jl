@@ -32,7 +32,7 @@ include("symmetry/backend.jl")
 
 # --- basis: numeric kernels (self-contained submodules) ---
 include("basis/Harmonics.jl")
-include("basis/solidharmonics.jl")
+include("basis/SolidHarmonics.jl")
 include("basis/AngularMomentum.jl")
 include("basis/coupledbasis.jl")
 

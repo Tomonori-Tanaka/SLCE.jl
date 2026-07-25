@@ -8,7 +8,7 @@ release, so everything lives under *Unreleased*.
 
 ### Added — displacement kernel + counting oracle (joint spin–lattice M1)
 
-- **`SolidHarmonics` submodule** (`src/basis/solidharmonics.jl`, public
+- **`SolidHarmonics` submodule** (`src/basis/SolidHarmonics.jl`, public
   unexported): real solid harmonics `Rₗₘ(u)` as homogeneous Cartesian
   polynomials (regular/exact at `u = 0`) with Euclidean gradients, in the
   **4π-free Racah-type normalization** pinned by the joint design record

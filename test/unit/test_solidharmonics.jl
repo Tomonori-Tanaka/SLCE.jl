@@ -39,7 +39,8 @@ using Random: MersenneTwister
                 factor = sqrt(4π / (2l + 1))
                 for m = -l:l
                     idx = SolidHarmonics.solid_harmonic_index(l, m)
-                    @test vals[idx] ≈ factor * Harmonics.Zlm(l, m, u) atol = 1e-11 rtol = 1e-11
+                    zref = factor * Harmonics.Zlm(l, m, u)
+                    @test vals[idx] ≈ zref atol = 1e-11 rtol = 1e-11
                 end
             end
         end

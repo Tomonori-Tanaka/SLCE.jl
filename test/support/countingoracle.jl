@@ -8,10 +8,19 @@ with this module on invariant counts and projector ranks (the "count ≡ project
 rank" gate), which is the primary internal consistency check of the joint
 construction.
 
-Slot representation matrices are derived by explicit polynomial composition, so
-axial/polar parity and improper operations are handled with no hand-written
-determinant factors — an implementation path deliberately different from the
-production projector.
+Slot representation matrices (`_slot_matrix`) are derived by explicit polynomial
+composition, with no hand-written determinant factors — an implementation path
+deliberately different from the production projector. The axial/polar det
+convention IS hand-written in two other places an auditor should check:
+`cluster_op` sets `spin_rotation = det(R) R` (the axial action), and the
+`DispSlot` cycle character uses the polar improper form `d^L χ^{(L)}(d M)` with
+`d = det M`. The independence of the two counting routes is a group-theory-layer
+claim: the projector rank and the cycle-character sum share `_slot_permutation`,
+`_exchange_sign`, and the polynomial layer — and `_racah_norm` /
+`solid_harmonic_polynomial` mirror the production kernel's formulas by
+construction — so a defect in the shared normalization would not be caught here
+(the production cross-check test covers that); what is independent is the
+representation/projection machinery vs the cycle-wise character formula.
 
 # Scope restrictions (read before comparing against production)
 
@@ -20,9 +29,11 @@ production projector.
   ONLY on Σl_spin-even inputs; production never enumerates the odd sector.
 - **No supercell translation folding** — clusters are finite point sets.
 - **No strain (global, site-less) slot** and **no spin-side symmetric powers**.
-- Normalization: spin slots use orthonormal tesseral polynomials, displacement
-  slots the 4π-free Racah solid harmonics. Counting and ranks are normalization
-  independent; do not compare raw projector matrix entries across kernels.
+- Normalization: BOTH channels realize their slot bases with the 4π-free Racah
+  solid-harmonic polynomials (spin slots too — the m-independent scale within a
+  slot leaves every `D(g)` and projector unchanged, so counts and ranks match
+  the orthonormal-tesseral spin convention exactly). Do not compare raw
+  projector matrix entries against the production kernels.
 """
 module CountingOracle
 
@@ -413,7 +424,10 @@ end
 Build a [`ClusterOp`](@ref) from a (possibly improper) orthogonal matrix `R`
 acting on the cluster-local Cartesian site positions `sites`. The site
 permutation is found by matching `R * sites[i]` to a site position; the spin
-rotation is the proper part `det(R) R`.
+rotation is the proper part `det(R) R`. `sites` are expected in exact
+cluster-local coordinates of order-unity scale — the match tolerance `tol` is
+absolute in the caller's units, so do not feed symmetry-refined crystal
+coordinates in Å without tightening it.
 """
 function cluster_op(
     R::AbstractMatrix{<:Real},

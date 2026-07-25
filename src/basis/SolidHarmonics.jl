@@ -25,6 +25,14 @@ scale; displacement factors are scale-free.
 `solid_harmonics_grad` returns the plain Euclidean gradient `∂Rₗₘ/∂(x, y, z)` —
 no tangent projection, in contrast to the on-sphere `Harmonics.grad_Zlm`. The two
 evaluation kernels are distinct objects and neither substitutes for the other.
+
+# Supported degree range
+
+The `(2n − 1)!!` seed and the shrinking Racah norm are separate factors, so
+their product degrades in floating point at extreme degrees: `R_{l,±l}`
+silently underflows to `0.0` from `l ≈ 88` and hits `NaN` from `l ≈ 165` (the
+same envelope as `Harmonics.Zlm`). Physical expansions live at `l ≲ 20`; treat
+`l ≤ 80` as the validated range.
 """
 module SolidHarmonics
 
@@ -294,6 +302,10 @@ polynomial in the Cartesian components of `u` (regular at `u = 0`, exactly zero
 there for `l ≥ 1`). 4π-free Racah-type normalization: `R₁₋₁, R₁₀, R₁₁ = y, z, x`
 exactly, and on the unit sphere `Rₗₘ(û) = √(4π/(2l+1)) · Harmonics.Zlm(l, m, û)`.
 
+Convenience accessor: internally evaluates the full batch up to degree `l`
+(`O(l²)` work and an allocation). Hot paths should use
+[`solid_harmonics!`](@ref) and index with [`solid_harmonic_index`](@ref).
+
 # Arguments
 - `l::Integer`: degree (`l ≥ 0`).
 - `m::Integer`: order (`−l ≤ m ≤ l`).
@@ -312,6 +324,10 @@ end
 
 Euclidean gradient `∂Rₗₘ/∂(x, y, z)` of a single real solid harmonic (no tangent
 projection — contrast `Harmonics.grad_Zlm`).
+
+Convenience accessor: internally evaluates the full batch up to degree `l`
+(`O(l²)` work and allocations). Hot paths should use
+[`solid_harmonics_grad!`](@ref) and index with [`solid_harmonic_index`](@ref).
 
 # Arguments
 - `l::Integer`: degree (`l ≥ 0`).
