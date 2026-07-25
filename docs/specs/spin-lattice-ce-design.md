@@ -277,6 +277,14 @@ slots; packed-integer cleverness; per-species row layouts.
   tensor Λ via the force-constant inverse). v0 ships clamped-ion WITH the
   docstring caveat; the relaxed-ion correction is a later utility. Phonon-band
   tooling (phonopy writer) lives in SLCETools.
+- **Later-phase deliverable — multipole readout** (d0 §2e, added 2026-07-25):
+  a recoupling post-processing (6j-class, never touching the projector) that
+  decomposes each invariant into conjugate-irrep pairs
+  (Ξ^spin_Γ, Ξ^disp_Γ̄) with coefficients c^γ_Γn, plus a mechanical
+  (L, P, T) → Q/M/G/T SAMB labeling function — the "magnetic order → phonon
+  response" selection-rule dictionary. Docs gain the free scope line: the
+  static CE captures Q/G-type lattice multipoles; M/T-type (phonon angular
+  momentum) is kinetic physics outside it.
 
 ## 8. Monte Carlo implications
 
@@ -441,7 +449,13 @@ mixed cluster on an inversion-symmetric site/bond (i mapping the cluster to a
 different orbit member leaves a nonzero antisymmetric invariant killed only by
 T-parity); and the case is reachable only by invoking the oracle with
 *explicit slots bypassing the parity filter* (production never enumerates it).
-(h) Sym² = 5+1, Sym³ = 7+3; (n) sector-mask ≡ soc-false-basis equivalence,
+(g2) chirality–twist invariant (ê_a×ê_b)·(u_a×u_b) on a two-site bond:
+detected as a grey-group invariant with soc = true (Σl_spin = 2, L_S = 1,
+parity-even even on an inversion-symmetric bond) and ABSENT under soc = false
+— the positive two-site mixed-channel complement to (g)'s kill-shot; optional
+cross-oracle: MultiPie (CMT-MU) SAMB generation for the p = 2 sector count
+(d0 §2e). (h) Sym² = 5+1, Sym³ = 7+3; (n) sector-mask ≡ soc-false-basis
+equivalence,
 also on a mixed spec; (o) per-channel inversion pin — spin: +I ∀l; disp:
 (−1)^l I — as a test of the trait function `rep_scale` (the production
 projector never applies det factors; it is correct via §4's parity theorem —

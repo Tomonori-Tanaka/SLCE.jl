@@ -380,6 +380,48 @@ performance claim, for spin); cost-weighted group selection (same goal as the
 coherency/redundancy sparse-CE line, arXiv:2109.06905, but tied directly to
 MC cost).
 
+## 2e. SAMB / multipole readout layer (grant-side note, 2026-07-25)
+
+Source: the grant-session analysis of the SAMB school (Kusunose–Hayami;
+symmetry-adapted multipole basis) and the effective-phonon-model paper
+Xie–Oiwa–Hayami arXiv:2604.23109; full note archived as
+`kakenhi/2026/検討ノート_多極子SAMB読み出し層.md`. Design-relevant content:
+
+- **Equivalence (no basis change):** SAMB's Q/M/G/T classification is a naming
+  convention on (rank L, parity P, T-parity) triples; every one of our coupled
+  channels already carries all three labels (L from the CG tree, P from the
+  per-channel inversion reps, T from Σl_spin). The SAMB basis and ours span the
+  same space, related by a unitary recoupling. Projection, counting, fitting,
+  and MC are untouched — "adopting multipoles" is NOT a basis redesign. (Cross
+  check that agrees: the antisymmetric L = 1 block of a single-site u⊗u —
+  phonon angular momentum, M-type — is excluded from the static energy in both
+  formulations; ours by the per-site Sym^p restriction.)
+- **The adoptable piece = a readout deliverable** (recoupling post-processing,
+  NOT the projector): decompose each invariant into conjugate-irrep pairs
+  Θ_ωγ = Σ_Γn c^γ_Γn · Ξ^spin_Γn({ê}) · Ξ^disp_Γ̄n({u}), plus a mechanical
+  (L, P, T) → Q/M/G/T labeling function. Payoff: when magnetic order condenses
+  (⟨Ξ^spin_Γ⟩ ≠ 0), the lattice acquires Γ-labeled effective terms — a
+  selection-rule dictionary "magnetic order → phonon response", and our CE
+  becomes the first-principles upstream supplying the hand-placed SAMB
+  coefficients z_j of the effective-phonon-model literature (connection, not
+  competition). Flagship uses: Mn₃Sn cluster octupole → active elastic/phonon
+  channels; altermagnet order ↔ phonon bilinear coupling.
+- **Scope statement gained for free:** the static CE captures Q/G-type
+  (T-even) lattice multipoles and cannot capture M/T-type (T-odd — phonon
+  angular momentum; those are kinetic-term physics). A one-line defensible
+  boundary for docs and referees.
+- **Test candidates:** (i) MultiPie (CMT-MU) cross-validation of the p = 2
+  sector invariant count — a second independent counting oracle besides the
+  DisplacementBases prototype; (ii) the chirality–twist invariant
+  (ê_a×ê_b)·(u_a×u_b) — axial×axial, parity-even, T-even, bond-exchange-even,
+  Σl_spin = 2, L_S = 1: must be detected as a grey-group invariant with
+  soc = true and vanish under soc = false (L_S = 0) — a physical two-site
+  mixed-channel gate complementing the centrosymmetric kill-shot.
+- **Citation discipline:** SAMB itself is published (Oiwa–Kusunose–Hayami PRB
+  107, 195118 (2023); Tsunetsugu–Kusunose JPSJ 92, 023601 (2023)) — citable;
+  the phonon-SAMB paper is arXiv-only — interview/differentiation material,
+  not main-text citation.
+
 ## 3. Registry check facts (D-3 input, verified locally 2026-07-25)
 
 - General snapshot grep: no `SLCE`, no bare `Slice`/`SLICE`; nearest names
