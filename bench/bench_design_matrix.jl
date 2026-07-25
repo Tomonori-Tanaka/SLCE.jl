@@ -8,7 +8,7 @@
 # multi-shell). The torque block is the heavier of the two (gradient + cross product
 # per atom, 3·n_atoms rows per config).
 
-using SCEFitting
+using SLCE
 import Spglib
 include(joinpath(@__DIR__, "fixtures.jl"))
 
@@ -21,10 +21,10 @@ bench_header("design matrices — bcc Fe $(n)×$(n)×$(n), $m configs, lmax=$lma
              "cutoff=$cutoff")
 cr   = bcc_fe(n)
 spec = basis_spec(; nbody = 2, cutoff = cutoff, lmax = lmax)
-b    = SCEBasis(cr, spec; backend = SpglibBackend())
+b    = SLCEBasis(cr, spec; backend = SpglibBackend())
 cfgs = rand_configs(cr, m)
 println("atoms = $(n_atoms(cr))   n_salcs = $(n_salcs(b))   configs = $m")
 
 # `_design_energy` / `_design_torque` are internal kernels (not exported).
-bench_one("_design_energy", () -> SCEFitting._design_energy(b, cfgs))
-bench_one("_design_torque", () -> SCEFitting._design_torque(b, cfgs))
+bench_one("_design_energy", () -> SLCE._design_energy(b, cfgs))
+bench_one("_design_torque", () -> SLCE._design_torque(b, cfgs))

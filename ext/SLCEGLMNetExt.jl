@@ -1,4 +1,4 @@
-module SCEFittingGLMNetExt
+module SLCEGLMNetExt
 
 # Provides `solve_coefficients(::ElasticNet, …)` and `solve_coefficients(::AdaptiveLasso, …)`
 # when GLMNet is loaded. The `ElasticNet` / `Lasso` / `AdaptiveLasso` types live in the
@@ -11,8 +11,8 @@ module SCEFittingGLMNetExt
 #   (1/2n)·‖y − Xβ‖² + λ·[(1−α)/2·‖β‖₂² + α·‖β‖₁]
 # and returns β on the original (un-standardized) scale.
 
-using SCEFitting: ElasticNet, AdaptiveLasso
-import SCEFitting: solve_coefficients
+using SLCE: ElasticNet, AdaptiveLasso
+import SLCE: solve_coefficients
 using GLMNet: glmnet, glmnetcv
 
 function solve_coefficients(est::ElasticNet, X::AbstractMatrix, y::AbstractVector;
@@ -111,4 +111,4 @@ function _select_lambda(cv, select::Symbol)::Int
     return imin
 end
 
-end # module SCEFittingGLMNetExt
+end # module SLCEGLMNetExt

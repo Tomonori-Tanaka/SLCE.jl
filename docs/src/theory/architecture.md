@@ -1,7 +1,7 @@
 # Architecture
 
 ```@meta
-CurrentModule = SCEFitting
+CurrentModule = SLCE
 ```
 
 This chapter collects the design choices that distinguish the rebuild from Magesty.jl. The

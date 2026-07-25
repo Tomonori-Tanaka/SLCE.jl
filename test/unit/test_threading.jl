@@ -1,5 +1,5 @@
 using Test
-using SCEFitting
+using SLCE
 using LinearAlgebra
 using Random
 
@@ -17,7 +17,7 @@ using Random
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = true)
-    basis = SCEBasis(crystal, interaction)
+    basis = SLCEBasis(crystal, interaction)
     salcs = basis.salc_basis.salcs
     m = length(salcs)
     nat = 2
@@ -27,24 +27,24 @@ using Random
     cfgs = [Matrix{Float64}(c) for c in configs]
 
     @testset "_design_energy: threaded == serial double loop" begin
-        X = SCEFitting._design_energy(basis, cfgs)             # threaded
+        X = SLCE._design_energy(basis, cfgs)             # threaded
         Xref = Matrix{Float64}(undef, length(cfgs), m)
         for j = 1:m, i in eachindex(cfgs)                      # race-free serial
-            Xref[i, j] = SCEFitting.evaluate_salc(salcs[j], cfgs[i])
+            Xref[i, j] = SLCE.evaluate_salc(salcs[j], cfgs[i])
         end
         @test X == Xref                                        # exact: same kernel, deterministic
-        @test SCEFitting._design_energy(basis, cfgs) == X      # idempotent across calls
+        @test SLCE._design_energy(basis, cfgs) == X      # idempotent across calls
     end
 
     # Fit a model so the columns carry real coefficients for the cross-checks.
-    y = 0.7 .+ SCEFitting._design_energy(basis, cfgs) * randn(MersenneTwister(3), m)
-    ds = SCEDataset(basis, configs, y)
-    model = SCEPredictor(fit(SCEFit, ds, OLS()))
+    y = 0.7 .+ SLCE._design_energy(basis, cfgs) * randn(MersenneTwister(3), m)
+    ds = SLCEDataset(basis, configs, y)
+    model = SLCEModel(fit(SLCEFit, ds, OLS()))
     jphi = coef(model)
 
     @testset "_design_torque: threaded X_T·jϕ == scalar predict_torque" begin
-        X_T = SCEFitting._design_torque(basis, cfgs)           # threaded
-        @test X_T == SCEFitting._design_torque(basis, cfgs)    # idempotent
+        X_T = SLCE._design_torque(basis, cfgs)           # threaded
+        @test X_T == SLCE._design_torque(basis, cfgs)    # idempotent
         # Independent path: assemble the full-model torque from the scalar kernel,
         # flattened config-major / atom-major / xyz, and compare to X_T·jϕ.
         block = 3 * nat

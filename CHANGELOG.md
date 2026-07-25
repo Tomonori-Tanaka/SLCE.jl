@@ -6,6 +6,15 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — BREAKING: package renamed SCEFitting.jl → SLCE.jl (SLCE family, M0)
+
+- The whole family is renamed to the **spin–lattice cluster expansion (SLCE)**
+  stem per `docs/specs/spin-lattice-ce-design.md` §2 (SLCE.jl /
+  SLCEMonteCarlo.jl / SLCEDynamics.jl / SLCETools.jl). Package + module name
+  changed; **UUID kept** (path-dev Manifests stay resolvable). Old model /
+  checkpoint artifacts are unaffected (persistence schemas carry versions,
+  not package names). Public Tier-1 types renamed: `SCEBasis → SLCEBasis`, `SCEDataset → SLCEDataset`, `SCEFit → SLCEFit`, `SCEPredictor → SLCEModel`; extensions renamed to `SLCEGLMNetExt`/`SLCESpglibExt`/`SLCESunnyExt`; internal `src/sce/` → `src/slce/`.
+
 ### Added — oracle fit-parity testset vs Magesty
 
 - `test/oracle/`: an end-to-end **fit parity** testset — one shared EMBSET

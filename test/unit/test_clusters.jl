@@ -1,6 +1,6 @@
 using Test
-using SCEFitting
-using SCEFitting: _assemble_spacegroup, candidate_clusters, _canonical_key
+using SLCE
+using SLCE: _assemble_spacegroup, candidate_clusters, _canonical_key
 using StaticArrays
 using LinearAlgebra
 

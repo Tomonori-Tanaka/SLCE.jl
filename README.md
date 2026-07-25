@@ -1,4 +1,4 @@
-# SCEFitting.jl
+# SLCE.jl
 
 A clean, extensible, Julia-native rebuild of **Magesty.jl** — fitting
 **spin-cluster expansion (SCE)** models to noncollinear DFT data.
@@ -24,14 +24,14 @@ time-reversal-even scalar invariants built from real tesseral spherical harmonic
 over clusters of spins. Fitting recovers the cluster coefficients `J_φ`.
 
 The same coefficients also fix the per-atom **torque** `τ_a = −e_a × ∂E/∂e_a` (the
-physical / Landau–Lifshitz torque `m_a × B_eff,a`), the SCE's other DFT observable. Passing per-configuration torques to `SCEDataset` and a
+physical / Landau–Lifshitz torque `m_a × B_eff,a`), the SCE's other DFT observable. Passing per-configuration torques to `SLCEDataset` and a
 `torque_weight ∈ (0, 1]` to `fit` runs an energy+torque co-fit that minimizes
 `(1 − w)·MSE_energy + w·MSE_torque`.
 
 ## Usage
 
 ```julia
-using SCEFitting
+using SLCE
 import Spglib                     # load it to activate the SpglibBackend extension
                                  # (`import`, not `using`, to avoid a `Lattice` name clash)
 using LinearAlgebra
@@ -43,15 +43,15 @@ chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
 
 # nearest-neighbor 2-body interaction, isotropic (Heisenberg) channel only
 interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true)
-basis = SCEBasis(chain, interaction; backend = SpglibBackend())
+basis = SLCEBasis(chain, interaction; backend = SpglibBackend())
 
 # synthetic Heisenberg data E = J Σ_⟨ij⟩ e_i·e_j, then fit
 configs = [mapreduce(_ -> (v = randn(3); v / norm(v)), hcat, 1:4) for _ in 1:30]
-heis = SCEFitting.salcs(basis)[1]   # public-but-unexported: call it qualified
+heis = SLCE.salcs(basis)[1]   # public-but-unexported: call it qualified
 J = 0.0137
 E = [J * 0.5 * sum(c[:, m.atoms[1]]' * c[:, m.atoms[2]] for m in heis.members) for c in configs]
 
-f = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
+f = fit(SLCEFit, SLCEDataset(basis, configs, E), OLS())
 r2_energy(f)                      # ≈ 1.0
 2 * sqrt(3) * coef(f)[1]          # ≈ J  (recovered coupling)
 ```
@@ -61,17 +61,17 @@ and [`examples/kagome_threebody.jl`](examples/kagome_threebody.jl) (3-body / mul
 
 ### Persistence and input files
 
-`fit` returns an `SCEFit` — the heavyweight result that keeps the data and answers
+`fit` returns an `SLCEFit` — the heavyweight result that keeps the data and answers
 diagnostics (`r2_energy`, `residuals_energy`, …). For prediction and storage, wrap it
-in the lightweight, persistable `SCEPredictor` with `SCEPredictor(f)`.
+in the lightweight, persistable `SLCEModel` with `SLCEModel(f)`.
 
 Save a fitted model (or just a basis) to a self-contained, human-readable **TOML**
 document and reload it later. Coefficients re-pair to the basis by `SALCKey`, so a
 reloaded model predicts identically:
 
 ```julia
-SCEFitting.save("model.toml", SCEPredictor(f))     # or save("basis.toml", basis)
-model = SCEFitting.load(SCEPredictor, "model.toml")
+SLCE.save("model.toml", SLCEModel(f))     # or save("basis.toml", basis)
+model = SLCE.load(SLCEModel, "model.toml")
 predict_energy(model, configs)
 ```
 
@@ -99,7 +99,7 @@ tol = 1.0e-5
 ```
 
 ```julia
-basis = SCEBasis("input.toml")     # reads [symmetry] backend/tol from the file
+basis = SLCEBasis("input.toml")     # reads [symmetry] backend/tol from the file
 ```
 
 See [`examples/persist_and_input.jl`](examples/persist_and_input.jl) for the full loop.
@@ -129,7 +129,7 @@ just those columns (by default with `OLS`) — the de-biasing step that removes 
 shrinkage from the selected coefficients:
 
 ```julia
-fsparse = fit(SCEFit, dataset, Lasso())   # selects a support (some J exactly zero)
+fsparse = fit(SLCEFit, dataset, Lasso())   # selects a support (some J exactly zero)
 fdebias = refit(fsparse)                   # unshrunk OLS on that support
 ```
 
@@ -139,7 +139,7 @@ fdebias = refit(fsparse)                   # unshrunk OLS on that support
 reweighted ridge that approximates an L0 penalty, driving small coefficients toward zero.
 
 ```julia
-fit(SCEFit, dataset, AdaptiveRidge(lambda = 1e-3))     # L0-like selection, analytic
+fit(SLCEFit, dataset, AdaptiveRidge(lambda = 1e-3))     # L0-like selection, analytic
 ```
 
 For L1 selection, load GLMNet to activate the `Lasso` / `ElasticNet` / `AdaptiveLasso`
@@ -151,11 +151,11 @@ unchanged:
 ```julia
 using GLMNet                         # activates the estimator extension
 
-fit(SCEFit, dataset, Lasso())                          # CV-selected λ, sparse model
-fit(SCEFit, dataset, Lasso(select = :lambda_1se))      # the parsimonious 1-SE model
-fit(SCEFit, dataset, ElasticNet(alpha = 0.5))          # L1/L2 mix
-fit(SCEFit, dataset, Lasso(lambda = 1e-3))             # a fixed penalty (no CV)
-fit(SCEFit, dataset, AdaptiveLasso())                  # pilot-reweighted Lasso (Zou 2006)
+fit(SLCEFit, dataset, Lasso())                          # CV-selected λ, sparse model
+fit(SLCEFit, dataset, Lasso(select = :lambda_1se))      # the parsimonious 1-SE model
+fit(SLCEFit, dataset, ElasticNet(alpha = 0.5))          # L1/L2 mix
+fit(SLCEFit, dataset, Lasso(lambda = 1e-3))             # a fixed penalty (no CV)
+fit(SLCEFit, dataset, AdaptiveLasso())                  # pilot-reweighted Lasso (Zou 2006)
 ```
 
 `AdaptiveLasso` runs a pilot estimator (default `OLS`, any estimator allowed — including a
@@ -166,25 +166,25 @@ by configuration.
 ### Reading DFT data
 
 DFT-code I/O is isolated at the training-data boundary: the core owns only the
-code-agnostic `SpinDatum` / `SCEDataset` seam (`read_configs(src::AbstractDFTSource)`), so
+code-agnostic `SpinDatum` / `SLCEDataset` seam (`read_configs(src::AbstractDFTSource)`), so
 once you have the data the originating code is irrelevant. The **concrete VASP adapter lives
-in the companion [SCETools.jl](https://github.com/Tomonori-Tanaka/SCETools.jl) package**:
+in the companion [SLCETools.jl](https://github.com/Tomonori-Tanaka/SLCETools.jl) package**:
 
 ```julia
-using SCEFitting, SCETools
-using SCETools.VASP: read_poscar, Oszicar
+using SLCE, SLCETools
+using SLCETools.VASP: read_poscar, Oszicar
 
 crystal = read_poscar("POSCAR")                          # → Crystal
-basis   = SCEBasis(crystal, interaction)
+basis   = SLCEBasis(crystal, interaction)
 
 # constrained-noncollinear OSZICARs → energy + spin directions + torque target (τ = m×B)
 src     = Oszicar(["run1/OSZICAR", "run2/OSZICAR"])      # an AbstractDFTSource
-dataset = SCEDataset(basis, src)                         # read_configs(src) under the hood
-fit(SCEFit, dataset, OLS(); torque_weight = 0.5)
+dataset = SLCEDataset(basis, src)                         # read_configs(src) under the hood
+fit(SLCEFit, dataset, OLS(); torque_weight = 0.5)
 ```
 
-Adding another DFT code is one sibling adapter in SCETools — the core and its exports do not
-change. (SCETools also writes the inverse direction: sampled configurations →
+Adding another DFT code is one sibling adapter in SLCETools — the core and its exports do not
+change. (SLCETools also writes the inverse direction: sampled configurations →
 constrained-noncollinear VASP inputs.)
 
 ## Design highlights
@@ -240,8 +240,8 @@ torque** design matrices → `OLS` / `Ridge` / `AdaptiveRidge` / `Lasso` / `Elas
 dimensions agree exactly).
 
 Basis/model **persistence**, a human-authored **`input.toml`**, **tabular coefficient
-output** (`coeftable`), a **code-agnostic DFT-source seam** (`SpinDatum` / `SCEDataset`; the
-concrete VASP adapter lives in the companion `SCETools.jl`), **GLMNet** Lasso / elastic-net /
+output** (`coeftable`), a **code-agnostic DFT-source seam** (`SpinDatum` / `SLCEDataset`; the
+concrete VASP adapter lives in the companion `SLCETools.jl`), **GLMNet** Lasso / elastic-net /
 adaptive-Lasso estimators, and **Sunny.jl export** are implemented as extensions.
 
 The v0 vertical slice is feature-complete.

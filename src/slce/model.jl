@@ -129,7 +129,7 @@ function Base.show(io::IO, ::MIME"text/plain", sp::BasisSpec)
 end
 
 """
-    SCEBasis(crystal, spec; backend = NoSymmetry(), tol = 1e-5,
+    SLCEBasis(crystal, spec; backend = NoSymmetry(), tol = 1e-5,
              images = MinimumImage())
 
 Build the SCE basis for `crystal`: analyze symmetry, enumerate cluster orbits, and
@@ -143,16 +143,16 @@ generalized-Bloch / spin-spiral seam, finite cutoff only). The `images` value is
 applied to the cluster-edge admissibility, so the neighbor list and the clusters stay
 consistent.
 """
-struct SCEBasis
+struct SLCEBasis
     crystal::Crystal
     spacegroup::SpaceGroup
     salc_basis::SALCBasis
     spec::BasisSpec
 end
 
-function SCEBasis(crystal::Crystal, spec::BasisSpec;
+function SLCEBasis(crystal::Crystal, spec::BasisSpec;
                  backend::AbstractSymmetryBackend = NoSymmetry(), tol::Real = 1e-5,
-                 images::AbstractImageSelection = MinimumImage())::SCEBasis
+                 images::AbstractImageSelection = MinimumImage())::SLCEBasis
     length(spec.lmax) == length(crystal.species_labels) ||
         throw(ArgumentError("spec covers $(length(spec.lmax)) species, crystal has " *
                             "$(length(crystal.species_labels))"))
@@ -169,29 +169,29 @@ function SCEBasis(crystal::Crystal, spec::BasisSpec;
     salcs = build_salc_basis(crystal, sg, clusters;
                              lmax_by_species = spec.lmax, lsum_by_body = spec.lsum,
                              isotropy = spec.isotropy)
-    return SCEBasis(crystal, sg, salcs, spec)
+    return SLCEBasis(crystal, sg, salcs, spec)
 end
 
 """
-    n_salcs(basis::SCEBasis) -> Int
+    n_salcs(basis::SLCEBasis) -> Int
 
 The number of SALC basis functions in `basis` — equivalently, the number of
 design-matrix columns / fitted coefficients.
 """
-n_salcs(b::SCEBasis) = length(b.salc_basis)
+n_salcs(b::SLCEBasis) = length(b.salc_basis)
 
 """
-    salcs(basis::SCEBasis) -> Vector{SALC}
+    salcs(basis::SLCEBasis) -> Vector{SALC}
 
 The ordered SALC basis functions of `basis` (column order of the design matrix).
 """
-salcs(b::SCEBasis) = b.salc_basis.salcs
+salcs(b::SLCEBasis) = b.salc_basis.salcs
 
 """
-    SCEDataset(basis, configs, energies)
-    SCEDataset(basis, configs, energies, torques)
+    SLCEDataset(basis, configs, energies)
+    SLCEDataset(basis, configs, energies, torques)
 
-Pair an [`SCEBasis`](@ref) with training data: spin configurations `configs`
+Pair an [`SLCEBasis`](@ref) with training data: spin configurations `configs`
 (each `3 × n_atoms`, unit columns) and their `energies`. Materializes the energy
 design matrix `X_E[config, salc] = evaluate_salc(salc, config)`.
 
@@ -207,8 +207,8 @@ Datasets support `length` (number of configs), configuration slicing
 built on the same basis — see those methods for train/test splitting and
 incremental data addition.
 """
-struct SCEDataset
-    basis::SCEBasis
+struct SLCEDataset
+    basis::SLCEBasis
     configs::Vector{Matrix{Float64}}
     X_E::Matrix{Float64}
     y_E::Vector{Float64}
@@ -222,12 +222,12 @@ end
 Whether `dataset` carries torque training data (so an energy+torque co-fit is
 possible).
 """
-has_torque(d::SCEDataset) = !isempty(d.y_T)
+has_torque(d::SLCEDataset) = !isempty(d.y_T)
 
 # Atoms that appear in some SALC member of `basis` — the sites whose spin the model
 # actually reads. A species removed by `lmax = 0` (or a site that never enters an
 # admitted cluster) is unreferenced, and its training moments are never consulted.
-function _referenced_atoms(basis::SCEBasis)::BitVector
+function _referenced_atoms(basis::SLCEBasis)::BitVector
     ref = falses(n_atoms(basis.crystal))
     for s in salcs(basis), mem in s.members, a in mem.atoms
         ref[a] = true
@@ -238,47 +238,47 @@ end
 # --- dataset views: length / slicing / concatenation ---------------------------
 
 """
-    length(dataset::SCEDataset) -> Int
+    length(dataset::SLCEDataset) -> Int
 
 The number of training configurations in `dataset`.
 """
-Base.length(d::SCEDataset) = length(d.configs)
+Base.length(d::SLCEDataset) = length(d.configs)
 
-Base.firstindex(d::SCEDataset) = 1
-Base.lastindex(d::SCEDataset) = length(d)
+Base.firstindex(d::SLCEDataset) = 1
+Base.lastindex(d::SLCEDataset) = length(d)
 
 """
-    dataset[idx] -> SCEDataset
+    dataset[idx] -> SLCEDataset
 
 Select the configurations `idx` — an integer vector or range, a `Bool` mask, or `:`
-— into a new [`SCEDataset`](@ref) on the same basis. Design-matrix rows are sliced,
+— into a new [`SLCEDataset`](@ref) on the same basis. Design-matrix rows are sliced,
 never recomputed, so train/test splits and filters are cheap:
 `train, test = dataset[1:80], dataset[81:end]`. Duplicate indices are allowed
 (bootstrap-style resampling). See also `vcat` for the reverse operation.
 """
-function Base.getindex(d::SCEDataset, idx::AbstractVector{<:Integer})::SCEDataset
+function Base.getindex(d::SLCEDataset, idx::AbstractVector{<:Integer})::SLCEDataset
     isempty(idx) && throw(ArgumentError("empty configuration selection"))
     cfgs = d.configs[idx]                       # BoundsError on an out-of-range index
     X_E = d.X_E[idx, :]
     y_E = d.y_E[idx]
-    has_torque(d) || return SCEDataset(d.basis, cfgs, X_E, y_E, d.X_T, d.y_T)
+    has_torque(d) || return SLCEDataset(d.basis, cfgs, X_E, y_E, d.X_T, d.y_T)
     # torque rows come in per-config blocks of 3·n_atoms (config-major layout)
     nrow = 3 * n_atoms(d.basis.crystal)
     rows = reduce(vcat, [(nrow * (i - 1) + 1):(nrow * i) for i in idx])
-    return SCEDataset(d.basis, cfgs, X_E, y_E, d.X_T[rows, :], d.y_T[rows])
+    return SLCEDataset(d.basis, cfgs, X_E, y_E, d.X_T[rows, :], d.y_T[rows])
 end
 
-function Base.getindex(d::SCEDataset, mask::AbstractVector{Bool})::SCEDataset
+function Base.getindex(d::SLCEDataset, mask::AbstractVector{Bool})::SLCEDataset
     length(mask) == length(d) ||
         throw(DimensionMismatch("mask has $(length(mask)) entries, dataset has " *
                                 "$(length(d)) configs"))
     return d[findall(mask)]
 end
 
-Base.getindex(d::SCEDataset, ::Colon)::SCEDataset = d[1:length(d)]
+Base.getindex(d::SLCEDataset, ::Colon)::SLCEDataset = d[1:length(d)]
 
 """
-    vcat(a::SCEDataset, b::SCEDataset...) -> SCEDataset
+    vcat(a::SLCEDataset, b::SLCEDataset...) -> SLCEDataset
 
 Concatenate datasets built on the **same basis** — checked by the SALC-basis
 fingerprint, so a dataset built from a persisted-and-reloaded basis concatenates
@@ -286,7 +286,7 @@ with one built in-session. All parts must agree on carrying torque data or not.
 Together with `dataset[idx]` this supports incremental data addition and
 resampling without rebuilding design matrices.
 """
-function Base.vcat(a::SCEDataset, rest::SCEDataset...)::SCEDataset
+function Base.vcat(a::SLCEDataset, rest::SLCEDataset...)::SLCEDataset
     isempty(rest) && return a
     parts = (a, rest...)
     for (k, b) in enumerate(parts)
@@ -300,7 +300,7 @@ function Base.vcat(a::SCEDataset, rest::SCEDataset...)::SCEDataset
             throw(ArgumentError("cannot vcat torque-bearing and energy-only datasets " *
                                 "(dataset $k differs from dataset 1)"))
     end
-    return SCEDataset(a.basis,
+    return SLCEDataset(a.basis,
                       reduce(vcat, [p.configs for p in parts]),
                       reduce(vcat, [p.X_E for p in parts]),
                       reduce(vcat, [p.y_E for p in parts]),
@@ -329,7 +329,7 @@ function _validate_config(c::AbstractMatrix{<:Real}, nat::Int; atol::Real = 1e-6
     return nothing
 end
 
-function _validate_configs(basis::SCEBasis, cfgs::Vector{Matrix{Float64}}; atol::Real = 1e-6)
+function _validate_configs(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}}; atol::Real = 1e-6)
     nat = n_atoms(basis.crystal)
     for (i, c) in enumerate(cfgs)
         _validate_config(c, nat; atol = atol, label = "config $i")
@@ -337,19 +337,19 @@ function _validate_configs(basis::SCEBasis, cfgs::Vector{Matrix{Float64}}; atol:
     return nothing
 end
 
-function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::AbstractVector;
-                   atol::Real = 1e-6)::SCEDataset
+function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::AbstractVector;
+                   atol::Real = 1e-6)::SLCEDataset
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
     cfgs = [Matrix{Float64}(c) for c in configs]
     _validate_configs(basis, cfgs; atol = atol)
     X = _design_energy(basis, cfgs)
     empty_T = Matrix{Float64}(undef, 0, size(X, 2))
-    return SCEDataset(basis, cfgs, X, collect(Float64, energies), empty_T, Float64[])
+    return SLCEDataset(basis, cfgs, X, collect(Float64, energies), empty_T, Float64[])
 end
 
-function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::AbstractVector,
-                   torques::AbstractVector; atol::Real = 1e-6)::SCEDataset
+function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::AbstractVector,
+                   torques::AbstractVector; atol::Real = 1e-6)::SLCEDataset
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
     cfgs = [Matrix{Float64}(c) for c in configs]
@@ -359,56 +359,56 @@ function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::Abstract
     X_E = _design_energy(basis, cfgs)
     X_T = _design_torque(basis, cfgs)
     y_T = _flatten_torques(torques, cfgs)
-    return SCEDataset(basis, cfgs, X_E, collect(Float64, energies), X_T, y_T)
+    return SLCEDataset(basis, cfgs, X_E, collect(Float64, energies), X_T, y_T)
 end
 """
-    SCEPredictor
+    SLCEModel
 
-The **lightweight, persistable predictor**: the [`SCEBasis`](@ref) plus the fitted
+The **lightweight, persistable predictor**: the [`SLCEBasis`](@ref) plus the fitted
 reference energy `j0` and SALC coefficients `jphi` (one per basis function), with
-`keys` recording each coefficient's [`SALCKey`](@ref). Unlike [`SCEFit`](@ref) it
+`keys` recording each coefficient's [`SALCKey`](@ref). Unlike [`SLCEFit`](@ref) it
 carries no training data, design matrices, or diagnostics — just enough to evaluate
 [`predict_energy`](@ref) / [`predict_torque`](@ref) and to round-trip through
-`SCEFitting.save` / `SCEFitting.load`.
+`SLCE.save` / `SLCE.load`.
 
-Obtain one from a fit with `SCEPredictor(fit)`. Within a session `jphi[k]` pairs with
+Obtain one from a fit with `SLCEModel(fit)`. Within a session `jphi[k]` pairs with
 `salcs(basis)[k]` positionally; on reload the coefficients are re-paired to a freshly
 built basis **by `SALCKey`** (`keys`), so a persisted model stays valid across sessions.
 """
-struct SCEPredictor
-    basis::SCEBasis
+struct SLCEModel
+    basis::SLCEBasis
     j0::Float64
     jphi::Vector{Float64}
     keys::Vector{SALCKey}
 end
 
 """
-    SCEPredictor(basis, j0, jphi) -> SCEPredictor
+    SLCEModel(basis, j0, jphi) -> SLCEModel
 
 Assemble a predictor directly from a basis and coefficients — `jphi[k]` pairs with
 `salcs(basis)[k]` positionally and the `keys` are filled in from the basis. The public
 way to build a synthetic model (hand-set couplings for tests, demos, or model studies)
-without touching the SALC-basis internals; a fitted model comes from `SCEPredictor(fit)`.
+without touching the SALC-basis internals; a fitted model comes from `SLCEModel(fit)`.
 """
-function SCEPredictor(basis::SCEBasis, j0::Real, jphi::AbstractVector{<:Real})::SCEPredictor
+function SLCEModel(basis::SLCEBasis, j0::Real, jphi::AbstractVector{<:Real})::SLCEModel
     length(jphi) == n_salcs(basis) ||
         throw(DimensionMismatch("jphi has $(length(jphi)) coefficients for " *
                                 "$(n_salcs(basis)) SALC basis functions"))
-    return SCEPredictor(basis, Float64(j0), collect(Float64, jphi), basis.salc_basis.keys)
+    return SLCEModel(basis, Float64(j0), collect(Float64, jphi), basis.salc_basis.keys)
 end
 
 """
-    SCEFit
+    SLCEFit
 
-The **full result of [`fit`](@ref)**: the [`SCEDataset`](@ref) (with its design
+The **full result of [`fit`](@ref)**: the [`SLCEDataset`](@ref) (with its design
 matrices), the fitted `j0`/`jphi`, the `estimator`, the `torque_weight` used, and the
 (energy) residuals. This is the heavyweight, data-bearing object you query for
 diagnostics ([`r2_energy`](@ref), [`rmse_energy`](@ref), [`residuals_energy`](@ref), …).
-For prediction and storage, convert it to the lightweight [`SCEPredictor`](@ref) with
-`SCEPredictor(fit)`.
+For prediction and storage, convert it to the lightweight [`SLCEModel`](@ref) with
+`SLCEModel(fit)`.
 """
-struct SCEFit
-    dataset::SCEDataset
+struct SLCEFit
+    dataset::SLCEDataset
     j0::Float64
     jphi::Vector{Float64}
     estimator::AbstractEstimator

@@ -2,12 +2,12 @@
 
 ## Installation
 
-SCEFitting.jl is an exploratory package and is not registered. Add it from its
+SLCE.jl is an exploratory package and is not registered. Add it from its
 local path (or a git URL) in the Julia package manager:
 
 ```julia
 using Pkg
-Pkg.develop(path = "/path/to/SCEFitting.jl")
+Pkg.develop(path = "/path/to/SLCE.jl")
 ```
 
 The core has only lightweight dependencies. Optional features live in package
@@ -31,7 +31,7 @@ Heisenberg energies ``E = J\sum_{\langle ij\rangle}\hat{\boldsymbol e}_i\cdot\ha
 fit, and recover ``J``.
 
 ```@example gs
-using SCEFitting
+using SLCE
 import Spglib                       # activate the SpglibBackend extension
 using LinearAlgebra, Random
 
@@ -42,7 +42,7 @@ chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
 
 # Nearest-neighbor, 2-body, isotropic (Heisenberg) channel only.
 interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true)
-basis       = SCEBasis(chain, interaction; backend = SpglibBackend())
+basis       = SLCEBasis(chain, interaction; backend = SpglibBackend())
 
 (basis.spacegroup.symbol, n_salcs(basis))     # space group, number of SALC basis functions
 ```
@@ -54,13 +54,13 @@ training data from a known coupling and fit it:
 rng = MersenneTwister(2026)
 randcfg(nat) = mapreduce(_ -> (v = randn(rng, 3); v / norm(v)), hcat, 1:nat)
 
-heis    = SCEFitting.salcs(basis)[1]   # the Heisenberg SALC (public-unexported: qualify)
+heis    = SLCE.salcs(basis)[1]   # the Heisenberg SALC (public-unexported: qualify)
 J_true  = 0.0137
 configs = [randcfg(4) for _ = 1:40]
 E = [J_true * 0.5 * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
      for c in configs]
 
-f = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
+f = fit(SLCEFit, SLCEDataset(basis, configs, E), OLS())
 (; r2 = r2_energy(f), J = 2 * sqrt(3) * coef(f)[1], J_true)
 ```
 
@@ -68,9 +68,9 @@ The fit is exact (``R^2 = 1``) and recovers the coupling: the SALC normalization
 ``J = 2\sqrt{3}\,j_\varphi``, a fixed relation between the physical coupling and the
 fitted coefficient.
 
-`fit` returns an [`SCEFit`](@ref) — the heavyweight result that keeps the dataset and
+`fit` returns an [`SLCEFit`](@ref) — the heavyweight result that keeps the dataset and
 answers diagnostics. When you only need to predict or persist, convert it to the
-lightweight [`SCEPredictor`](@ref) with `SCEPredictor(f)` (see [Persistence and I/O](guide/io.md)).
+lightweight [`SLCEModel`](@ref) with `SLCEModel(f)` (see [Persistence and I/O](guide/io.md)).
 
 ## Add the torque
 
@@ -92,7 +92,7 @@ function heis_torque(c, J)
 end
 torques = [heis_torque(c, J_true) for c in configs]
 
-fc = fit(SCEFit, SCEDataset(basis, configs, E, torques), OLS(); torque_weight = 0.5)
+fc = fit(SLCEFit, SLCEDataset(basis, configs, E, torques), OLS(); torque_weight = 0.5)
 (; r2_energy = r2_energy(fc), r2_torque = r2_torque(fc))
 ```
 

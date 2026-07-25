@@ -1,5 +1,5 @@
 using Test
-using SCEFitting
+using SLCE
 using LinearAlgebra
 using StaticArrays
 using Random
@@ -42,10 +42,10 @@ end
 
     @testset "predict_torque = −e × ∇E (finite differences, anisotropic)" begin
         interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false)
-        basis = SCEBasis(crystal, interaction)   # NoSymmetry (P1): exercises Lf > 0
+        basis = SLCEBasis(crystal, interaction)   # NoSymmetry (P1): exercises Lf > 0
         m = length(basis.salc_basis)
         @test m > 0
-        model = SCEPredictor(basis, 0.0, randn(rng, m), basis.salc_basis.keys)
+        model = SLCEModel(basis, 0.0, randn(rng, m), basis.salc_basis.keys)
         for _ = 1:8
             c = randcfg(rng, 2)
             @test isapprox(predict_torque(model, c), _torque_fd(model, c); atol = 1e-5)
@@ -54,9 +54,9 @@ end
 
     @testset "global-rotation equivariance (isotropic model)" begin
         interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1], isotropy = true)
-        basis = SCEBasis(crystal, interaction)
+        basis = SLCEBasis(crystal, interaction)
         m = length(basis.salc_basis)
-        model = SCEPredictor(basis, 0.3, randn(rng, m), basis.salc_basis.keys)
+        model = SLCEModel(basis, 0.3, randn(rng, m), basis.salc_basis.keys)
         for _ = 1:5
             c = randcfg(rng, 2)
             R = _rand_rotation(rng)
@@ -68,22 +68,22 @@ end
 
     @testset "energy+torque co-fit recovers an in-span model" begin
         interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false)
-        basis = SCEBasis(crystal, interaction)
+        basis = SLCEBasis(crystal, interaction)
         m = length(basis.salc_basis)
         configs = [randcfg(rng, 2) for _ = 1:60]
 
         true_jphi = randn(rng, m)
         true_j0 = 0.4
-        skel = SCEDataset(basis, configs, zeros(length(configs)))   # to read X_E / X_T
+        skel = SLCEDataset(basis, configs, zeros(length(configs)))   # to read X_E / X_T
         energies = true_j0 .+ skel.X_E * true_jphi
         # per-config torque targets, consistent with the same model
-        model0 = SCEPredictor(basis, true_j0, true_jphi, basis.salc_basis.keys)
+        model0 = SLCEModel(basis, true_j0, true_jphi, basis.salc_basis.keys)
         torques = [predict_torque(model0, c) for c in configs]
 
-        ds = SCEDataset(basis, configs, energies, torques)
+        ds = SLCEDataset(basis, configs, energies, torques)
         @test has_torque(ds)
 
-        f = fit(SCEFit, ds, OLS(); torque_weight = 0.3)
+        f = fit(SLCEFit, ds, OLS(); torque_weight = 0.3)
         @test isapprox(coef(f), true_jphi; atol = 1e-6)
         @test isapprox(intercept(f), true_j0; atol = 1e-6)
         @test r2_energy(f) ≈ 1.0 atol = 1e-9
@@ -95,36 +95,36 @@ end
 
     @testset "pure-torque fit (weight = 1) still pins jϕ and recovers j0" begin
         interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1], isotropy = true)
-        basis = SCEBasis(crystal, interaction)
+        basis = SLCEBasis(crystal, interaction)
         m = length(basis.salc_basis)
         configs = [randcfg(rng, 2) for _ = 1:50]
         true_jphi = randn(rng, m)
         true_j0 = -0.9
-        model0 = SCEPredictor(basis, true_j0, true_jphi, basis.salc_basis.keys)
+        model0 = SLCEModel(basis, true_j0, true_jphi, basis.salc_basis.keys)
         energies = [predict_energy(model0, c) for c in configs]
         torques = [predict_torque(model0, c) for c in configs]
-        ds = SCEDataset(basis, configs, energies, torques)
-        f = fit(SCEFit, ds, OLS(); torque_weight = 1.0)
+        ds = SLCEDataset(basis, configs, energies, torques)
+        f = fit(SLCEFit, ds, OLS(); torque_weight = 1.0)
         @test isapprox(coef(f), true_jphi; atol = 1e-6)
         @test isapprox(intercept(f), true_j0; atol = 1e-6)   # j0 from energy data alone
     end
 
     @testset "error paths" begin
         interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1], isotropy = true)
-        basis = SCEBasis(crystal, interaction)
+        basis = SLCEBasis(crystal, interaction)
         configs = [randcfg(rng, 2) for _ = 1:10]
-        ds_e = SCEDataset(basis, configs, zeros(10))           # energy-only
+        ds_e = SLCEDataset(basis, configs, zeros(10))           # energy-only
         @test !has_torque(ds_e)
-        @test_throws ArgumentError fit(SCEFit, ds_e, OLS(); torque_weight = 0.5)
-        @test_throws ArgumentError r2_torque(fit(SCEFit, ds_e, OLS()))
+        @test_throws ArgumentError fit(SLCEFit, ds_e, OLS(); torque_weight = 0.5)
+        @test_throws ArgumentError r2_torque(fit(SLCEFit, ds_e, OLS()))
 
         torques = [zeros(3, 2) for _ = 1:10]
-        ds_t = SCEDataset(basis, configs, zeros(10), torques)
-        @test_throws ArgumentError fit(SCEFit, ds_t, OLS(); torque_weight = 1.5)
-        @test_throws ArgumentError fit(SCEFit, ds_t, OLS(); torque_weight = -0.1)
+        ds_t = SLCEDataset(basis, configs, zeros(10), torques)
+        @test_throws ArgumentError fit(SLCEFit, ds_t, OLS(); torque_weight = 1.5)
+        @test_throws ArgumentError fit(SLCEFit, ds_t, OLS(); torque_weight = -0.1)
         # wrong torque block shape
-        @test_throws ArgumentError SCEDataset(basis, configs, zeros(10), [zeros(3, 3) for _ = 1:10])
+        @test_throws ArgumentError SLCEDataset(basis, configs, zeros(10), [zeros(3, 3) for _ = 1:10])
         # mismatched count
-        @test_throws ArgumentError SCEDataset(basis, configs, zeros(10), [zeros(3, 2) for _ = 1:9])
+        @test_throws ArgumentError SLCEDataset(basis, configs, zeros(10), [zeros(3, 2) for _ = 1:9])
     end
 end

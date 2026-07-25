@@ -1,7 +1,7 @@
 # Sunny export
 
 ```@meta
-CurrentModule = SCEFitting
+CurrentModule = SLCE
 ```
 
 A fitted SCE model is an energy surface; for linear spin-wave theory you want it as a

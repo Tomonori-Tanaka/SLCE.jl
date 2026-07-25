@@ -1,10 +1,10 @@
 using Test
-using SCEFitting
+using SLCE
 using LinearAlgebra
 using StaticArrays
 using Random
 
-const MR = SCEFitting
+const MR = SLCE
 
 # Fresh-draw unit config (so anisotropic / Lf > 0 channels do not vanish).
 function _pcfg(rng, nat)
@@ -17,7 +17,7 @@ function _pcfg(rng, nat)
 end
 
 # Deep, bit-exact structural equality of two bases' SALC content.
-function _basis_identical(a::SCEBasis, b::SCEBasis)
+function _basis_identical(a::SLCEBasis, b::SLCEBasis)
     a.salc_basis.keys == b.salc_basis.keys || return false
     length(a.salc_basis.salcs) == length(b.salc_basis.salcs) || return false
     for (sa, sb) in zip(a.salc_basis.salcs, b.salc_basis.salcs)
@@ -39,10 +39,10 @@ end
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false)
-    basis = SCEBasis(crystal, interaction)   # NoSymmetry (P1); small but exercises Lf > 0
+    basis = SLCEBasis(crystal, interaction)   # NoSymmetry (P1); small but exercises Lf > 0
     m = length(basis.salc_basis)
     @test m > 0
-    model = SCEPredictor(basis, 0.37, randn(rng, m), basis.salc_basis.keys)
+    model = SLCEModel(basis, 0.37, randn(rng, m), basis.salc_basis.keys)
     testcfgs = [_pcfg(rng, 2) for _ = 1:6]
 
     @testset "model round-trip via the format-agnostic document (no file)" begin
@@ -59,13 +59,13 @@ end
         path = tempname() * ".toml"
         MR.save(path, model)
         @test isfile(path)
-        m2 = MR.load(SCEPredictor, path)
+        m2 = MR.load(SLCEModel, path)
         @test m2.j0 === model.j0
         @test m2.jphi == model.jphi
         @test _basis_identical(m2.basis, model.basis)
         @test predict_energy(m2, testcfgs) == predict_energy(model, testcfgs)
         # a basis can be read from a model file too (coefficients ignored)
-        b2 = MR.load(SCEBasis, path)
+        b2 = MR.load(SLCEBasis, path)
         @test _basis_identical(b2, model.basis)
         rm(path)
     end
@@ -73,7 +73,7 @@ end
     @testset "basis round-trip through a TOML file" begin
         path = tempname() * ".toml"
         MR.save(path, basis)
-        b2 = MR.load(SCEBasis, path)
+        b2 = MR.load(SLCEBasis, path)
         @test _basis_identical(b2, basis)
         @test b2.salc_basis.fingerprint == basis.salc_basis.fingerprint   # recomputed, same session
         @test b2.spec.nbody == basis.spec.nbody
@@ -83,16 +83,16 @@ end
     end
 
     @testset "empty basis (0 SALCs) round-trips" begin
-        eb = SCEBasis(crystal, BasisSpec(; nbody = 1, cutoff = 0.1, lmax = [0]))
+        eb = SLCEBasis(crystal, BasisSpec(; nbody = 1, cutoff = 0.1, lmax = [0]))
         @test length(eb.salc_basis) == 0
         path = tempname() * ".toml"
         MR.save(path, eb)
-        eb2 = MR.load(SCEBasis, path)
+        eb2 = MR.load(SLCEBasis, path)
         @test length(eb2.salc_basis) == 0
         @test eb2.salc_basis.keys == eb.salc_basis.keys
-        em = SCEPredictor(eb, 1.25, Float64[], eb.salc_basis.keys)   # 0 coefficients, nonzero j0
+        em = SLCEModel(eb, 1.25, Float64[], eb.salc_basis.keys)   # 0 coefficients, nonzero j0
         MR.save(path, em)
-        em2 = MR.load(SCEPredictor, path)
+        em2 = MR.load(SLCEModel, path)
         @test em2.j0 === 1.25
         @test isempty(em2.jphi)
         @test predict_energy(em2, _pcfg(rng, 2)) === 1.25
@@ -102,11 +102,11 @@ end
     @testset "saving a fit persists its model" begin
         configs = [_pcfg(rng, 2) for _ = 1:40]
         energies = randn(rng, 40)
-        ds = SCEDataset(basis, configs, energies)
-        f = fit(SCEFit, ds, OLS())
+        ds = SLCEDataset(basis, configs, energies)
+        f = fit(SLCEFit, ds, OLS())
         path = tempname() * ".toml"
-        MR.save(path, f)                       # SCEFit saved as its model
-        m2 = MR.load(SCEPredictor, path)
+        MR.save(path, f)                       # SLCEFit saved as its model
+        m2 = MR.load(SLCEModel, path)
         @test m2.j0 === f.j0
         @test m2.jphi == f.jphi
         @test predict_energy(m2, testcfgs) == predict_energy(f, testcfgs)

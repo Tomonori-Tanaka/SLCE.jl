@@ -24,8 +24,8 @@ using StaticArrays
 
 # Tesseral normalization constants for the l ≤ 2 Cartesian conversions:
 # `Z_{1,m} = N1·(y,z,x)_m` and the `Z_{2,m}` prefactors A2 (m = ±1, ±2) / B2 (m = 0).
-# The single definition shared by the core's bilinear extraction (`sce/bilinear.jl`)
-# and downstream consumers (the SCETools.jl exchange mapping), so the forward and
+# The single definition shared by the core's bilinear extraction (`slce/bilinear.jl`)
+# and downstream consumers (the SLCETools.jl exchange mapping), so the forward and
 # inverse tesseral ↔ Cartesian conversions cannot drift apart.
 const N1 = sqrt(3 / (4π))
 const A2 = sqrt(15 / (16π))

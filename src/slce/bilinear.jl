@@ -1,7 +1,7 @@
 """
 Bilinear / single-ion extraction — tesseral → Cartesian, on the training supercell.
 
-A fitted [`SCEPredictor`](@ref) is a polynomial in unit spin directions of arbitrary
+A fitted [`SLCEModel`](@ref) is a polynomial in unit spin directions of arbitrary
 body order and `l`. Exactly two SCE channels map onto the classical bilinear form
 `Σ eₐ'·M·e_b + Σ eₐ'·A·eₐ`:
 
@@ -17,8 +17,8 @@ tesseral tensor into a Cartesian matrix with the right normalization, and summin
 the directed cluster members into one matrix per undirected bond — lives here and
 is validated by reconstructing the SCE energy
 (`_reconstruct_energy ≈ predict_energy − j0`). Consumers: the public
-[`bilinear_terms`](@ref) introspection (`sce/introspect.jl`) and the Sunny export
-(`interop/sunny.jl` + `SCEFittingSunnyExt`).
+[`bilinear_terms`](@ref) introspection (`slce/introspect.jl`) and the Sunny export
+(`interop/sunny.jl` + `SLCESunnyExt`).
 """
 
 # Cartesian axis (x,y,z) = (1,2,3) → the m-index of the folded tensor, with index
@@ -114,7 +114,7 @@ directed contributions are already summed into its `folded` tensor by
 `Σ eₐ'·M·e_b + Σ eₐ'·A·eₐ`, matching `predict_energy − j0` for a model with only
 these channels.
 """
-function _bilinear_terms(model::SCEPredictor)::BilinearTerms
+function _bilinear_terms(model::SLCEModel)::BilinearTerms
     pairs = Dict{Tuple{Int,Int,SVector{3,Int}},SMatrix{3,3,Float64,9}}()
     onsites = Dict{Int,SMatrix{3,3,Float64,9}}()
     skipped = String[]

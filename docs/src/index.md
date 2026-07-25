@@ -1,7 +1,7 @@
-# SCEFitting.jl
+# SLCE.jl
 
 ```@meta
-CurrentModule = SCEFitting
+CurrentModule = SLCE
 ```
 
 A clean, extensible, Julia-native rebuild of [Magesty.jl](https://github.com/Tomonori-Tanaka/Magesty.jl) —
@@ -35,31 +35,31 @@ the SCE's other DFT observable.
 The pipeline is one straight line, each stage a small, typed object:
 
 ```
-Crystal + BasisSpec ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ──▶ SCEPredictor
+Crystal + BasisSpec ──▶ SLCEBasis ──▶ SLCEDataset ──▶ fit ──▶ SLCEModel
    (geometry, range)      (symmetry,    (DFT data:     (OLS / Ridge /   (predict_energy,
                            SALC basis)   E, τ)          Lasso / …)        predict_torque,
                                                                           to_sunny, save)
 ```
 
-- **`SCEBasis`** analyzes symmetry, enumerates cluster orbits, and builds the
+- **`SLCEBasis`** analyzes symmetry, enumerates cluster orbits, and builds the
   symmetry-adapted SALC basis for a `Crystal` and a `BasisSpec` (body order, cutoff,
   per-species `l`, isotropy).
-- **`SCEDataset`** pairs the basis with training data and materializes the energy
+- **`SLCEDataset`** pairs the basis with training data and materializes the energy
   (and torque) design matrices.
 - **`fit`** solves for the coefficients with a pluggable estimator, optionally co-fitting
   energy and torque.
-- **`SCEPredictor`** predicts energies and torques, tabulates coefficients, persists to a
+- **`SLCEModel`** predicts energies and torques, tabulates coefficients, persists to a
   human-readable TOML, and exports to [Sunny.jl](https://sunnysuite.github.io/Sunny/) for
   spin-wave theory.
 
-!!! tip "Sampling and active learning live in SCETools.jl"
+!!! tip "Sampling and active learning live in SLCETools.jl"
     This package is focused on **building and fitting** SCE models. To *generate* spin
     configurations from a fitted model — finite-temperature mean-field (MFA) sampling, and
     (planned) active-learning model construction — use the companion package
-    [SCETools.jl](https://github.com/Tomonori-Tanaka/SCETools.jl). It depends on
-    SCEFitting and reads a fitted model only through the public
+    [SLCETools.jl](https://github.com/Tomonori-Tanaka/SLCETools.jl). It depends on
+    SLCE and reads a fitted model only through the public
     [introspection surface](api.md#Fitted-model-introspection)
-    (`multipole_terms`, `bilinear_terms`, `SCEFitting.Harmonics`).
+    (`multipole_terms`, `bilinear_terms`, `SLCE.Harmonics`).
 
 ## Documentation
 

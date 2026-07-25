@@ -1,5 +1,5 @@
 using Test
-using SCEFitting
+using SLCE
 using LinearAlgebra
 using Random
 
@@ -11,7 +11,7 @@ using Random
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = true)
-    basis = SCEBasis(crystal, interaction)
+    basis = SLCEBasis(crystal, interaction)
     nat = n_atoms(crystal)
 
     rng = MersenneTwister(1)
@@ -19,36 +19,36 @@ using Random
     energies = randn(rng, length(good))
 
     @testset "valid input constructs / predicts" begin
-        ds = SCEDataset(basis, good, energies)
-        @test nobs(fit(SCEFit, ds, OLS())) == length(good)
-        model = SCEPredictor(fit(SCEFit, ds, OLS()))
+        ds = SLCEDataset(basis, good, energies)
+        @test nobs(fit(SLCEFit, ds, OLS())) == length(good)
+        model = SLCEModel(fit(SLCEFit, ds, OLS()))
         @test predict_energy(model, good) == [predict_energy(model, c) for c in good]
         @test length(predict_torque(model, good)) == length(good)
     end
 
-    model = SCEPredictor(fit(SCEFit, SCEDataset(basis, good, energies), OLS()))
+    model = SLCEModel(fit(SLCEFit, SLCEDataset(basis, good, energies), OLS()))
 
-    @testset "SCEDataset rejects malformed configs" begin
+    @testset "SLCEDataset rejects malformed configs" begin
         # non-unit column
         bad = deepcopy(good); bad[3][:, 1] .*= 1.5
-        @test_throws ArgumentError SCEDataset(basis, bad, energies)
+        @test_throws ArgumentError SLCEDataset(basis, bad, energies)
         # NaN
         bad = deepcopy(good); bad[2][1, 2] = NaN
-        @test_throws ArgumentError SCEDataset(basis, bad, energies)
+        @test_throws ArgumentError SLCEDataset(basis, bad, energies)
         # wrong atom count
-        @test_throws DimensionMismatch SCEDataset(basis, [randcfg(rng, nat + 1)], [0.0])
+        @test_throws DimensionMismatch SLCEDataset(basis, [randcfg(rng, nat + 1)], [0.0])
         # wrong row count
-        @test_throws ArgumentError SCEDataset(basis, [randn(rng, 2, nat)], [0.0])
+        @test_throws ArgumentError SLCEDataset(basis, [randn(rng, 2, nat)], [0.0])
         # config / energy length mismatch
-        @test_throws DimensionMismatch SCEDataset(basis, good, energies[1:end-1])
+        @test_throws DimensionMismatch SLCEDataset(basis, good, energies[1:end-1])
     end
 
     @testset "torque dataset rejects malformed configs / lengths" begin
         torques = [zeros(3, nat) for _ in good]
-        @test nobs(fit(SCEFit, SCEDataset(basis, good, energies, torques), OLS())) == length(good)
+        @test nobs(fit(SLCEFit, SLCEDataset(basis, good, energies, torques), OLS())) == length(good)
         bad = deepcopy(good); bad[1][:, 2] .= 0.0           # zero-norm column
-        @test_throws ArgumentError SCEDataset(basis, bad, energies, torques)
-        @test_throws ArgumentError SCEDataset(basis, good, energies, torques[1:end-1])
+        @test_throws ArgumentError SLCEDataset(basis, bad, energies, torques)
+        @test_throws ArgumentError SLCEDataset(basis, good, energies, torques[1:end-1])
     end
 
     @testset "predict rejects malformed configs (scalar + batch)" begin
@@ -63,7 +63,7 @@ using Random
 
     @testset "atol keyword loosens / tightens the unit-norm check" begin
         nearly = deepcopy(good); nearly[1][:, 1] .*= (1 + 1e-4)
-        @test_throws ArgumentError SCEDataset(basis, nearly, energies)         # default 1e-6
-        @test nobs(fit(SCEFit, SCEDataset(basis, nearly, energies; atol = 1e-3), OLS())) == length(good)
+        @test_throws ArgumentError SLCEDataset(basis, nearly, energies)         # default 1e-6
+        @test nobs(fit(SLCEFit, SLCEDataset(basis, nearly, energies; atol = 1e-3), OLS())) == length(good)
     end
 end

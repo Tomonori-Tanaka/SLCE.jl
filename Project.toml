@@ -1,4 +1,4 @@
-name = "SCEFitting"
+name = "SLCE"
 uuid = "854eb3e0-bd75-4c3b-927c-573f5c6d8b1d"
 version = "0.1.0"
 authors = ["T.Tanaka <tomonori.tanaka.academic@gmail.com>"]
@@ -19,9 +19,9 @@ Spglib = "f761d5c5-86db-4880-b97f-9680a7cccfb5"
 Sunny = "2b4a2ac8-8f8b-43e8-abf4-3cb0c45e8736"
 
 [extensions]
-SCEFittingGLMNetExt = "GLMNet"
-SCEFittingSpglibExt = "Spglib"
-SCEFittingSunnyExt = "Sunny"
+SLCEGLMNetExt = "GLMNet"
+SLCESpglibExt = "Spglib"
+SLCESunnyExt = "Sunny"
 
 [compat]
 Aqua = "0.8"

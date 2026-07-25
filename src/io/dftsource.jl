@@ -3,9 +3,9 @@
 
 A source of DFT training data: `read_configs(src::AbstractDFTSource) ->
 Vector{<:AbstractTrainingDatum}` turns some DFT output into fit-ready configurations,
-and `SCEDataset(basis, src)` goes straight from a source to a dataset. Concrete sources
-(e.g. `SCETools.VASP.Oszicar`, in the SCETools.jl package) live alongside their format
-reader, so the SCE pipeline consumes only [`SpinDatum`](@ref) / [`SCEDataset`](@ref) and
+and `SLCEDataset(basis, src)` goes straight from a source to a dataset. Concrete sources
+(e.g. `SLCETools.VASP.Oszicar`, in the SLCETools.jl package) live alongside their format
+reader, so the SCE pipeline consumes only [`SpinDatum`](@ref) / [`SLCEDataset`](@ref) and
 never depends on the originating DFT code.
 """
 abstract type AbstractDFTSource end
@@ -61,7 +61,7 @@ are roughly constant across configurations (large longitudinal variation would b
 The zero-moment placeholder direction is a divide-by-zero guard; a *magnetic* site that
 quenches to `‖m_a‖ ≈ 0` in some configuration therefore enters with a fictitious
 direction and a zero torque (a small bias) — prefer dropping such configurations.
-(`SCEDataset` rejects a placeholder on a basis-referenced atom; if you change this
+(`SLCEDataset` rejects a placeholder on a basis-referenced atom; if you change this
 tolerance, pass the same value to its `zero_moment_atol` so the guard stays aligned.)
 """
 function SpinDatum(energy::Real, moments::AbstractMatrix{<:Real},
@@ -92,7 +92,7 @@ end
     read_configs(src::AbstractDFTSource) -> Vector{SpinDatum}
 
 Read all training configurations from a DFT source. Implemented per source type
-(e.g. `SCETools.VASP.Oszicar` in the SCETools.jl package).
+(e.g. `SLCETools.VASP.Oszicar` in the SLCETools.jl package).
 """
 read_configs(src::AbstractDFTSource) =
     throw(ArgumentError("read_configs is not implemented for $(typeof(src))"))
@@ -102,7 +102,7 @@ read_configs(src::AbstractDFTSource) =
 # matrix through the ẑ placeholder direction of `SpinDatum` and silently biases the
 # fit. Unreferenced atoms (species removed with `lmax = 0`, or sites outside every
 # admitted cluster) may be non-magnetic — their moments are never consulted.
-function _check_referenced_moments(basis::SCEBasis, data::AbstractVector{SpinDatum};
+function _check_referenced_moments(basis::SLCEBasis, data::AbstractVector{SpinDatum};
                                    atol::Real)
     ref = _referenced_atoms(basis)
     nat = length(ref)
@@ -126,11 +126,11 @@ function _check_referenced_moments(basis::SCEBasis, data::AbstractVector{SpinDat
 end
 
 """
-    SCEDataset(basis, data::AbstractVector{SpinDatum}; use_torque = true,
-               zero_moment_atol = 1e-10) -> SCEDataset
-    SCEDataset(basis, src::AbstractDFTSource; use_torque = true) -> SCEDataset
+    SLCEDataset(basis, data::AbstractVector{SpinDatum}; use_torque = true,
+               zero_moment_atol = 1e-10) -> SLCEDataset
+    SLCEDataset(basis, src::AbstractDFTSource; use_torque = true) -> SLCEDataset
 
-Build a fit-ready [`SCEDataset`](@ref) from training data (or directly from a DFT
+Build a fit-ready [`SLCEDataset`](@ref) from training data (or directly from a DFT
 source, which is read first). The spin directions become the configurations and the
 energies the energy targets; with `use_torque = true` the per-atom torque targets
 are included as well (for an energy+torque co-fit — see [`fit`](@ref)). Pass
@@ -146,9 +146,9 @@ magnitudes, so if the `SpinDatum`s were built with a custom `zero_moment_atol`, 
 same value here — a looser build tolerance with the default guard tolerance would let a
 placeholder direction through (both default to `1e-10`).
 """
-function SCEDataset(basis::SCEBasis, data::AbstractVector{SpinDatum};
+function SLCEDataset(basis::SLCEBasis, data::AbstractVector{SpinDatum};
                     use_torque::Bool = true,
-                    zero_moment_atol::Real = 1e-10)::SCEDataset
+                    zero_moment_atol::Real = 1e-10)::SLCEDataset
     isempty(data) && throw(ArgumentError("no training data"))
     _check_referenced_moments(basis, data; atol = zero_moment_atol)
     configs = [d.directions for d in data]
@@ -159,11 +159,11 @@ function SCEDataset(basis::SCEBasis, data::AbstractVector{SpinDatum};
             throw(ArgumentError("use_torque = true but every torque target is zero — no " *
                                 "constraining field was found in the data; pass " *
                                 "use_torque = false for an energy-only dataset"))
-        return SCEDataset(basis, configs, energies, torques)
+        return SLCEDataset(basis, configs, energies, torques)
     else
-        return SCEDataset(basis, configs, energies)
+        return SLCEDataset(basis, configs, energies)
     end
 end
 
-SCEDataset(basis::SCEBasis, src::AbstractDFTSource; use_torque::Bool = true)::SCEDataset =
-    SCEDataset(basis, read_configs(src); use_torque = use_torque)
+SLCEDataset(basis::SLCEBasis, src::AbstractDFTSource; use_torque::Bool = true)::SLCEDataset =
+    SLCEDataset(basis, read_configs(src); use_torque = use_torque)

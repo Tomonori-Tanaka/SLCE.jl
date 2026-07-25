@@ -7,7 +7,7 @@
 # cutoff in Å (default 6.0, multi-shell). Pass `2 2 2.6` for the first-shell smoke
 # case.
 
-using SCEFitting
+using SLCE
 import Spglib                                   # activate the SpglibBackend extension
 include(joinpath(@__DIR__, "fixtures.jl"))
 
@@ -22,7 +22,7 @@ println("atoms = $(n_atoms(cr))")
 
 # Stage the inputs the SALC build consumes (these are cheap relative to it).
 sg = analyze_symmetry(SpglibBackend(), cr)
-nl = build_neighbor_list(cr, SCEFitting._superset_cutoff(spec), MinimumImage())
+nl = build_neighbor_list(cr, SLCE._superset_cutoff(spec), MinimumImage())
 cs = build_clusters(cr, nl, sg; nbody = spec.nbody, selection = MinimumImage(),
                          cutoff = spec.cutoff)
 

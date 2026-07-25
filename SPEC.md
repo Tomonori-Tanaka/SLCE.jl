@@ -1,4 +1,4 @@
-# SCEFitting.jl — specification and architecture
+# SLCE.jl — specification and architecture
 
 Work-in-progress rebuild of Magesty.jl. This file tracks the **realized**
 architecture as milestones land; the full design rationale lives in the
@@ -12,7 +12,7 @@ geometry → symmetry → clusters → basis (SALC) → design matrix → fit �
 
 ## Module layout (`src/`)
 
-Single top-level `module SCEFitting`, small files included in dependency
+Single top-level `module SLCE`, small files included in dependency
 order; the two self-contained numeric kernels (`Harmonics`, `AngularMomentum`)
 are nested submodules. Heavy / optional dependencies (Spglib, GLMNet, Sunny)
 live in `ext/` package extensions; the core loads without them. Persistence and
@@ -20,7 +20,7 @@ input files use the stdlib `TOML` (no external dependency).
 
 ```
 src/
-├── SCEFitting.jl        top-level module: includes, exports, `public` tier
+├── SLCE.jl        top-level module: includes, exports, `public` tier
 ├── geometry/            lattice.jl, crystal.jl, neighborlist.jl
 ├── symmetry/            types.jl, backend.jl (Spglib method in ext/)
 ├── basis/               Harmonics.jl, AngularMomentum.jl (submodules),
@@ -28,15 +28,15 @@ src/
 ├── clusters/            enumerate.jl, orbits.jl
 ├── fitting/             estimators.jl, design.jl, fit.jl, diagnostics.jl,
 │                        selection.jl (MC-cost groups, GCV, λ-path + Pareto)
-├── sce/                 model.jl (pipeline types), coeftable.jl,
+├── slce/                 model.jl (pipeline types), coeftable.jl,
 │                        bilinear.jl (tesseral → Cartesian extraction),
 │                        introspect.jl (public introspection)
 ├── interop/             sunny.jl (primitive unfold + `to_sunny` entry point)
 └── io/                  persist.jl, input.jl, dftsource.jl
 ```
 
-The include order in the SCE layer is `sce/coeftable.jl` → `sce/bilinear.jl` →
-`sce/introspect.jl` → `interop/sunny.jl`: the bilinear extraction is a core
+The include order in the SCE layer is `slce/coeftable.jl` → `slce/bilinear.jl` →
+`slce/introspect.jl` → `interop/sunny.jl`: the bilinear extraction is a core
 capability consumed by both the introspection and the Sunny interop.
 
 ## Extension seams (contracts)
@@ -74,7 +74,7 @@ capability consumed by both the introspection and the Sunny interop.
   gradient `∂Z − u(u·∂Z)`. `lm_index(l, m) = l²+l+m+1`, `num_lm(lmax)`. Legendre
   primitive from `LegendrePolynomials.dnPl`. The tesseral `l ≤ 2` Cartesian-conversion
   constants `N1 = √(3/4π)`, `A2 = √(15/16π)`, `B2 = √(5/16π)` are defined once here
-  (used by `sce/bilinear.jl` and downstream consumers).
+  (used by `slce/bilinear.jl` and downstream consumers).
 - Validated by: closed-form standard solid harmonics (`l ≤ 2`), gradient tangency
   + on-sphere central difference, and bit-for-bit agreement with Magesty's
   `TesseralHarmonics` (oracle).
@@ -91,7 +91,7 @@ capability consumed by both the introspection and the Sunny interop.
 ### symmetry (M5)
 - `AbstractSymmetryBackend` + `analyze_symmetry(backend, crystal; tol) -> SpaceGroup`;
   in-tree `NoSymmetry` (P1); `SpglibBackend` type in core, method in
-  `ext/SCEFittingSpglibExt`. `map_sym` derived in-tree (shared by all backends).
+  `ext/SLCESpglibExt`. `map_sym` derived in-tree (shared by all backends).
 
 ### clusters (M6) — arbitrary body order
 - `ClusterMember` (atoms + per-site lattice `shift` R), `ClusterOrbit`, `ClusterSet`;
@@ -101,7 +101,7 @@ capability consumed by both the introspection and the Sunny interop.
   under `MinimumImage` iff it sits at its atom-pair minimum-image distance (and the
   clique's atoms are distinct, so a cluster never reuses an atom's image — that would
   alias a lower-body term); under `AllImages` iff within the radial cutoff. The
-  `selection` is threaded from `SCEBasis` so the neighbor list and clusters agree.
+  `selection` is threaded from `SLCEBasis` so the neighbor list and clusters agree.
 
 ### SALC basis (M7) — arbitrary body order
 - `build_salc_basis` projects each orbit's representative onto the trivial irrep of
@@ -122,21 +122,21 @@ capability consumed by both the introspection and the Sunny interop.
 ### fitting + SCE API (M8, M9)
 - `BasisSpec` (validated: `nbody ≥ 1`, symmetric per-body `cutoff` matrices with
   entries `≥ 0` or `Inf`, `lsum ≥ 0` per body order, nonempty `lmax`
-  with entries ≥ 0), `SCEBasis` (carries its spec in the `spec` field), `SCEDataset`
+  with entries ≥ 0), `SLCEBasis` (carries its spec in the `spec` field), `SLCEDataset`
   (energy design matrix `X_E`, and the
   torque design matrix `X_T` via the four-argument form; supports `length`,
   configuration slicing `dataset[idx]` — integer/`Bool`/`:` — and `vcat` of
   same-fingerprint parts, all without recomputing design rows; the
   `SpinDatum`/source path rejects a zero moment on a basis-referenced atom),
-  `SCEPredictor`/`SCEFit`
-  (plus the public constructor `SCEPredictor(basis, j0, jphi)` for synthetic models —
+  `SLCEModel`/`SLCEFit`
+  (plus the public constructor `SLCEModel(basis, j0, jphi)` for synthetic models —
   keys filled in from the basis),
-  `fit(SCEFit, dataset, estimator; torque_weight)`, `refit(f, estimator; threshold)`
+  `fit(SLCEFit, dataset, estimator; torque_weight)`, `refit(f, estimator; threshold)`
   (re-solve on the scaled-magnitude support of `f` — the de-biasing step after a sparse
   fit; shares `_assemble_problem` with `fit`), `predict_energy`/`predict_torque`,
   `coef`/`intercept`/`nobs`/`dof`/`r2_energy`/`rmse_energy`/`r2_torque`/`rmse_torque`/
   `rss_energy`/`rss_torque`/`residuals_energy`/`residuals_torque`/`has_torque` (energy and
-  torque blocks reported separately; `SCEFit.residuals` stores the energy residual).
+  torque blocks reported separately; `SLCEFit.residuals` stores the energy residual).
   The generics `coef`/`fit`/`nobs`/`dof`/`coeftable`/`islinear`/`predict`/`residuals`/`r2`
   **extend StatsAPI** (imported, not shadowed); `predict`/`residuals`/`r2` are thin
   wrappers defaulting to the energy block (`predict_energy`/`residuals_energy`/`r2_energy`).
@@ -148,8 +148,8 @@ capability consumed by both the introspection and the Sunny interop.
   Heisenberg closed form), energy+torque co-fit recovers an in-span model.
 
 ### persistence + TOML input (M10)
-- **Persistence** (`io/persist.jl`): `SCEFitting.save(path, x)` and
-  `SCEFitting.load(SCEBasis | SCEPredictor, path)` serialize a self-contained,
+- **Persistence** (`io/persist.jl`): `SLCE.save(path, x)` and
+  `SLCE.load(SLCEBasis | SLCEModel, path)` serialize a self-contained,
   human-readable **TOML** document — the crystal, the space-group ops, the basis spec
   (document key `"spec"`; schema version 2 renamed it from `"interaction"`, version 3
   stores the resolved truncation — per-body `cutoff` matrices, `lsum`, labels — and
@@ -164,13 +164,13 @@ capability consumed by both the introspection and the Sunny interop.
   `save` / `load` are **unexported** (call qualified) to avoid clashing with
   `FileIO`/`JLD2`.
 - **TOML input** (`io/input.jl`): `read_setup(path) -> (; crystal, spec, backend, tol, images)`
-  and `SCEBasis(path::AbstractString; backend, tol, images)` build a basis from a human-authored
+  and `SLCEBasis(path::AbstractString; backend, tol, images)` build a basis from a human-authored
   `input.toml` (`[structure]` inline crystal, `[interaction]` with optional `images`
   (`"minimum_image"` default / `"all_images"`) and `cutoff = inf` for the full WS
   cell, optional `[symmetry]`);
   keyword arguments override the file's backend/tol. Training data and the estimator
   stay in Julia (mirrors the basis/data separation).
-- **Tabular results** (`sce/coeftable.jl`): `coeftable(fit | model) -> SCECoefficients`
+- **Tabular results** (`slce/coeftable.jl`): `coeftable(fit | model) -> SCECoefficients`
   is a **Tables.jl** source — one row per SALC (`body`, `orbit_id`, `ls` as a comma
   string, `Lf`, `block`, `J`) — so it drops into `DataFrame` / `CSV.write` /
   `Arrow.write`. The library owns the internal-storage → labeled-row mapping; the caller
@@ -179,12 +179,12 @@ capability consumed by both the introspection and the Sunny interop.
 - **DFT data sources** (`io/dftsource.jl`): the **code-agnostic boundary only** —
   `SpinDatum` (energy + spin directions + magmoms + constraining field + the derived
   torque target `τ_a = m_a × B_a`, the physical / Landau–Lifshitz torque) and
-  `read_configs(src::AbstractDFTSource) -> Vector{SpinDatum}`, with `SCEDataset(basis, src)`
-  going source → dataset. The **concrete per-code adapters live in the `SCETools.jl`
-  package** (`SCETools.VASP`: `read_poscar`/`write_poscar`, `Oszicar` with SAXIS rotation,
+  `read_configs(src::AbstractDFTSource) -> Vector{SpinDatum}`, with `SLCEDataset(basis, src)`
+  going source → dataset. The **concrete per-code adapters live in the `SLCETools.jl`
+  package** (`SLCETools.VASP`: `read_poscar`/`write_poscar`, `Oszicar` with SAXIS rotation,
   and the INCAR writer), not in the core. Adding a DFT code is one sibling adapter there —
   neither the core nor its export list changes; the VASP parsers are cross-checked bit-for-bit
-  against Magesty in SCETools's oracle. The one in-core concrete format is Magesty's
+  against Magesty in SLCETools's oracle. The one in-core concrete format is Magesty's
   code-agnostic EMBSET training set (`io/embset.jl`): `read_embset` + the `EmbsetFile`
   source, cross-checked against `Magesty.read_embset` in this package's oracle.
 - Validated: basis / model / fit round-trips (predictions bit-identical, coefficients
@@ -192,7 +192,7 @@ capability consumed by both the introspection and the Sunny interop.
   parsing + defaults + keyword overrides + error paths.
 
 ### Sunny.jl export (M11)
-- **Bilinear extraction core** (`sce/bilinear.jl`, dependency-free): `_l1_pair_matrix` /
+- **Bilinear extraction core** (`slce/bilinear.jl`, dependency-free): `_l1_pair_matrix` /
   `_l2_onsite_matrix` turn a folded tesseral tensor into a Cartesian exchange / single-ion
   matrix (`eₐ'·M·e_b = Σ folded·Z·Z`, via the `Harmonics.N1`/`A2`/`B2` tesseral constants);
   `_classify_salc` keeps only `ls=[1,1]` pairs and `ls=[2]`
@@ -203,7 +203,7 @@ capability consumed by both the introspection and the Sunny interop.
   the supercell matrices onto the chemical primitive cell recovered from the
   pure translations (one Sunny bond per primitive bond, a `clean` flag for the fallback),
   plus the `to_sunny` entry point (a friendly "load Sunny" error without the extension).
-- **Extension** (`ext/SCEFittingSunnyExt`, loaded by `using Sunny`):
+- **Extension** (`ext/SLCESunnyExt`, loaded by `using Sunny`):
   `to_sunny(model; spins, g = 2, mode = :auto, scaling = :auto, placement = :auto)
   -> Sunny.System` builds a real `System`
   (`set_exchange_at!`/`set_onsite_coupling_at!` on the supercell, or
@@ -221,15 +221,15 @@ capability consumed by both the introspection and the Sunny interop.
   the skip warning).
 
 ### Fitted-model introspection (M12)
-- **Public, stable contract** (`sce/introspect.jl`): `multipole_terms(model) ->
-  Vector{MultipoleTerm}` is the code-neutral view downstream packages (the `SCETools.jl`
+- **Public, stable contract** (`slce/introspect.jl`): `multipole_terms(model) ->
+  Vector{MultipoleTerm}` is the code-neutral view downstream packages (the `SLCETools.jl`
   mean-field samplers) read **instead of** the SALC-basis internals (`SALCMember` /
   `SALCTerm`). Each `MultipoleTerm` carries the raw fitted `coef = jϕ`, the cluster
   `atoms` / `shifts`, the per-site `ls`, and the `folded` tensor; the per-`N` scale
   `(4π)^(body/2)` is **left to the consumer** (applied in exactly one place, the
   `_energy_from_terms` reconstruction gate). `bilinear_terms(model)` is the thin public
   wrapper of the general Cartesian bilinear / single-ion extraction `_bilinear_terms`
-  (`sce/bilinear.jl`).
+  (`slce/bilinear.jl`).
 - Validated: `test/unit/test_introspect.jl` (the terms reconstruct `predict_energy − j0`).
 
 ### Regularized estimators (M12)
@@ -240,7 +240,7 @@ capability consumed by both the introspection and the Sunny interop.
   smoother in the converged-weight sense). `PrecomputedPilot(beta)` — adapter returning a
   fixed coefficient vector (length-checked against `size(X, 2)`), for reuse as an
   `AdaptiveLasso` pilot.
-- **GLMNet-backed types in core, solve in extension** (`ext/SCEFittingGLMNetExt`,
+- **GLMNet-backed types in core, solve in extension** (`ext/SLCEGLMNetExt`,
   loaded by `using GLMNet`): `ElasticNet(; alpha, lambda, standardize, nfolds, select,
   seed, nlambda)`, `Lasso(; …)` (= `alpha = 1`), and `AdaptiveLasso(; pilot, lambda, gamma,
   epsilon, standardize, …)`. Named and dispatched on without the dependency; argument
@@ -332,7 +332,7 @@ capability consumed by both the introspection and the Sunny interop.
 
 ## Oracle environment (`test/oracle/`)
 
-A separate Julia env (`[sources]`-deving both `SCEFitting` and a pinned
+A separate Julia env (`[sources]`-deving both `SLCE` and a pinned
 `Magesty.jl`) cross-checks convention-fixed kernels and gauge-invariant
 aggregates / predictions against Magesty. The core suite never depends on
 Magesty. Run: `julia --project=test/oracle test/oracle/runtests.jl`.

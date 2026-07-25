@@ -1,6 +1,6 @@
 using Test
-using SCEFitting
-using SCEFitting: _assemble_spacegroup, evaluate_salc
+using SLCE
+using SLCE: _assemble_spacegroup, evaluate_salc
 using StaticArrays
 using LinearAlgebra
 using Random
@@ -177,20 +177,20 @@ end
     end
 
     @testset "end-to-end: energy+torque co-fit recovers an in-span 3-body model" begin
-        # wrap the manual-symmetry basis in an SCEBasis (default constructor)
-        sceb = SCEBasis(crystal, sg, basis, BasisSpec(; nbody = 3, cutoff = 2.2, lmax = [2]))
+        # wrap the manual-symmetry basis in an SLCEBasis (default constructor)
+        sceb = SLCEBasis(crystal, sg, basis, BasisSpec(; nbody = 3, cutoff = 2.2, lmax = [2]))
         m = n_salcs(sceb)
         rng = MersenneTwister(9)
         configs = [_rcfg3(rng, 3) for _ = 1:120]
-        skel = SCEDataset(sceb, configs, zeros(length(configs)))
+        skel = SLCEDataset(sceb, configs, zeros(length(configs)))
         true_jphi = randn(rng, m)
         true_j0 = 0.25
         energies = true_j0 .+ skel.X_E * true_jphi
-        model0 = SCEPredictor(sceb, true_j0, true_jphi, sceb.salc_basis.keys)
+        model0 = SLCEModel(sceb, true_j0, true_jphi, sceb.salc_basis.keys)
         torques = [predict_torque(model0, c) for c in configs]
 
-        ds = SCEDataset(sceb, configs, energies, torques)
-        f = fit(SCEFit, ds, OLS(); torque_weight = 0.3)
+        ds = SLCEDataset(sceb, configs, energies, torques)
+        f = fit(SLCEFit, ds, OLS(); torque_weight = 0.3)
         @test isapprox(coef(f), true_jphi; atol = 1e-6)
         @test isapprox(intercept(f), true_j0; atol = 1e-6)
         @test r2_energy(f) ≈ 1.0 atol = 1e-9
@@ -198,7 +198,7 @@ end
 
         # torque is the exact gradient of the fitted energy surface (multi-term path)
         for c in configs[1:5]
-            @test isapprox(predict_torque(f, c), _torque_fd3(SCEPredictor(f), c); atol = 1e-5)
+            @test isapprox(predict_torque(f, c), _torque_fd3(SLCEModel(f), c); atol = 1e-5)
         end
     end
 

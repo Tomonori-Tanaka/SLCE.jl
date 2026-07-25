@@ -1,13 +1,13 @@
-using SCEFitting
+using SLCE
 import Spglib   # activates the SpglibBackend extension for the executed `@example` blocks
 using Documenter
 
-DocMeta.setdocmeta!(SCEFitting, :DocTestSetup, :(using SCEFitting);
+DocMeta.setdocmeta!(SLCE, :DocTestSetup, :(using SLCE);
                     recursive = true)
 
 makedocs(;
-    sitename = "SCEFitting.jl",
-    modules = [SCEFitting],
+    sitename = "SLCE.jl",
+    modules = [SLCE],
     # Local-only build: there is no published remote yet, so do not try to resolve
     # "edit on GitHub" / source links. Add a `repolink`/`deploydocs` when a remote exists.
     remotes = nothing,
@@ -35,7 +35,7 @@ makedocs(;
         ],
         "Theory" => [
             "theory/index.md",
-            "theory/sce.md",
+            "theory/slce.md",
             "theory/resolvability.md",
             "theory/architecture.md",
         ],

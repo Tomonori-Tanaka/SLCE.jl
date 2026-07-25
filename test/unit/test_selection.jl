@@ -1,6 +1,6 @@
 using Test
-using SCEFitting
-using SCEFitting: solve_coefficients, salc_groups, group_costs, cost_weights
+using SLCE
+using SLCE: solve_coefficients, salc_groups, group_costs, cost_weights
 using LinearAlgebra
 using Statistics
 using Random
@@ -25,7 +25,7 @@ end
         @test est.group_weights == [1.0, 2.0]
         @test est.group_sizes == [2, 1]
         @test est.epsilon === 1e-8 && est.max_iter === 50 && est.tol === 1e-6
-        @test SCEFitting.islinear(est)
+        @test SLCE.islinear(est)
 
         # invalid scalars
         @test_throws ArgumentError GroupAdaptiveRidge([1], [1.0]; lambda = -1.0)
@@ -111,9 +111,9 @@ end
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     # NoSymmetry (P1): anisotropic basis with several (orbit, ls) groups split into
     # Lf/block channels, plus a small isotropic basis for by-hand entry counting
-    basis = SCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
+    basis = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
                                         isotropy = false))
-    small = SCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
+    small = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
                                         isotropy = true))
 
     @testset "salc_groups: contiguous labels matching (body, orbit_id, ls) runs" begin
@@ -206,26 +206,26 @@ end
         nconf = 30
         configs = [Matrix(randcfg(rng, 2)) for _ = 1:nconf]
         energies = randn(rng, nconf)
-        ds = SCEDataset(small, configs, energies)
-        X, y, _, _, _ = SCEFitting._assemble_problem(ds, 0.0)
+        ds = SLCEDataset(small, configs, energies)
+        X, y, _, _, _ = SLCE._assemble_problem(ds, 0.0)
         n = size(X, 1)
         @test n > size(X, 2)                       # overdetermined fixture
 
         lam = 0.3
-        fr = fit(SCEFit, ds, Ridge(; lambda = lam))
+        fr = fit(SLCEFit, ds, Ridge(; lambda = lam))
         Hr = X * ((X' * X + lam * I) \ X')
         @test effective_dof(fr) ≈ tr(Hr) + 1 rtol = 1e-8
         rss_r = sum(abs2, y .- X * coef(fr))
         @test gcv(fr) ≈ n * rss_r / (n - (tr(Hr) + 1))^2 rtol = 1e-8
 
         # adaptive members: converged weights recomputed from the fitted coefficients
-        fa = fit(SCEFit, ds, AdaptiveRidge(; lambda = 1e-3))
+        fa = fit(SLCEFit, ds, AdaptiveRidge(; lambda = 1e-3))
         Da = Diagonal(1.0 ./ (coef(fa) .^ 2 .+ 1e-8))
         Ha = X * ((X' * X + 1e-3 * Da) \ X')
         @test effective_dof(fa) ≈ tr(Ha) + 1 rtol = 1e-8
 
         glabels = salc_groups(small)
-        fg = fit(SCEFit, ds, GroupAdaptiveRidge(glabels, ones(maximum(glabels));
+        fg = fit(SLCEFit, ds, GroupAdaptiveRidge(glabels, ones(maximum(glabels));
                                                 lambda = 1e-3))
         beta = coef(fg)
         wg = [1.0 / (sum(abs2, beta[glabels .== glabels[j]]) +
@@ -234,7 +234,7 @@ end
         @test effective_dof(fg) ≈ tr(Hg) + 1 rtol = 1e-8
         @test gcv(fg) ≈ n * sum(abs2, y .- X * beta) / (n - (tr(Hg) + 1))^2 rtol = 1e-8
 
-        fo = fit(SCEFit, ds, OLS())
+        fo = fit(SLCEFit, ds, OLS())
         @test effective_dof(fo) ≈ rank(X) + 1
         @test isfinite(gcv(fo))
     end
@@ -245,21 +245,21 @@ end
         configs = [Matrix(randcfg(rng, 2)) for _ = 1:nconf]
         # an in-span group-sparse target: a pure-noise target would drive the adaptive
         # fit to interpolation (df → n) and the GCV guard to Inf by design
-        ds0 = SCEDataset(basis, configs, zeros(nconf))
+        ds0 = SLCEDataset(basis, configs, zeros(nconf))
         btrue = zeros(n_salcs(basis))
         btrue[1:3] .= [0.5, -0.3, 0.2]
         energies = 0.7 .+ ds0.X_E * btrue .+ 0.001 .* randn(rng, nconf)
-        ds = SCEDataset(basis, configs, energies)   # p = n_salcs(basis) > 12 rows
+        ds = SLCEDataset(basis, configs, energies)   # p = n_salcs(basis) > 12 rows
         @test n_salcs(basis) > nconf
-        f = fit(SCEFit, ds, GroupAdaptiveRidge(basis; lambda = 1e-2))
+        f = fit(SLCEFit, ds, GroupAdaptiveRidge(basis; lambda = 1e-2))
         @test effective_dof(f) - 1 < nconf
         @test isfinite(gcv(f))
         # near-interpolating: the guard returns Inf instead of a meaningless score
         # (column centering makes the rows sum to zero, so rank ≤ n − 1 and df + 1 → n)
-        fni = fit(SCEFit, ds, Ridge(; lambda = 1e-14))
+        fni = fit(SLCEFit, ds, Ridge(; lambda = 1e-14))
         @test gcv(fni) == Inf
         # non-linear estimators are rejected
-        fp = fit(SCEFit, ds, PrecomputedPilot(zeros(n_salcs(basis))))
+        fp = fit(SLCEFit, ds, PrecomputedPilot(zeros(n_salcs(basis))))
         @test_throws ArgumentError gcv(fp)
         @test_throws ArgumentError effective_dof(fp)
     end
@@ -270,15 +270,15 @@ end
         configs = [Matrix(randcfg(rng, 2)) for _ = 1:nconf]
         energies = randn(rng, nconf)
         torques = [randn(rng, 3, 2) for _ = 1:nconf]
-        ds = SCEDataset(small, configs, energies, torques)
-        f = fit(SCEFit, ds, Ridge(; lambda = 0.1); torque_weight = 0.3)
+        ds = SLCEDataset(small, configs, energies, torques)
+        f = fit(SLCEFit, ds, Ridge(; lambda = 0.1); torque_weight = 0.3)
         @test isfinite(gcv(f))
         @test effective_dof(f) > 1
     end
 
     # --- λ path + Pareto selection --------------------------------------------------
     @testset "_select_pareto rule" begin
-        sp = SCEFitting._select_pareto
+        sp = SLCE._select_pareto
         scores = [1.0, 1.02, 1.5]
         costs = [100.0, 40.0, 10.0]
         @test sp(scores, costs, 0.05) == 2      # 1.02 within 5% of 1.0, cheaper
@@ -295,13 +295,13 @@ end
     rngp = MersenneTwister(41)
     nconf_p = 40
     configs_p = [Matrix(randcfg(rngp, 2)) for _ = 1:nconf_p]
-    ds0_p = SCEDataset(basis, configs_p, zeros(nconf_p))
+    ds0_p = SLCEDataset(basis, configs_p, zeros(nconf_p))
     labels_p = salc_groups(basis)
     btrue_p = zeros(n_salcs(basis))
     btrue_p[labels_p .== 1] .= 0.4
     btrue_p[labels_p .== 3] .= -0.25
     energies_p = 0.3 .+ ds0_p.X_E * btrue_p .+ 0.005 .* randn(rngp, nconf_p)
-    ds_p = SCEDataset(basis, configs_p, energies_p)
+    ds_p = SLCEDataset(basis, configs_p, energies_p)
     est_p = GroupAdaptiveRidge(basis; lambda = 1.0)   # template λ is ignored
 
     @testset "select_fit: warm-started path matches cold fits" begin
@@ -314,14 +314,14 @@ end
         for i in (2, 4)
             est_i = GroupAdaptiveRidge(est_p.column_groups, est_p.group_weights;
                                        lambda = path.lambda[i])
-            fc = fit(SCEFit, ds_p, est_i)
+            fc = fit(SLCEFit, ds_p, est_i)
             @test isapprox(path.score[i], gcv(fc); rtol = 1e-4)
             @test isapprox(path.edof[i], effective_dof(fc); rtol = 1e-4)
         end
         # the selected fit is the cold fit at the selected λ, byte-for-byte
         est_s = GroupAdaptiveRidge(est_p.column_groups, est_p.group_weights;
                                    lambda = path.lambda[path.selected])
-        @test path.fit.jphi == fit(SCEFit, ds_p, est_s).jphi
+        @test path.fit.jphi == fit(SLCEFit, ds_p, est_s).jphi
         # the selected row's score/edof are re-derived from that cold fit, so the
         # displayed row is self-consistent (not the warm path value)
         @test path.score[path.selected] ≈ gcv(path.fit) rtol = 1e-12
@@ -351,7 +351,7 @@ end
         @test r2_energy(fr) > 0.95
         # predicted cost at the selected point matches an independent recomputation
         # from the returned fit and threshold
-        X, _, _, _, _ = SCEFitting._assemble_problem(ds_p, 0.0)
+        X, _, _, _, _ = SLCE._assemble_problem(ds_p, 0.0)
         cn = [norm(X[:, j]) for j = 1:size(X, 2)]
         cg = group_costs(basis, labels_p)
         aliveg = unique(labels_p[[j for j in eachindex(path.fit.jphi)
@@ -394,7 +394,7 @@ end
         @test_throws ArgumentError select_fit(ds_p, est_p; lambdas = [1.0],
                                               torque_weight = 0.5)   # no torque data
         # too few resampling units for grouped CV
-        ds_tiny = SCEDataset(basis, configs_p[1:5], energies_p[1:5])
+        ds_tiny = SLCEDataset(basis, configs_p[1:5], energies_p[1:5])
         @test_throws ArgumentError select_fit(ds_tiny, est_p; lambdas = [1.0, 0.1],
                                               criterion = :cv)
     end
@@ -402,7 +402,7 @@ end
     @testset "select_support: threshold-swept refit front" begin
         ds_tr2 = ds_p[1:30]
         ds_ev = ds_p[31:40]                       # held-out evaluation slice
-        f = fit(SCEFit, ds_tr2, GroupAdaptiveRidge(basis; lambda = 1e-4))
+        f = fit(SLCEFit, ds_tr2, GroupAdaptiveRidge(basis; lambda = 1e-4))
         sp = select_support(f; thresholds = 8, evalset = ds_ev)
 
         nt = length(sp.threshold)
@@ -449,7 +449,7 @@ end
 
         # the auto grid: midpoints between distinct magnitudes + the 0.0 anchor;
         # exact ties collapse (tied groups die together, no empty-support point)
-        st = SCEFitting._support_thresholds
+        st = SLCE._support_thresholds
         @test st(5, [3.0, 2.0, 1.0]) == [2.5, 1.5, 0.0]
         @test st(4, [2.0]) == [0.0]                       # G = 1 → anchor only
         @test st(9, [1.0, 1.0, 0.5]) == [0.75, 0.0]       # tie: no t = 1.0 point
@@ -460,16 +460,16 @@ end
         cfg_s = [Matrix(randcfg(rngs, 2)) for _ = 1:12]
         en_s = randn(rngs, 12)
         tq_s = [randn(rngs, 3, 2) for _ = 1:12]
-        ds_cofit = SCEDataset(small, cfg_s, en_s, tq_s)
+        ds_cofit = SLCEDataset(small, cfg_s, en_s, tq_s)
         glab = salc_groups(small)
-        fco = fit(SCEFit, ds_cofit, GroupAdaptiveRidge(glab, ones(maximum(glab));
+        fco = fit(SLCEFit, ds_cofit, GroupAdaptiveRidge(glab, ones(maximum(glab));
                                                        lambda = 1e-3);
                   torque_weight = 0.4)
         spc = select_support(fco; thresholds = 3)
         @test all(isfinite, spc.rmse_torque)
         @test length(spc.threshold) == 1        # single-group basis: grid collapses
         @test_throws ArgumentError select_support(fco;
-                                                  evalset = SCEDataset(small, cfg_s, en_s))
+                                                  evalset = SLCEDataset(small, cfg_s, en_s))
 
         # validation errors
         @test_throws ArgumentError select_support(f; delta = -0.1)
@@ -479,7 +479,7 @@ end
         @test_throws ArgumentError select_support(f; costs = [1.0])
         @test_throws ArgumentError select_support(f; estimator = PrecomputedPilot(
             zeros(n_salcs(basis))))
-        ds_other = SCEDataset(small, [Matrix(randcfg(rngs, 2)) for _ = 1:4],
+        ds_other = SLCEDataset(small, [Matrix(randcfg(rngs, 2)) for _ = 1:4],
                               randn(rngs, 4))
         @test_throws ArgumentError select_support(f; evalset = ds_other)
     end
@@ -489,10 +489,10 @@ end
         rngc = MersenneTwister(67)
         nconf_c = 12
         cfg_c = [Matrix(randcfg(rngc, 2)) for _ = 1:nconf_c]
-        ds0_c = SCEDataset(small, cfg_c, zeros(nconf_c))
+        ds0_c = SLCEDataset(small, cfg_c, zeros(nconf_c))
         en_c = 0.2 .+ ds0_c.X_E * fill(0.3, n_salcs(small)) .+
                0.01 .* randn(rngc, nconf_c)
-        ds_c = SCEDataset(small, cfg_c, en_c)
+        ds_c = SLCEDataset(small, cfg_c, en_c)
 
         cv = cross_validate(ds_c, OLS(); nfolds = 3)
         @test cv.nfolds == 3 && cv.seed == 1 && cv.torque_weight == 0.0
@@ -504,9 +504,9 @@ end
         @test cv.pooled_score ≈ cv.pooled_rmse_energy^2 rtol = 1e-14
 
         # manual reconstruction of one fold: same folds, same fit, same residuals
-        folds_c = SCEFitting._grouped_folds(collect(1:nconf_c), 3, 1)
+        folds_c = SLCE._grouped_folds(collect(1:nconf_c), 3, 1)
         ho1 = findall(==(1), folds_c)
-        f1 = fit(SCEFit, ds_c[findall(!=(1), folds_c)], OLS())
+        f1 = fit(SLCEFit, ds_c[findall(!=(1), folds_c)], OLS())
         h1 = ds_c[ho1]
         @test cv.n_holdout[1] == length(ho1)
         @test cv.rmse_energy[1] ≈
@@ -523,7 +523,7 @@ end
 
         # torque co-fit fixture: both error axes reported, even at torque_weight = 0
         tq_c = [randn(rngc, 3, 2) for _ = 1:nconf_c]
-        ds_ct = SCEDataset(small, cfg_c, en_c, tq_c)
+        ds_ct = SLCEDataset(small, cfg_c, en_c, tq_c)
         cvt = cross_validate(ds_ct, OLS(); torque_weight = 0.4, nfolds = 3)
         @test all(isfinite, cvt.rmse_torque) && isfinite(cvt.pooled_rmse_torque)
         @test cvt.score ≈ 0.6 .* cvt.rmse_energy .^ 2 .+ 0.4 .* cvt.rmse_torque .^ 2

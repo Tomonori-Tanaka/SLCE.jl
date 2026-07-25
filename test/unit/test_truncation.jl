@@ -4,8 +4,8 @@
 # admission (checked against an independent brute force).
 
 using Test
-using SCEFitting
-using SCEFitting: build_neighbor_list, candidate_clusters, cartesian_positions,
+using SLCE
+using SLCE: build_neighbor_list, candidate_clusters, cartesian_positions,
     n_salcs, read_setup, salcs
 using StaticArrays: SVector
 using LinearAlgebra: I, norm
@@ -58,9 +58,9 @@ end
         @test sp.lsum == [0, 4, 4]
         @test BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], lsum = 2).lsum == [2, 2]
         sp2 = BasisSpec(; nbody = 3, cutoff = Inf, lmax = [1], lsum = [2 => 4])
-        @test sp2.lsum == [SCEFitting.LSUM_UNCAPPED, 4, SCEFitting.LSUM_UNCAPPED]
+        @test sp2.lsum == [SLCE.LSUM_UNCAPPED, 4, SLCE.LSUM_UNCAPPED]
         @test BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1]).lsum ==
-              fill(SCEFitting.LSUM_UNCAPPED, 2)
+              fill(SLCE.LSUM_UNCAPPED, 2)
         # body order outside 1:nbody / duplicates / negatives error
         @test_throws ArgumentError BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1],
                                              lsum = [3 => 4])
@@ -111,23 +111,23 @@ end
 
     @testset "_enumerate_ls honors the per-body Σl budget" begin
         perms2 = [[1, 2], [2, 1]]
-        ls = SCEFitting._enumerate_ls(2, [1, 1], [3], 4, perms2)
+        ls = SLCE._enumerate_ls(2, [1, 1], [3], 4, perms2)
         @test sort(ls) == [[1, 1], [1, 3], [2, 2]]        # Σl ≤ 4, even, canonical
         # an over-generous lmax is tightened by the budget, not enumerated
-        @test sort(SCEFitting._enumerate_ls(2, [1, 1], [6], 4, perms2)) ==
+        @test sort(SLCE._enumerate_ls(2, [1, 1], [6], 4, perms2)) ==
               [[1, 1], [1, 3], [2, 2]]
         # uncapped reproduces the plain lmax product
-        @test sort(SCEFitting._enumerate_ls(2, [1, 1], [2], SCEFitting.LSUM_UNCAPPED,
+        @test sort(SLCE._enumerate_ls(2, [1, 1], [2], SLCE.LSUM_UNCAPPED,
                                             perms2)) == [[1, 1], [2, 2]]
         # N = 1: lsum caps the single site
-        @test SCEFitting._enumerate_ls(1, [1], [4], 0, [[1]]) == Vector{Int}[]
-        @test SCEFitting._enumerate_ls(1, [1], [4], 2, [[1]]) == [[2]]
+        @test SLCE._enumerate_ls(1, [1], [4], 0, [[1]]) == Vector{Int}[]
+        @test SLCE._enumerate_ls(1, [1], [4], 2, [[1]]) == [[2]]
     end
 
     @testset "lsum gates on a real basis (bcc, one species)" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
-        build(spec) = SCEBasis(cr, spec)
+        build(spec) = SLCEBasis(cr, spec)
         # lsum = (0, 2) with lmax = 3 ≡ lmax = 1 unrestricted (the l02 equivalence;
         # body1 must be budgeted too — lmax = 1 kills it by parity, lsum by cap)
         b_l1 = build(BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], isotropy = true))
@@ -213,7 +213,7 @@ end
         @test length(c2[3]) == 6                   # body3 unaffected by body2 trim
         # brute force: every ordered anchored N-tuple whose edges all fit their own radii
         function brute(cutoffs)
-            cart = SCEFitting.cartesian_positions(cr)
+            cart = SLCE.cartesian_positions(cr)
             pos(a) = SVector{3,Float64}(cart[1, a], cart[2, a], cart[3, a])
             sp = cr.species
             found = Dict(2 => 0, 3 => 0)
@@ -243,17 +243,17 @@ end
         end
     end
 
-    @testset "SCEBasis end-to-end with per-body cutoffs" begin
+    @testset "SLCEBasis end-to-end with per-body cutoffs" begin
         cr = _trunc_crystal(; a = 4.0)
         # body2 keeps everything, body3 nothing: identical body-2 SALCs to a plain
         # nbody = 2 build, and no 3-body SALCs at all
-        b2 = SCEBasis(cr, BasisSpec(cr; nbody = 2, cutoff = Inf, lmax = ["*" => 1],
+        b2 = SLCEBasis(cr, BasisSpec(cr; nbody = 2, cutoff = Inf, lmax = ["*" => 1],
                                     isotropy = true))
-        b23 = SCEBasis(cr, BasisSpec(cr; nbody = 3, lmax = ["*" => 1], isotropy = true,
+        b23 = SLCEBasis(cr, BasisSpec(cr; nbody = 3, lmax = ["*" => 1], isotropy = true,
                                      cutoff = [2 => Inf, 3 => 0.0]))
         @test [s.key for s in salcs(b23)] == [s.key for s in salcs(b2)]
         # per-pair exclusion at the basis level: no SALC touches an excluded pair
-        bx = SCEBasis(cr, BasisSpec(cr; nbody = 2, lmax = ["*" => 1], isotropy = true,
+        bx = SLCEBasis(cr, BasisSpec(cr; nbody = 2, lmax = ["*" => 1], isotropy = true,
                                     cutoff = ["Nd-B" => 0.0, "*-*" => Inf]))
         sp = cr.species
         @test all(s -> Set(sp[a] for a in s.members[1].atoms) != Set((1, 3)),
@@ -267,14 +267,14 @@ end
                          lmax = ["*" => 1],
                          lsum = [2 => 4],
                          cutoff = [2 => Inf, 3 => ["B-*" => 0.0, "*-*" => 3.7]])
-        b = SCEBasis(cr, spec)
+        b = SLCEBasis(cr, spec)
         path = joinpath(mktempdir(), "trunc.toml")
-        SCEFitting.save(path, b)
-        b2 = SCEFitting.load(SCEBasis, path)
+        SLCE.save(path, b)
+        b2 = SLCE.load(SLCEBasis, path)
         @test b2.spec == spec                       # Inf + LSUM_UNCAPPED + labels intact
         @test n_salcs(b2) == n_salcs(b)
         # a legacy v2 document (scalar pair_cutoff) still loads, expanded
-        doc = SCEFitting._to_doc(SCEBasis(cr, BasisSpec(cr; nbody = 2, cutoff = 3.7,
+        doc = SLCE._to_doc(SLCEBasis(cr, BasisSpec(cr; nbody = 2, cutoff = 3.7,
                                                         lmax = ["*" => 1])))
         doc["schema_version"] = 2
         doc["spec"] = Dict{String,Any}("nbody" => 2, "pair_cutoff" => 3.7,
@@ -283,9 +283,9 @@ end
         open(p2, "w") do io
             TOML.print(io, doc)
         end
-        bl = SCEFitting.load(SCEBasis, p2)
+        bl = SLCE.load(SLCEBasis, p2)
         @test bl.spec.cutoff == [fill(3.7, 3, 3)]
-        @test bl.spec.lsum == fill(SCEFitting.LSUM_UNCAPPED, 2)
+        @test bl.spec.lsum == fill(SLCE.LSUM_UNCAPPED, 2)
     end
 
     @testset "input.toml: new interaction schema" begin

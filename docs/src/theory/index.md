@@ -4,11 +4,11 @@ This section explains *what* the package computes and *why the rebuild is shaped
 it is*. It has three chapters, readable independently:
 
 ```@contents
-Pages = ["sce.md", "resolvability.md", "architecture.md"]
+Pages = ["slce.md", "resolvability.md", "architecture.md"]
 Depth = 2
 ```
 
-- **[The spin-cluster expansion](sce.md)** — the formalism: the energy as a linear model in
+- **[The spin-cluster expansion](slce.md)** — the formalism: the energy as a linear model in
   symmetry-adapted invariants of real spherical harmonics, the design matrix, the fit, and
   the torque as the analytic derivative of the same surface.
 - **[Periodic resolvability](resolvability.md)** — why a finite supercell can only resolve

@@ -1,7 +1,7 @@
 # Case 1: bcc Fe
 
 ```@meta
-CurrentModule = SCEFitting
+CurrentModule = SLCE
 ```
 
 The two previous tutorials fit *synthetic* data on toy lattices. This one is a real
@@ -35,10 +35,10 @@ configurations** were computed.
 !!! note "Producing the data is a separate package"
     Writing the constrained-noncollinear VASP inputs, drawing the mean-field configurations,
     and converting `OSZICAR` outputs into the `EMBSET` training file are the job of the
-    companion package [`SCETools.jl`](https://github.com/Tomonori-Tanaka/SCETools.jl)
-    (`SCETools.VASP` for the I/O, its mean-field sampler for the directions). This page is
+    companion package [`SLCETools.jl`](https://github.com/Tomonori-Tanaka/SLCETools.jl)
+    (`SLCETools.VASP` for the I/O, its mean-field sampler for the directions). This page is
     about the **fitting core**, so it starts from the finished `POSCAR` and `EMBSET` and only
-    needs `SCEFitting` itself.
+    needs `SLCE` itself.
 
 Two files ship with the documentation: the structure ([`POSCAR`](case1_inputs/POSCAR)) and
 the reference data ([`EMBSET`](case1_inputs/EMBSET)). The `EMBSET` holds one block per
@@ -60,11 +60,11 @@ direction ``\hat{\boldsymbol e}_a = \boldsymbol m_a/\lVert\boldsymbol m_a\rVert`
 torque ``\boldsymbol\tau_a = \boldsymbol m_a \times \boldsymbol B_a`` for you.
 
 ```@example case1
-using SCEFitting
+using SLCE
 import Spglib                       # activate the SpglibBackend extension
 using LinearAlgebra
 
-inputs = joinpath(pkgdir(SCEFitting), "docs", "src", "tutorials", "case1_inputs")
+inputs = joinpath(pkgdir(SLCE), "docs", "src", "tutorials", "case1_inputs")
 
 function read_poscar(path)
     lines = readlines(path)
@@ -118,7 +118,7 @@ lattice = Lattice(poscar.lattice)
 crystal = Crystal(lattice, poscar.frac, poscar.kinds, poscar.species)
 
 interaction = BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], isotropy = true)
-basis       = SCEBasis(crystal, interaction; backend = SpglibBackend())
+basis       = SLCEBasis(crystal, interaction; backend = SpglibBackend())
 
 (space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))
 ```
@@ -139,8 +139,8 @@ whose default is a torque fit. (`torque_weight` interpolates: `0.0` is energy-on
 [`fit`](@ref) default — and `1.0` is torque-only.)
 
 ```@example case1
-dataset = SCEDataset(basis, data; use_torque = true)
-f = fit(SCEFit, dataset, OLS(); torque_weight = 1.0)
+dataset = SLCEDataset(basis, data; use_torque = true)
+f = fit(SLCEFit, dataset, OLS(); torque_weight = 1.0)
 
 (n_coef = length(coef(f)), n_configs = nobs(f))
 ```
@@ -206,7 +206,7 @@ carries a factor of one half:
 energy as ``+\hat{\boldsymbol e}_i\cdot M\,\hat{\boldsymbol e}_j``).
 
 ```@example case1
-terms = bilinear_terms(f |> SCEPredictor)
+terms = bilinear_terms(f |> SLCEModel)
 carts = cartesian_positions(crystal)
 A     = lattice.vectors
 
@@ -263,7 +263,7 @@ is rescaled, and is unused here).
 ```@example case1
 using Sunny
 
-model = SCEPredictor(f)
+model = SLCEModel(f)
 sys = to_sunny(model; spins = 1.1, placement = :primitive)   # :auto → :coupling for S_eff = 1.1
 Sunny.polarize_spins!(sys, (0, 0, 1))                        # ferromagnetic ground state
 swt = Sunny.SpinWaveTheory(sys; measure = nothing)

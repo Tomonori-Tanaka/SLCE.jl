@@ -1,6 +1,6 @@
 # Design notes
 
-Why `SCEFitting` is built the way it is — the deliberate refinements over
+Why `SLCE` is built the way it is — the deliberate refinements over
 `Magesty.jl`. Bit-for-bit agreement with Magesty is **not** a goal; these are
 cleaner constructions that are validated to be *physically* correct (symmetry
 invariance, finite differences, known-coupling recovery), and may differ from
@@ -235,7 +235,7 @@ zero-dependency format:
   crystal: `lattice` as a list of the three lattice vectors, fractional `positions`,
   per-atom `species`, `species_labels`), `[interaction]` (`nbody`, `cutoff`, `lsum`,
   per-species `lmax`, `isotropy`), and optional `[symmetry]` (`backend`, `tol`).
-  `SCEBasis("input.toml")` builds the basis; keyword arguments override the file's
+  `SLCEBasis("input.toml")` builds the basis; keyword arguments override the file's
   backend/tol. Like Magesty, training data and the estimator are kept **out** of this
   file (loaded / chosen in Julia) — `input.toml` specifies only what defines the basis.
 - **Persistence** (`io/persist.jl`): a **self-contained** TOML document — the crystal,
@@ -280,11 +280,11 @@ quantity. The same contract is the natural entry point for the reverse direction
 The SCE pipeline must not care which DFT code produced its training data. So the
 code-specific I/O is confined to a single boundary: the only objects the fitting
 machinery consumes are `SpinDatum` (energy + spin directions + moment magnitudes +
-constraining field + the derived torque target) and the `SCEDataset` built from them.
+constraining field + the derived torque target) and the `SLCEDataset` built from them.
 Each DFT code is an `AbstractDFTSource` *adapter* implementing
 `read_configs(src) -> Vector{SpinDatum}`; the concrete adapters live **outside the
-core**, as namespaced submodules of the companion SCETools.jl package
-(`SCETools.VASP`, …), so nothing code-specific reaches the
+core**, as namespaced submodules of the companion SLCETools.jl package
+(`SLCETools.VASP`, …), so nothing code-specific reaches the
 core or its export list. Adding a code is one sibling submodule there — the core's public
 surface does
 not grow as codes multiply, and "once you hold the training data, its origin is
@@ -295,7 +295,7 @@ POSCAR/OSZICAR conventions — including the torque target `τ_a = m_a × B_a` f
 constraining field (the same physical / Landau–Lifshitz torque as the model's
 `predict_torque = −e_a × ∂E/∂e_a`) and the `Rz(α)·Ry(β)` SAXIS rotation — and is
 cross-checked
-bit-for-bit against Magesty's parsers in SCETools's oracle, since real VASP outputs are
+bit-for-bit against Magesty's parsers in SLCETools's oracle, since real VASP outputs are
 not vendored.
 
 ## 10. Oracle methodology
@@ -318,13 +318,13 @@ corrupt a downstream Hamiltonian. Two decisions keep this safe.
 
 **The conversion math lives in the core, the Sunny object in the extension.** Sunny is
 a heavy optional dependency, so the `Sunny.System` assembly is a package extension
-(`ext/SCEFittingSunnyExt`, loaded by `using Sunny`, like the Spglib backend). But the
+(`ext/SLCESunnyExt`, loaded by `using Sunny`, like the Spglib backend). But the
 *numerically delicate* part — turning a folded tesseral tensor into a Cartesian matrix
 with the right normalization (`_l1_pair_matrix = (3/4π)·folded` reproducing
 `eₐ'·M·e_b = Σ folded·Z₁·Z₁`; the traceless-symmetric `_l2_onsite_matrix`), folding the
 two directed cluster members into one matrix per undirected bond, and unfolding the
 supercell onto the primitive cell — all sits in the **core** (the bilinear extraction in
-`sce/bilinear.jl`, the primitive unfold in `interop/sunny.jl`), with no
+`slce/bilinear.jl`, the primitive unfold in `interop/sunny.jl`), with no
 Sunny dependency. It is gated by reconstructing the energy
 (`_reconstruct_energy ≈ predict_energy − j0`) in the main test suite, so the conversion is
 proven correct without ever loading Sunny; the extension only places the core-computed
@@ -362,7 +362,7 @@ couplings matter is the natural next estimator after `OLS`/`Ridge`. GLMNet (the 
 elastic-net) is a heavy, binary-backed dependency, so it follows the §5 pattern exactly:
 the `ElasticNet` / `Lasso` *types* and their argument validation live in the core
 (named, dispatched on, tested without the dependency), and only `solve_coefficients(::
-ElasticNet, …)` lives in `ext/SCEFittingGLMNetExt` behind `using GLMNet`.
+ElasticNet, …)` lives in `ext/SLCEGLMNetExt` behind `using GLMNet`.
 
 The subtle part is the existing estimator contract: `fit` hands `solve_coefficients` a
 **column-centered** `X` and centered `y` and recovers `j0` analytically afterwards, so
@@ -463,7 +463,7 @@ one-standard-error rule, with `δ` an explicit accuracy tolerance instead of a
 fold-noise estimate. Together with `θ` this exposes the full trade surface — sweep `θ`,
 take the lower envelope of the per-θ paths, and the (cost, error) Pareto front is
 explicit rather than implicit in a penalty default. The selected fit is re-solved cold
-at the chosen λ so that `fit(SCEFit, dataset, estimator)` reproduces it verbatim, and
+at the chosen λ so that `fit(SLCEFit, dataset, estimator)` reproduces it verbatim, and
 the de-biasing `refit` closes the workflow.
 
 **Postscript: the threshold is the second knob (`select_support`).** The clean

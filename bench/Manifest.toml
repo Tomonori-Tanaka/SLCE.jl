@@ -183,18 +183,18 @@ deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 version = "1.11.0"
 
-[[deps.SCEFitting]]
+[[deps.SLCE]]
 deps = ["LegendrePolynomials", "LinearAlgebra", "Random", "StaticArrays", "Statistics", "StatsAPI", "TOML", "Tables"]
 path = ".."
 uuid = "854eb3e0-bd75-4c3b-927c-573f5c6d8b1d"
 version = "0.1.0"
 
-    [deps.SCEFitting.extensions]
-    SCEFittingGLMNetExt = "GLMNet"
-    SCEFittingSpglibExt = "Spglib"
-    SCEFittingSunnyExt = "Sunny"
+    [deps.SLCE.extensions]
+    SLCEGLMNetExt = "GLMNet"
+    SLCESpglibExt = "Spglib"
+    SLCESunnyExt = "Sunny"
 
-    [deps.SCEFitting.weakdeps]
+    [deps.SLCE.weakdeps]
     GLMNet = "8d5ece8b-de18-5317-b113-243142960cc6"
     Spglib = "f761d5c5-86db-4880-b97f-9680a7cccfb5"
     Sunny = "2b4a2ac8-8f8b-43e8-abf4-3cb0c45e8736"

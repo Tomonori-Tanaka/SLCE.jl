@@ -82,7 +82,7 @@ Easy to break silently — confirm before touching the algorithm.
   (`test/unit/test_torque.jl`, `test_nbody.jl`): the torque must be the exact (negative
   rotation-) derivative of the energy surface. Change one kernel, re-check the other.
 - **Image selection ↔ neighbor list ↔ cluster edges** (`geometry/neighborlist.jl`,
-  `clusters/enumerate.jl`, `sce/model.jl`): `SCEBasis` threads one `images` value to
+  `clusters/enumerate.jl`, `slce/model.jl`): `SLCEBasis` threads one `images` value to
   **both** `build_neighbor_list` and `candidate_clusters`/`build_clusters`; they must
   agree. `MinimumImage` keeps minimum-image pairs (no `i==j`) and admits a clique edge
   only at its atom-pair minimum-image distance with all atoms distinct; `AllImages` keeps
@@ -90,7 +90,7 @@ Easy to break silently — confirm before touching the algorithm.
   tolerance is relative (`_SAME_DIST_RTOL`) on both sides so a degenerate WS-boundary
   shell is never split. The minimum-image search box is adaptive — change it and re-check
   the skewed-cell test. `images` is **not** persisted (the full SALC basis is stored and
-  reloaded verbatim), so only `read_setup`/`SCEBasis` carry it. **At `N ≥ 3` the clique
+  reloaded verbatim), so only `read_setup`/`SLCEBasis` carry it. **At `N ≥ 3` the clique
   check is on the actual chosen images of *every* pair (not just the anchor edges): a
   cluster is admitted only when all `C(N,2)` edges sit at their atom-pair minimum image
   simultaneously** (the compact-cluster criterion). Having each pair individually
@@ -136,14 +136,14 @@ Easy to break silently — confirm before touching the algorithm.
   not by construction order. The key must stay **injective**: `block` runs across all
   canonical `l`-orderings that share one sorted `ls` label (a proper-subgroup site
   stabilizer splits a degenerate multiset into several ordering orbits — see
-  `test/unit/test_nbody.jl`). `SCEPredictor` re-pairs `jphi` to a basis **by key** on any
+  `test/unit/test_nbody.jl`). `SLCEModel` re-pairs `jphi` to a basis **by key** on any
   reload (positionally paired only within a session); `fingerprint = hash(sorted keys)`
   guards against cross-basis confusion. This reload is realized by persistence
-  (`SCEFitting.load(SCEPredictor, …)` rebuilds `jphi` in basis-key order from the
+  (`SLCE.load(SLCEModel, …)` rebuilds `jphi` in basis-key order from the
   per-`SALCKey` coefficients).
 - **Persistence schema ↔ the serialized structs** (`io/persist.jl`): `_to_doc` /
   `_from_doc` mirror the fields of `Crystal` / `Lattice` / `SpaceGroup` / `BasisSpec`
-  / `SALCKey` / `SALCTerm` / `SALCMember` / `SALC` / `SCEBasis` / `SCEPredictor`. Add or
+  / `SALCKey` / `SALCTerm` / `SALCMember` / `SALC` / `SLCEBasis` / `SLCEModel`. Add or
   rename a field on any of these and both halves (and `test/unit/test_persist.jl`'s
   round-trip) must follow; the space group is rebuilt via `_assemble_spacegroup` from
   the stored fractional ops, and the `UInt64` fingerprint is stored as a string and
@@ -156,16 +156,16 @@ Easy to break silently — confirm before touching the algorithm.
   canonical duplicate-free form; `_basis_from_doc` folds pre-v4 members on load
   (`_canonicalize_members`) — keep that branch alive as long as v3 model files
   circulate, and never write a non-canonical basis.
-- **BasisSpec sugar resolution ↔ canonical consumers** (`sce/truncation.jl`,
-  `sce/model.jl`, `io/input.jl`): the ergonomic forms (label keys, `"*"` wildcards,
+- **BasisSpec sugar resolution ↔ canonical consumers** (`slce/truncation.jl`,
+  `slce/model.jl`, `io/input.jl`): the ergonomic forms (label keys, `"*"` wildcards,
   body-keyed tables, unordered `"A-B"` pair keys, specificity resolution) are expanded
   ONCE, in the `BasisSpec` keyword constructor; everything downstream —
-  `SCEBasis`'s fan-out (`_superset_cutoff` → `build_neighbor_list`,
+  `SLCEBasis`'s fan-out (`_superset_cutoff` → `build_neighbor_list`,
   `cutoff` → `candidate_clusters` per-edge admission, `lsum` → `_enumerate_ls`),
   persistence, `show` — reads only the dense fields. Add a sugar form or change the
   specificity rule → update the TOML reader (`_cutoff_from_input` etc.), the BasisSpec
   docstring, and `test/unit/test_truncation.jl` together.
-- **`coeftable` columns ↔ `SALCKey` fields** (`sce/coeftable.jl`): each result row is
+- **`coeftable` columns ↔ `SALCKey` fields** (`slce/coeftable.jl`): each result row is
   read straight off a `SALCKey` (`body` / `orbit_id` / `ls`→comma string / `Lf` /
   `block`) plus `jphi`; the `J` column pairs with `basis.salc_basis.keys` **positionally**
   (same order as the design matrix). Add or rename a `SALCKey` field → update the row
@@ -177,14 +177,14 @@ Easy to break silently — confirm before touching the algorithm.
   are the physical / Landau–Lifshitz torque `m × B_eff`. Flip one side only and the co-fit
   silently biases; flipping **both** (as done when the package moved from the `+e×∇E`
   energy-rotation-gradient to this `−e×∇E` Landau–Lifshitz convention) leaves `J` unchanged.
-  **DFT-code I/O is confined to `AbstractDFTSource` adapters in the SCETools.jl package**
-  (`SCETools.VASP`), which produce `SpinDatum`s (rotating moments / field from the `SAXIS`
-  frame by `Rz(α)·Ry(β)`); the core consumes only `SpinDatum`/`SCEDataset` and stays
-  DFT-code-agnostic. The VASP parsers are cross-checked against Magesty in SCETools's oracle.
+  **DFT-code I/O is confined to `AbstractDFTSource` adapters in the SLCETools.jl package**
+  (`SLCETools.VASP`), which produce `SpinDatum`s (rotating moments / field from the `SAXIS`
+  frame by `Rz(α)·Ry(β)`); the core consumes only `SpinDatum`/`SLCEDataset` and stays
+  DFT-code-agnostic. The VASP parsers are cross-checked against Magesty in SLCETools's oracle.
   The `SpinDatum` torque sign defined here is the convention source the adapters must match.
-- **Sunny export conversion ↔ the energy reconstruction** (`sce/bilinear.jl` — matrices /
+- **Sunny export conversion ↔ the energy reconstruction** (`slce/bilinear.jl` — matrices /
   extraction / gate — plus `interop/sunny.jl` — primitive unfold — and
-  `ext/SCEFittingSunnyExt.jl`): `_l1_pair_matrix` / `_l2_onsite_matrix` must satisfy
+  `ext/SLCESunnyExt.jl`): `_l1_pair_matrix` / `_l2_onsite_matrix` must satisfy
   `eₐ'·M·e_b = Σ folded·Z·Z` (the gate is the `Z₁`/`Z₂` contraction test; the tesseral
   constants `N1`/`A2`/`B2` are defined once, in `basis/Harmonics.jl`); the per-bond
   matrix is `jϕ·(4π)^(N/2)·M` and the two directed members `(a,b,R)`/`(b,a,−R)` fold into
@@ -196,23 +196,23 @@ Easy to break silently — confirm before touching the algorithm.
   representable — every other channel must be **reported as skipped**, never silently
   dropped. Change a harmonic normalization or the `(4π)^(N/2)` scale → both the matrix
   formulas and the energy gate move together.
-- **Fitted-model introspection ↔ the per-term scale convention** (`sce/introspect.jl`,
+- **Fitted-model introspection ↔ the per-term scale convention** (`slce/introspect.jl`,
   `test/unit/test_introspect.jl`): `multipole_terms` is the **public, stable** view downstream
-  packages (the `SCETools.jl` mean-field samplers) read instead of `model.basis.salc_basis.salcs` /
+  packages (the `SLCETools.jl` mean-field samplers) read instead of `model.basis.salc_basis.salcs` /
   `SALCMember` / `SALCTerm`. It returns the **raw** fitted `jϕ` as `coef` and leaves the per-N
   scale `(4π)^(body/2)` to the consumer — the scale lives in exactly one place (the
   reconstruction gate `_energy_from_terms`), so do **not** also apply it inside
   `multipole_terms`. `bilinear_terms` is a thin public wrapper of the general
-  `_bilinear_terms` extraction (in `sce/bilinear.jl`), so its numerics move with the
+  `_bilinear_terms` extraction (in `slce/bilinear.jl`), so its numerics move with the
   Sunny coupled-site above.
-  Add or rename a `MultipoleTerm` field → update the gate and the `SCETools.jl` consumers
+  Add or rename a `MultipoleTerm` field → update the gate and the `SLCETools.jl` consumers
   (`sce_bridge.jl`).
 - `solve_coefficients(est, X, y; groups)` receives a **column-centered** `X` (⇒ the
   solver adds no intercept; `j0` is recovered analytically in `fit`). Every estimator —
   in-tree or in an extension — must honor this. `groups` (optional) labels rows from the
   same physical sample (in a co-fit, a configuration's energy row and its
   torque-component rows share a label); a resampling estimator (CV-based `ElasticNet` /
-  `Lasso` / `AdaptiveLasso` in `ext/SCEFittingGLMNetExt.jl`) must keep same-label rows
+  `Lasso` / `AdaptiveLasso` in `ext/SLCEGLMNetExt.jl`) must keep same-label rows
   in the same fold so CV does not leak within-configuration structure. The analytic / adapter
   estimators (`OLS` / `Ridge` / `AdaptiveRidge` / `PrecomputedPilot`) ignore it. The GLMNet
   solve uses `intercept = false` + column `standardize` and selects λ by configuration-
@@ -242,7 +242,7 @@ Easy to break silently — confirm before touching the algorithm.
   change `fit`'s objective normalization and both scores must follow.
   `salc_groups`/`group_costs` assume sorted
   `SALCBasis.keys` and canonical (v4) members; the entry key `(atoms, shifts, ls, index)`
-  mirrors what the SCEMonteCarlo adjacency merge folds — change either representation
+  mirrors what the SLCEMonteCarlo adjacency merge folds — change either representation
   and re-check the brute-force union test and the cross-package entry-count script.
 - **`fit` ↔ `refit` share `_assemble_problem`** (`fitting/fit.jl`): the `(X, y, xbar, ybar,
   groups)` centering/whitening assembly lives in one helper so the two build identical
@@ -250,7 +250,7 @@ Easy to break silently — confirm before touching the algorithm.
   pins `fit`'s numerics). `refit` re-solves on the scaled-magnitude support
   `|jϕ_j|·‖X[:,j]‖ > threshold` of an existing fit (a column sub-matrix), so it rejects a
   `PrecomputedPilot`-backed estimator (fixed-length pilot vector ≠ support length).
-  **`SCEFit.residuals` is the energy-only residual** `y_E − (j0 + X_E·jϕ)` (not Magesty's
+  **`SLCEFit.residuals` is the energy-only residual** `y_E − (j0 + X_E·jϕ)` (not Magesty's
   combined whitened residual); the diagnostics report energy and torque blocks separately
   (`residuals_energy` returns the stored vector, `residuals_torque`/`rss_torque` recompute
   `y_T − X_T·jϕ` and validate `has_torque`; `r2_*`/`rmse_*` build on `rss_*`).

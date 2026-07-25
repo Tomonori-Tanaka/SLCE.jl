@@ -1,6 +1,6 @@
 using Test
-using SCEFitting
-using SCEFitting: _assemble_spacegroup, evaluate_salc, _canonicalize_members
+using SLCE
+using SLCE: _assemble_spacegroup, evaluate_salc, _canonicalize_members
 using StaticArrays
 using LinearAlgebra
 using Random

@@ -5,7 +5,7 @@
 # Synthetic, column-centred design matrices (the solver contract: `X` is already
 # centred and adds no intercept). Cheap enough for `@belapsed` sampling.
 
-using SCEFitting
+using SLCE
 include(joinpath(@__DIR__, "fixtures.jl"))      # bench_header, @belapsed, mean, MersenneTwister
 
 bench_header("solve_coefficients — OLS vs Ridge")

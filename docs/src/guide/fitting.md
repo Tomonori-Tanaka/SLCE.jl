@@ -1,32 +1,32 @@
 # Data and fitting
 
 ```@meta
-CurrentModule = SCEFitting
+CurrentModule = SLCE
 ```
 
 With a basis in hand, the second half of the workflow pairs it with DFT data, fits the
-coefficients, and reports how well the fit did. The objects are [`SCEDataset`](@ref),
-[`fit`](@ref) with a pluggable estimator, and [`SCEFit`](@ref) / [`SCEPredictor`](@ref).
+coefficients, and reports how well the fit did. The objects are [`SLCEDataset`](@ref),
+[`fit`](@ref) with a pluggable estimator, and [`SLCEFit`](@ref) / [`SLCEModel`](@ref).
 
 ## Datasets
 
-A [`SCEDataset`](@ref) materializes the energy design matrix `X_E[config, salc] =
+A [`SLCEDataset`](@ref) materializes the energy design matrix `X_E[config, salc] =
 Φ_salc(config)` from a list of spin configurations (each `3 × n_atoms`, unit columns) and
 their energies:
 
 ```julia
-dataset = SCEDataset(basis, configs, energies)
+dataset = SLCEDataset(basis, configs, energies)
 ```
 
 The four-argument form additionally takes per-configuration torques and builds the torque
 design matrix for an energy + torque co-fit:
 
 ```julia
-dataset = SCEDataset(basis, configs, energies, torques)   # torques: each 3 × n_atoms
+dataset = SLCEDataset(basis, configs, energies, torques)   # torques: each 3 × n_atoms
 ```
 
 You can also go straight from a DFT source (see [Persistence and I/O](io.md)):
-`SCEDataset(basis, src)`. On that path every atom the SALC basis references must
+`SLCEDataset(basis, src)`. On that path every atom the SALC basis references must
 carry a nonzero magnetic moment in every configuration — a quenched moment would
 enter the fit through a placeholder direction and silently bias it, so it is an
 error. Species that are genuinely non-magnetic belong outside the basis
@@ -40,10 +40,10 @@ cheap:
 
 ```julia
 train, test = dataset[1:80], dataset[81:end]   # ranges, index vectors, Bool masks, :
-f = fit(SCEFit, train, OLS())
+f = fit(SLCEFit, train, OLS())
 rmse_holdout = sqrt(sum(abs2, predict_energy(f, test.configs) .- test.y_E) / length(test))
 
-more = SCEDataset(basis2, new_configs, new_energies)
+more = SLCEDataset(basis2, new_configs, new_energies)
 dataset = vcat(dataset, more)     # basis2 must be the same basis (fingerprint-checked)
 ```
 
@@ -59,7 +59,7 @@ problem is handed to [`solve_coefficients`](@ref). Every estimator therefore ret
 the slope coefficients and adds no intercept of its own.
 
 ```julia
-f  = fit(SCEFit, dataset, OLS())
+f  = fit(SLCEFit, dataset, OLS())
 J  = coef(f)         # the fitted coefficients jϕ, in SALCKey order
 j0 = intercept(f)    # the reference energy
 ```
@@ -82,7 +82,7 @@ and the torque block by ``\sqrt{w/n_T}``, then stacked. `j0` does not enter the 
 block, so it stays an energy-only quantity.
 
 ```julia
-f = fit(SCEFit, SCEDataset(basis, configs, energies, torques), OLS(); torque_weight = 0.5)
+f = fit(SLCEFit, SLCEDataset(basis, configs, energies, torques), OLS(); torque_weight = 0.5)
 (r2_energy(f), r2_torque(f))
 ```
 
@@ -107,7 +107,7 @@ light penalty and small ones a heavy penalty — iterating drives the small ones
 zero. Each subproblem is the analytic weighted ridge, so it needs no extension:
 
 ```julia
-fit(SCEFit, dataset, AdaptiveRidge(lambda = 1e-3))     # L0-like selection, closed form
+fit(SLCEFit, dataset, AdaptiveRidge(lambda = 1e-3))     # L0-like selection, closed form
 ```
 
 [`GroupAdaptiveRidge`](@ref) is its group extension: all columns of a group share one
@@ -122,11 +122,11 @@ provided by a **GLMNet extension** that lights up under `using GLMNet`:
 ```julia
 using GLMNet                               # activates the estimator extension
 
-fit(SCEFit, dataset, Lasso())                          # CV-selected λ, sparse model
-fit(SCEFit, dataset, Lasso(select = :lambda_1se))      # the parsimonious 1-SE model
-fit(SCEFit, dataset, ElasticNet(alpha = 0.5))          # an L1/L2 mix
-fit(SCEFit, dataset, Lasso(lambda = 1e-3))             # a fixed penalty (no CV)
-fit(SCEFit, dataset, AdaptiveLasso())                  # data-driven reweighted Lasso
+fit(SLCEFit, dataset, Lasso())                          # CV-selected λ, sparse model
+fit(SLCEFit, dataset, Lasso(select = :lambda_1se))      # the parsimonious 1-SE model
+fit(SLCEFit, dataset, ElasticNet(alpha = 0.5))          # an L1/L2 mix
+fit(SLCEFit, dataset, Lasso(lambda = 1e-3))             # a fixed penalty (no CV)
+fit(SLCEFit, dataset, AdaptiveLasso())                  # data-driven reweighted Lasso
 ```
 
 [`ElasticNet`](@ref) minimizes GLMNet's
@@ -145,9 +145,9 @@ pilot defaults to [`OLS`](@ref) but any estimator works, including a
 [`PrecomputedPilot`](@ref) that reuses a prior fit's coefficients:
 
 ```julia
-fit(SCEFit, dataset, AdaptiveLasso(gamma = 1.0))                       # OLS pilot (Zou 2006)
-fit(SCEFit, dataset, AdaptiveLasso(pilot = Ridge(lambda = 1e-4)))      # for ill-conditioned designs
-fit(SCEFit, dataset, AdaptiveLasso(pilot = PrecomputedPilot(coef(prior)), lambda = 1e-3))
+fit(SLCEFit, dataset, AdaptiveLasso(gamma = 1.0))                       # OLS pilot (Zou 2006)
+fit(SLCEFit, dataset, AdaptiveLasso(pilot = Ridge(lambda = 1e-4)))      # for ill-conditioned designs
+fit(SLCEFit, dataset, AdaptiveLasso(pilot = PrecomputedPilot(coef(prior)), lambda = 1e-3))
 ```
 
 It shares `lambda` / `standardize` / CV behavior with [`ElasticNet`](@ref) (`lambda =
@@ -157,7 +157,7 @@ Implementing your own estimator is one method:
 
 ```julia
 struct MyEstimator <: AbstractEstimator end
-SCEFitting.solve_coefficients(::MyEstimator, X, y; groups = nothing) = X \ y  # centered (X, y)
+SLCE.solve_coefficients(::MyEstimator, X, y; groups = nothing) = X \ y  # centered (X, y)
 ```
 
 ## Refitting on a selected support
@@ -168,7 +168,7 @@ keeps the support of an existing fit and re-solves on just those columns — by 
 [`OLS`](@ref), the textbook de-biasing step.
 
 ```julia
-fsparse = fit(SCEFit, dataset, Lasso())     # selects a support (some jϕ exactly zero)
+fsparse = fit(SLCEFit, dataset, Lasso())     # selects a support (some jϕ exactly zero)
 fdebias = refit(fsparse)                     # OLS on that support — unshrunk survivors
 ```
 
@@ -196,10 +196,10 @@ fbest = refit(path.fit; threshold = path.threshold)   # de-bias exactly the aliv
 the effective absolute value at the selected λ, and passing it to [`refit`](@ref)
 realizes exactly the support the path reported.)
 
-The convenience constructor bundles `SCEFitting.salc_groups` (the column → group
-labels) with `SCEFitting.cost_weights`, which sets the fixed per-group weights to
+The convenience constructor bundles `SLCE.salc_groups` (the column → group
+labels) with `SLCE.cost_weights`, which sets the fixed per-group weights to
 ``v_g = \sqrt{p_g}\,(c_g/\bar c)^\theta`` — ``c_g`` being the group's a-priori
-Monte-Carlo cost (its distinct contraction entries, `SCEFitting.group_costs`). Two
+Monte-Carlo cost (its distinct contraction entries, `SLCE.group_costs`). Two
 independent knobs shape the cost–accuracy trade:
 
 - **`theta ∈ [0, 1]`** tilts the *penalty*: `theta = 0` ignores cost (plain group
@@ -225,7 +225,7 @@ evaluation dataset, and applies the same Pareto rule:
 
 ```julia
 train, held = dataset[1:80], dataset[81:100]        # dataset slicing
-f     = fit(SCEFit, train, GroupAdaptiveRidge(basis; lambda = 1e-5, theta = 1.0))
+f     = fit(SLCEFit, train, GroupAdaptiveRidge(basis; lambda = 1e-5, theta = 1.0))
 front = select_support(f; thresholds = 25, evalset = held, delta = 0.05)
 front.fit                                           # the selected de-biased refit
 ```
@@ -261,7 +261,7 @@ or to rank estimators on an equal footing. It differs from
 
 ## Diagnostics
 
-A fitted [`SCEFit`](@ref) answers the usual questions:
+A fitted [`SLCEFit`](@ref) answers the usual questions:
 
 ```julia
 r2_energy(f);  rmse_energy(f)        # in-sample energy R² / RMSE

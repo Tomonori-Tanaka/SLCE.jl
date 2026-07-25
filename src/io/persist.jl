@@ -18,7 +18,7 @@ library — no external dependency; Float64 round-trips exactly) by [`save`](@re
 
 const _SCHEMA_BASIS = "scefitting/sce-basis"
 const _SCHEMA_MODEL = "scefitting/sce-model"
-# v2: the basis-spec section key renamed "interaction" → "spec" (with the SCEBasis field).
+# v2: the basis-spec section key renamed "interaction" → "spec" (with the SLCEBasis field).
 # v3: BasisSpec canonical truncation — "pair_cutoff" replaced by per-body-order
 #     "cutoff" matrices (species × species, Inf = no cutoff), plus "lsum" (per body
 #     order, typemax(Int64) = uncapped) and "species_labels". v2 docs are still
@@ -89,7 +89,7 @@ _spec_doc(sp::BasisSpec) = Dict{String,Any}(
     "isotropy" => sp.isotropy,
     "species_labels" => collect(String, sp.species_labels))
 
-function _basis_doc(b::SCEBasis)
+function _basis_doc(b::SLCEBasis)
     return Dict{String,Any}(
         "crystal" => _crystal_doc(b.crystal),
         "symmetry" => _symmetry_doc(b.spacegroup),
@@ -101,17 +101,17 @@ end
 """
     _to_doc(x) -> Dict{String,Any}
 
-Build the (backend-agnostic) serialization document for an [`SCEBasis`](@ref),
-[`SCEPredictor`](@ref), or [`SCEFit`](@ref). The inverse is `_basis_from_doc` /
+Build the (backend-agnostic) serialization document for an [`SLCEBasis`](@ref),
+[`SLCEModel`](@ref), or [`SLCEFit`](@ref). The inverse is `_basis_from_doc` /
 `_model_from_doc`.
 """
-function _to_doc(b::SCEBasis)
+function _to_doc(b::SLCEBasis)
     d = Dict{String,Any}("schema" => _SCHEMA_BASIS, "schema_version" => PERSIST_SCHEMA_VERSION)
     merge!(d, _basis_doc(b))
     return d
 end
 
-function _to_doc(m::SCEPredictor)
+function _to_doc(m::SLCEModel)
     d = Dict{String,Any}("schema" => _SCHEMA_MODEL, "schema_version" => PERSIST_SCHEMA_VERSION)
     merge!(d, _basis_doc(m.basis))
     d["j0"] = _jnum(m.j0)
@@ -120,7 +120,7 @@ function _to_doc(m::SCEPredictor)
     return d
 end
 
-_to_doc(f::SCEFit) = _to_doc(SCEPredictor(f))
+_to_doc(f::SLCEFit) = _to_doc(SLCEModel(f))
 
 # ----------------------------------------------------------------------------
 # Dict → struct   (accessors work on both Dict{String,Any} and a parsed JSON object)
@@ -224,15 +224,15 @@ function _check_schema(d, allowed::Tuple)
 end
 
 """
-    _basis_from_doc(d) -> SCEBasis
+    _basis_from_doc(d) -> SLCEBasis
 
-Reconstruct an [`SCEBasis`](@ref) from a serialization document (a basis or a model
+Reconstruct an [`SLCEBasis`](@ref) from a serialization document (a basis or a model
 document — the basis part is read either way). The SALCs are rebuilt verbatim from
 their stored tensors (no re-projection); the space group is re-derived from the
 stored fractional ops. The structural `fingerprint` is recomputed locally (the
 stored one is provenance only — `hash` is Julia-version dependent).
 """
-function _basis_from_doc(d)::SCEBasis
+function _basis_from_doc(d)::SLCEBasis
     _check_schema(d, (_SCHEMA_BASIS, _SCHEMA_MODEL))
     crystal = _crystal_from(d["crystal"])
     sg = _symmetry_from(crystal, d["symmetry"])
@@ -254,17 +254,17 @@ function _basis_from_doc(d)::SCEBasis
     allunique(keyvec) ||
         throw(ArgumentError("loaded SALC keys are not injective (duplicate design-matrix columns)"))
     sb = SALCBasis(salcs, keyvec, hash(keyvec))
-    return SCEBasis(crystal, sg, sb, spec)
+    return SLCEBasis(crystal, sg, sb, spec)
 end
 
 """
-    _model_from_doc(d) -> SCEPredictor
+    _model_from_doc(d) -> SLCEModel
 
-Reconstruct an [`SCEPredictor`](@ref) from a model document, re-pairing each stored
+Reconstruct an [`SLCEModel`](@ref) from a model document, re-pairing each stored
 coefficient to the rebuilt basis **by [`SALCKey`](@ref)** (not by position). Errors
 if any basis column lacks a coefficient or the counts disagree.
 """
-function _model_from_doc(d)::SCEPredictor
+function _model_from_doc(d)::SLCEModel
     _check_schema(d, (_SCHEMA_MODEL,))
     basis = _basis_from_doc(d)
     j0 = Float64(d["j0"])
@@ -282,7 +282,7 @@ function _model_from_doc(d)::SCEPredictor
         haskey(coup, k) || throw(ArgumentError("no coefficient for SALC key $k in the file"))
         jphi[i] = coup[k]
     end
-    return SCEPredictor(basis, j0, jphi, copy(keys))
+    return SLCEModel(basis, j0, jphi, copy(keys))
 end
 
 # ----------------------------------------------------------------------------
@@ -292,29 +292,29 @@ end
 """
     save(path_or_io, x)
 
-Serialize an [`SCEBasis`](@ref), [`SCEPredictor`](@ref), or [`SCEFit`](@ref) (a fit is
+Serialize an [`SLCEBasis`](@ref), [`SLCEModel`](@ref), or [`SLCEFit`](@ref) (a fit is
 saved as its model) to `path_or_io` as a self-contained, human-readable TOML
 document. Not exported (the name clashes with FileIO / JLD2 / CSV); call as
-`SCEFitting.save("model.toml", model)`. Inverse: [`load`](@ref SCEFitting.load).
+`SLCE.save("model.toml", model)`. Inverse: [`load`](@ref SLCE.load).
 """
-function save(io::IO, x::Union{SCEBasis,SCEPredictor,SCEFit})
+function save(io::IO, x::Union{SLCEBasis,SLCEModel,SLCEFit})
     TOML.print(io, _to_doc(x))
     return nothing
 end
-save(path::AbstractString, x::Union{SCEBasis,SCEPredictor,SCEFit}) =
+save(path::AbstractString, x::Union{SLCEBasis,SLCEModel,SLCEFit}) =
     (open(io -> save(io, x), path, "w"); nothing)
 
 """
-    load(SCEBasis, path_or_io) -> SCEBasis
-    load(SCEPredictor, path_or_io) -> SCEPredictor
+    load(SLCEBasis, path_or_io) -> SLCEBasis
+    load(SLCEModel, path_or_io) -> SLCEModel
 
-Inverse of [`save`](@ref SCEFitting.save): rebuild a basis or model from a TOML
+Inverse of [`save`](@ref SLCE.save): rebuild a basis or model from a TOML
 document. The SALC basis is reconstructed verbatim (no re-projection); a basis can be
 loaded from a model document too (the coefficients are ignored), and a model load
 re-pairs coefficients to the basis **by key** (not by position). Not exported; call as
-`SCEFitting.load(SCEPredictor, "model.toml")`.
+`SLCE.load(SLCEModel, "model.toml")`.
 """
-load(::Type{SCEBasis}, io::IO)::SCEBasis = _basis_from_doc(TOML.parse(io))
-load(::Type{SCEPredictor}, io::IO)::SCEPredictor = _model_from_doc(TOML.parse(io))
-load(::Type{SCEBasis}, path::AbstractString)::SCEBasis = _basis_from_doc(TOML.parsefile(path))
-load(::Type{SCEPredictor}, path::AbstractString)::SCEPredictor = _model_from_doc(TOML.parsefile(path))
+load(::Type{SLCEBasis}, io::IO)::SLCEBasis = _basis_from_doc(TOML.parse(io))
+load(::Type{SLCEModel}, io::IO)::SLCEModel = _model_from_doc(TOML.parse(io))
+load(::Type{SLCEBasis}, path::AbstractString)::SLCEBasis = _basis_from_doc(TOML.parsefile(path))
+load(::Type{SLCEModel}, path::AbstractString)::SLCEModel = _model_from_doc(TOML.parsefile(path))

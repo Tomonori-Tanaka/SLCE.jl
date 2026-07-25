@@ -1,5 +1,5 @@
 using Test
-using SCEFitting
+using SLCE
 using LinearAlgebra
 using StaticArrays
 
@@ -56,11 +56,11 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
         @test inp.tol == 1.0e-5
     end
 
-    @testset "SCEBasis(path) == building from the same Crystal/BasisSpec" begin
+    @testset "SLCEBasis(path) == building from the same Crystal/BasisSpec" begin
         path = _writetoml(_INPUT_FULL)
-        b_file = SCEBasis(path)
+        b_file = SLCEBasis(path)
         inp = read_setup(path)
-        b_manual = SCEBasis(inp.crystal, inp.spec)
+        b_manual = SLCEBasis(inp.crystal, inp.spec)
         @test b_file.salc_basis.keys == b_manual.salc_basis.keys
         @test n_salcs(b_file) == n_salcs(b_manual)
     end
@@ -75,8 +75,8 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
 
     @testset "keyword arguments override the file's [symmetry]" begin
         path = _writetoml(_INPUT_FULL)
-        @test SCEBasis(path; tol = 1e-3).spacegroup.tol == 1e-3
-        @test SCEBasis(path).spacegroup.tol == 1e-5
+        @test SLCEBasis(path; tol = 1e-3).spacegroup.tol == 1e-3
+        @test SLCEBasis(path).spacegroup.tol == 1e-5
     end
 
     @testset "backend name maps to the requested backend type" begin

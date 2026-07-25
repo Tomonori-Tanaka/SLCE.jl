@@ -5,7 +5,7 @@
 # pinned Magesty dependency the core suite deliberately omits).
 
 using Test
-using SCEFitting
+using SLCE
 using LinearAlgebra
 
 # 2 configs × 3 atoms; atom 1 of config 1 carries an extra (ignored) 8th column,
@@ -68,9 +68,9 @@ const _EMBSET_SAMPLE = """
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2 0.5; 0.0 0.0 0.5; 0.0 0.0 0.5],
                      [1, 1, 2], ["Fe", "B"])
-        basis = SCEBasis(cr, BasisSpec(cr; nbody = 2, cutoff = 1.5,
+        basis = SLCEBasis(cr, BasisSpec(cr; nbody = 2, cutoff = 1.5,
                                        lmax = ["Fe" => 1, "B" => 0], isotropy = true))
-        ds = SCEDataset(basis, src)                  # zero-moment B passes the guard
+        ds = SLCEDataset(basis, src)                  # zero-moment B passes the guard
         @test length(ds) == 2 && has_torque(ds)
         @test ds.y_E == [-12.5, -13.0]
     end

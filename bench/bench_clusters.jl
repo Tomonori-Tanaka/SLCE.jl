@@ -6,7 +6,7 @@
 # costly part, so the default is `nbody = 3` on the 128-atom cell (`n = 4`) with a
 # multi-shell `cutoff = 6.0` Å. Pass `2 2 2.6` for the old first-shell smoke case.
 
-using SCEFitting
+using SLCE
 import Spglib
 include(joinpath(@__DIR__, "fixtures.jl"))
 
@@ -23,8 +23,8 @@ println("atoms = $(n_atoms(cr))")
 sg = analyze_symmetry(SpglibBackend(), cr)
 
 bench_one("build_neighbor_list",
-          () -> build_neighbor_list(cr, SCEFitting._superset_cutoff(spec), MinimumImage()))
-nl = build_neighbor_list(cr, SCEFitting._superset_cutoff(spec), MinimumImage())
+          () -> build_neighbor_list(cr, SLCE._superset_cutoff(spec), MinimumImage()))
+nl = build_neighbor_list(cr, SLCE._superset_cutoff(spec), MinimumImage())
 println("→ neighbour pairs = $(length(nl.pairs))")
 
 bench_one("build_clusters",

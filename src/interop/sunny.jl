@@ -3,11 +3,11 @@ Sunny export — the code-agnostic core.
 
 Sunny.jl represents only **bilinear pair exchange** (a 3×3 matrix per bond) and
 **single-ion anisotropy** (a quadratic form per site), so the export covers exactly
-the two SCE channels the bilinear extraction (`sce/bilinear.jl`,
+the two SCE channels the bilinear extraction (`slce/bilinear.jl`,
 [`_bilinear_terms`](@ref)) produces; every other SALC is skipped and reported.
 This file owns the Sunny-specific half: unfolding the supercell matrices onto the
 chemical primitive cell ([`_sunny_primitive`](@ref)) and the [`to_sunny`](@ref)
-entry point. The actual `Sunny.System` assembly is the thin `SCEFittingSunnyExt`
+entry point. The actual `Sunny.System` assembly is the thin `SLCESunnyExt`
 extension (loaded by `using Sunny`), which consumes these intermediates.
 """
 
@@ -71,7 +71,7 @@ to a primitive bond `(i,j,n)`. Translation-equivalent supercell bonds collapse t
 primitive bond; `clean` records whether every offset is integral and every such group
 agrees (i.e. the model genuinely lives on the primitive cell).
 """
-function _sunny_primitive(model::SCEPredictor)::SunnyPrimitive
+function _sunny_primitive(model::SLCEModel)::SunnyPrimitive
     crystal = model.basis.crystal
     sg = model.basis.spacegroup
     A = crystal.lattice.vectors
@@ -152,7 +152,7 @@ end
 """
     to_sunny(model; spins, g = 2, mode = :auto, scaling = :auto, placement = :auto) -> Sunny.System
 
-Export a fitted [`SCEPredictor`](@ref) to a Sunny.jl `System`. **Requires `using Sunny`**
+Export a fitted [`SLCEModel`](@ref) to a Sunny.jl `System`. **Requires `using Sunny`**
 (the export is a package extension). Only the Sunny-representable channels are
 exported — bilinear pair (`ls=[1,1]`) exchange and single-ion (`ls=[2]`) anisotropy;
 higher-order / higher-`l` SALCs are skipped and reported via `@warn`.
@@ -185,7 +185,7 @@ quantum quadrupole, so single-ion + `:dipole` + `:coupling` is rejected.
 dispersion) when the model maps cleanly, else falls back to the training supercell
 (`:explicit`, exact but folded); `:auto` picks primitive when clean.
 """
-function to_sunny(model::SCEPredictor, args...; kwargs...)
+function to_sunny(model::SLCEModel, args...; kwargs...)
     error("to_sunny requires Sunny.jl; run `using Sunny` first " *
-          "(it activates the SCEFitting Sunny export extension).")
+          "(it activates the SLCE Sunny export extension).")
 end

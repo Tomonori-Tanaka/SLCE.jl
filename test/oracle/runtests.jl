@@ -1,4 +1,4 @@
-# Oracle validation: SCEFitting's from-scratch numerics vs Magesty.jl.
+# Oracle validation: SLCE's from-scratch numerics vs Magesty.jl.
 #
 # Conventions are pinned independently by the core suite (closed forms, on-sphere
 # finite differences). Here we additionally confirm bit-for-bit agreement with
@@ -12,13 +12,13 @@ using Random
 using StaticArrays
 using LinearAlgebra
 using OffsetArrays
-import SCEFitting
+import SLCE
 import Magesty
 import WignerSymbols
-import Spglib   # triggers SCEFittingSpglibExt
+import Spglib   # triggers SLCESpglibExt
 
-const MRH = SCEFitting.Harmonics
-const MRA = SCEFitting.AngularMomentum
+const MRH = SLCE.Harmonics
+const MRA = SLCE.AngularMomentum
 const MTH = Magesty.TesseralHarmonics
 const MTR = Magesty.RotationMatrix
 
@@ -94,10 +94,10 @@ end
     end
 
     @testset "SpglibBackend space groups (M5)" begin
-        Lattice = SCEFitting.Lattice
-        Crystal = SCEFitting.Crystal
-        SpglibBackend = SCEFitting.SpglibBackend
-        analyze = SCEFitting.analyze_symmetry
+        Lattice = SLCE.Lattice
+        Crystal = SLCE.Crystal
+        SpglibBackend = SLCE.SpglibBackend
+        analyze = SLCE.analyze_symmetry
 
         a = 3.0
         sc = Crystal(Lattice(Matrix(a * I(3))), reshape([0.0, 0.0, 0.0], 3, 1), [1], ["X"])
@@ -124,10 +124,10 @@ end
     end
 
     @testset "cluster orbits with Spglib (M6)" begin
-        Lattice = SCEFitting.Lattice
-        Crystal = SCEFitting.Crystal
-        SpglibBackend = SCEFitting.SpglibBackend
-        analyze = SCEFitting.analyze_symmetry
+        Lattice = SLCE.Lattice
+        Crystal = SLCE.Crystal
+        SpglibBackend = SLCE.SpglibBackend
+        analyze = SLCE.analyze_symmetry
         a = 3.0
 
         # simple cubic (1 atom): the nearest-neighbor "bond" is the atom with its own
@@ -136,16 +136,16 @@ end
         # 2-body orbit. Under the default MinimumImage it is dropped: in plain PBC both
         # ends carry the same spin, so it is not independently resolvable from a single
         # atom — a deliberate refinement over Magesty (see CLAUDE.md).
-        MinimumImage = SCEFitting.MinimumImage
-        AllImages = SCEFitting.AllImages
+        MinimumImage = SLCE.MinimumImage
+        AllImages = SLCE.AllImages
         sc = Crystal(Lattice(Matrix(a * I(3))), reshape([0.0, 0.0, 0.0], 3, 1), [1], ["X"])
         sg = analyze(SpglibBackend(), sc)
-        nl_all = SCEFitting.build_neighbor_list(sc, a + 0.1, AllImages())
-        cs_all = SCEFitting.build_clusters(sc, nl_all, sg; nbody = 2, selection = AllImages())
+        nl_all = SLCE.build_neighbor_list(sc, a + 0.1, AllImages())
+        cs_all = SLCE.build_clusters(sc, nl_all, sg; nbody = 2, selection = AllImages())
         @test length(cs_all.by_body[1]) == 1
         @test length(cs_all.by_body[2]) == 1                  # Magesty-consistent (self-pair NN)
-        nl_min = SCEFitting.build_neighbor_list(sc, a + 0.1, MinimumImage())
-        cs_min = SCEFitting.build_clusters(sc, nl_min, sg; nbody = 2, selection = MinimumImage())
+        nl_min = SLCE.build_neighbor_list(sc, a + 0.1, MinimumImage())
+        cs_min = SLCE.build_clusters(sc, nl_min, sg; nbody = 2, selection = MinimumImage())
         @test length(cs_min.by_body[1]) == 1
         @test length(cs_min.by_body[2]) == 0                  # refined: self-pair not resolvable
 
@@ -154,28 +154,28 @@ end
         # sites are equivalent under body-centering.
         bcc = Crystal(Lattice(Matrix(a * I(3))), [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["X"])
         sgb = analyze(SpglibBackend(), bcc)
-        nlb = SCEFitting.build_neighbor_list(bcc, 2.7, MinimumImage())
-        csb = SCEFitting.build_clusters(bcc, nlb, sgb; nbody = 2, selection = MinimumImage())
+        nlb = SLCE.build_neighbor_list(bcc, 2.7, MinimumImage())
+        csb = SLCE.build_clusters(bcc, nlb, sgb; nbody = 2, selection = MinimumImage())
         @test length(csb.by_body[1]) == 1
         @test length(csb.by_body[2]) == 1
     end
 
     @testset "SALC basis on a real chain (M7)" begin
-        Lattice = SCEFitting.Lattice
-        Crystal = SCEFitting.Crystal
-        SpglibBackend = SCEFitting.SpglibBackend
-        analyze = SCEFitting.analyze_symmetry
-        evaluate_salc = SCEFitting.evaluate_salc
+        Lattice = SLCE.Lattice
+        Crystal = SLCE.Crystal
+        SpglibBackend = SLCE.SpglibBackend
+        analyze = SLCE.analyze_symmetry
+        evaluate_salc = SLCE.evaluate_salc
 
         # 4-atom chain along z (so neighboring spins differ)
         lat = Lattice(Matrix(Diagonal([8.0, 8.0, 10.0])))
         frac = [0.0 0.0 0.0 0.0; 0.0 0.0 0.0 0.0; 0.0 0.25 0.5 0.75]
         chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
         sg = analyze(SpglibBackend(), chain)
-        nl = SCEFitting.build_neighbor_list(chain, 2.6)   # nearest neighbors only
-        cs = SCEFitting.build_clusters(chain, nl, sg; nbody = 2)
+        nl = SLCE.build_neighbor_list(chain, 2.6)   # nearest neighbors only
+        cs = SLCE.build_clusters(chain, nl, sg; nbody = 2)
         # full basis including anisotropic (Lf>0) channels
-        basis = SCEFitting.build_salc_basis(chain, sg, cs; lmax_by_species = [2])
+        basis = SLCE.build_salc_basis(chain, sg, cs; lmax_by_species = [2])
         @test any(s -> s.Lf > 0, basis.salcs)   # anisotropic channels present
 
         rng = MersenneTwister(5)
@@ -210,16 +210,16 @@ end
     end
 
     @testset "Heisenberg chain end-to-end: recover J (M8/M9)" begin
-        Lattice = SCEFitting.Lattice
-        Crystal = SCEFitting.Crystal
-        SpglibBackend = SCEFitting.SpglibBackend
+        Lattice = SLCE.Lattice
+        Crystal = SLCE.Crystal
+        SpglibBackend = SLCE.SpglibBackend
 
         lat = Lattice(Matrix(Diagonal([8.0, 8.0, 10.0])))
         frac = [zeros(2, 4); [0.0 0.25 0.5 0.75]]
         chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
-        interaction = SCEFitting.BasisSpec(; nbody = 2, cutoff = 2.6,
+        interaction = SLCE.BasisSpec(; nbody = 2, cutoff = 2.6,
                                                  lmax = [1], isotropy = true)
-        basis = SCEFitting.SCEBasis(chain, interaction; backend = SpglibBackend())
+        basis = SLCE.SLCEBasis(chain, interaction; backend = SpglibBackend())
         @test length(basis.salc_basis) == 1          # only the nearest-neighbor Heisenberg SALC
         heis = basis.salc_basis.salcs[1]
 
@@ -233,12 +233,12 @@ end
         E = [J_true * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
              for c in configs]
 
-        ds = SCEFitting.SCEDataset(basis, configs, E)
-        f = SCEFitting.fit(SCEFitting.SCEFit, ds, SCEFitting.OLS())
-        @test SCEFitting.r2_energy(f) ≈ 1.0 atol = 1e-10
-        @test isapprox(SCEFitting.predict_energy(f, configs), E; atol = 1e-10)
+        ds = SLCE.SLCEDataset(basis, configs, E)
+        f = SLCE.fit(SLCE.SLCEFit, ds, SLCE.OLS())
+        @test SLCE.r2_energy(f) ≈ 1.0 atol = 1e-10
+        @test isapprox(SLCE.predict_energy(f, configs), E; atol = 1e-10)
         # recover J from the SALC coefficient: Φ = 2√3·Σ_{undirected} e_i·e_j
-        J_recovered = 2 * sqrt(3.0) * SCEFitting.coef(f)[1]
+        J_recovered = 2 * sqrt(3.0) * SLCE.coef(f)[1]
         @test isapprox(J_recovered, J_true; rtol = 1e-8)
 
         # torque from the fitted model vs the Heisenberg closed form. With
@@ -255,7 +255,7 @@ end
             return reduce(hcat, cross(SVector{3}(G[:, a]), SVector{3}(c[:, a])) for a = 1:nat)
         end
         for c in configs[1:5]
-            @test isapprox(SCEFitting.predict_torque(f, c), analytic_torque(c, J_true);
+            @test isapprox(SLCE.predict_torque(f, c), analytic_torque(c, J_true);
                            atol = 1e-9)
         end
     end
@@ -290,14 +290,14 @@ end
             magcount[k] = get(magcount, k, 0) + 1
         end
 
-        # SCEFitting: count SALCs per channel.
-        Lattice = SCEFitting.Lattice
-        Crystal = SCEFitting.Crystal
+        # SLCE: count SALCs per channel.
+        Lattice = SLCE.Lattice
+        Crystal = SLCE.Crystal
         xtal = Crystal(Lattice(A), frac, kd, ["Fe"])
-        sg = SCEFitting.analyze_symmetry(SCEFitting.SpglibBackend(), xtal)
-        cs = SCEFitting.build_clusters(xtal, SCEFitting.build_neighbor_list(xtal, cutoff),
+        sg = SLCE.analyze_symmetry(SLCE.SpglibBackend(), xtal)
+        cs = SLCE.build_clusters(xtal, SLCE.build_neighbor_list(xtal, cutoff),
                                            sg; nbody = nbody)
-        basis = SCEFitting.build_salc_basis(xtal, sg, cs; lmax_by_species = [2])
+        basis = SLCE.build_salc_basis(xtal, sg, cs; lmax_by_species = [2])
         mrcount = Dict{Tuple{Int,Vector{Int},Int},Int}()
         for s in basis.salcs
             k = (s.key.body, sort(s.key.ls), s.key.Lf)
@@ -336,8 +336,8 @@ end
         end
     end
 
-    # The VASP POSCAR / OSZICAR parsers moved to SCETools.jl; their bit-for-bit cross-check
-    # against Magesty lives in `SCETools.jl/test/oracle/`.
+    # The VASP POSCAR / OSZICAR parsers moved to SLCETools.jl; their bit-for-bit cross-check
+    # against Magesty lives in `SLCETools.jl/test/oracle/`.
 
     @testset "EMBSET reader vs Magesty" begin
         # Same file through both readers: energies, unit directions, magnitudes, and the
@@ -358,7 +358,7 @@ end
                 end
             end
         end
-        ours = SCEFitting.read_embset(path)
+        ours = SLCE.read_embset(path)
         theirs = Magesty.read_embset(path)
         @test length(ours) == length(theirs) == nconf
         for c = 1:nconf
@@ -381,7 +381,7 @@ end
         # Channel-content mapping (the truncation semantics differ):
         #   Magesty:    body1 lmax = 2 (even l only), body2 lsum = 4 with per-site l
         #               uncapped (partitions of total l ∈ {2, 4} over 2 sites)
-        #   SCEFitting: per-site lmax applies to every body order, so lmax = [3]
+        #   SLCE: per-site lmax applies to every body order, so lmax = [3]
         #               (= lsum₂ − 1, leaves body 2 uncapped) + per-body
         #               lsum = [2, 4] (body 1: even l ≤ 2 ⇒ {2})
         # Both give body-1 {2} and body-2 {(1,1), (1,3), (2,2), (3,1)}.
@@ -389,18 +389,18 @@ end
         frac = [zeros(2, 4); [0.0 0.25 0.5 0.75]]
         rcut = 2.6
 
-        chain = SCEFitting.Crystal(SCEFitting.Lattice(lat_m), frac, [1, 1, 1, 1], ["Fe"])
-        spec = SCEFitting.BasisSpec(; nbody = 2, cutoff = rcut, lmax = [3],
+        chain = SLCE.Crystal(SLCE.Lattice(lat_m), frac, [1, 1, 1, 1], ["Fe"])
+        spec = SLCE.BasisSpec(; nbody = 2, cutoff = rcut, lmax = [3],
                                     lsum = [1 => 2, 2 => 4], isotropy = false)
-        ours_basis = SCEFitting.SCEBasis(chain, spec;
-                                         backend = SCEFitting.SpglibBackend())
-        theirs_basis = Magesty.SCEBasis(;
+        ours_basis = SLCE.SLCEBasis(chain, spec;
+                                         backend = SLCE.SpglibBackend())
+        theirs_basis = Magesty.SLCEBasis(;
             lattice = lat_m, kd = [:Fe], kd_list = [1, 1, 1, 1],
             positions = [frac[:, a] for a = 1:4],
             interaction = (body1 = (lmax = Dict(:Fe => 2),),
                            body2 = (lsum = 4, cutoff = Dict((:Fe, :Fe) => rcut))),
             isotropy = false, verbosity = false)
-        @test SCEFitting.n_salcs(ours_basis) ==
+        @test SLCE.n_salcs(ours_basis) ==
               length(theirs_basis.salcbasis.salc_list)
 
         # Shared EMBSET: unit-magnitude moments so the torque target m × B is
@@ -421,8 +421,8 @@ end
                 end
             end
         end
-        ours_ds = SCEFitting.SCEDataset(ours_basis, SCEFitting.EmbsetFile(path))
-        theirs_ds = Magesty.SCEDataset(theirs_basis, path)
+        ours_ds = SLCE.SLCEDataset(ours_basis, SLCE.EmbsetFile(path))
+        theirs_ds = Magesty.SLCEDataset(theirs_basis, path)
 
         heldout = [reduce(hcat, [runit() for _ = 1:nat]) for _ = 1:5]
 
@@ -430,33 +430,33 @@ end
         # least squares, so the two packages' block-whitening conventions drop out of
         # the argmin; intermediate w would additionally pin the whitening convention
         # and is deliberately not asserted here.
-        f0_ours = SCEFitting.fit(SCEFitting.SCEFit, ours_ds, SCEFitting.OLS();
+        f0_ours = SLCE.fit(SLCE.SLCEFit, ours_ds, SLCE.OLS();
                                  torque_weight = 0.0)
-        f0_theirs = Magesty.fit(Magesty.SCEFit, theirs_ds, Magesty.OLS();
+        f0_theirs = Magesty.fit(Magesty.SLCEFit, theirs_ds, Magesty.OLS();
                                 torque_weight = 0.0)
         for c in heldout
-            @test isapprox(SCEFitting.predict_energy(f0_ours, c),
+            @test isapprox(SLCE.predict_energy(f0_ours, c),
                            Magesty.predict_energy(f0_theirs, c);
                            rtol = 1e-6, atol = 1e-10)
         end
 
-        f1_ours = SCEFitting.fit(SCEFitting.SCEFit, ours_ds, SCEFitting.OLS();
+        f1_ours = SLCE.fit(SLCE.SLCEFit, ours_ds, SLCE.OLS();
                                  torque_weight = 1.0)
-        f1_theirs = Magesty.fit(Magesty.SCEFit, theirs_ds, Magesty.OLS();
+        f1_theirs = Magesty.fit(Magesty.SLCEFit, theirs_ds, Magesty.OLS();
                                 torque_weight = 1.0)
         # Known, deliberate convention difference: Magesty's torque target and
         # prediction use `τ = −m (e × B)` (see its SpinConfig docstring), while
-        # SCEFitting flipped to the physical / Landau–Lifshitz `τ = m × B`
+        # SLCE flipped to the physical / Landau–Lifshitz `τ = m × B`
         # (2026-06-28). Both sides flip target AND predictor, so the fitted
         # function is identical — the intercept and the energy surface agree
         # directly, and the reported torque agrees up to the global sign.
         @test isapprox(f1_ours.j0, Magesty.intercept(f1_theirs);
                        rtol = 1e-10, atol = 1e-12)
         for c in heldout
-            @test isapprox(SCEFitting.predict_energy(f1_ours, c),
+            @test isapprox(SLCE.predict_energy(f1_ours, c),
                            Magesty.predict_energy(f1_theirs, c);
                            rtol = 1e-6, atol = 1e-10)
-            @test isapprox(SCEFitting.predict_torque(f1_ours, c),
+            @test isapprox(SLCE.predict_torque(f1_ours, c),
                            -Magesty.predict_torque(f1_theirs, c);
                            rtol = 1e-6, atol = 1e-10)
         end

@@ -1,7 +1,7 @@
 # Heisenberg chain
 
 ```@meta
-CurrentModule = SCEFitting
+CurrentModule = SLCE
 ```
 
 This tutorial walks the whole pipeline on the simplest non-trivial system: a chain of
@@ -12,7 +12,7 @@ repeat with an energy + torque co-fit.
 ## Setup
 
 ```@example heis
-using SCEFitting
+using SLCE
 import Spglib                       # activate the SpglibBackend extension
 using LinearAlgebra, Random
 
@@ -33,7 +33,7 @@ frac  = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
 chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
 
 interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true)
-basis       = SCEBasis(chain, interaction; backend = SpglibBackend())
+basis       = SLCEBasis(chain, interaction; backend = SpglibBackend())
 
 (space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))
 ```
@@ -50,7 +50,7 @@ using CairoMakie
 CairoMakie.activate!(type = "png")
 
 cart = cartesian_positions(chain)                                  # 3 × 4, sites along z
-nl   = SCEFitting.build_neighbor_list(chain, SCEFitting._superset_cutoff(interaction), MinimumImage())
+nl   = SLCE.build_neighbor_list(chain, SLCE._superset_cutoff(interaction), MinimumImage())
 z    = cart[3, :]
 cell = chain.lattice.vectors[3, 3]                                 # c = 10 Å, the calculation cell
 
@@ -104,13 +104,13 @@ We generate energies from a known coupling ``J_\text{true}`` over random spin
 configurations, then fit with ordinary least squares.
 
 ```@example heis
-heis    = SCEFitting.salcs(basis)[1]   # the Heisenberg SALC (public-unexported: qualify)
+heis    = SLCE.salcs(basis)[1]   # the Heisenberg SALC (public-unexported: qualify)
 J_true  = 0.0137
 configs = [randcfg(4) for _ = 1:40]
 E = [J_true * 0.5 * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
      for c in configs]
 
-f = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
+f = fit(SLCEFit, SLCEDataset(basis, configs, E), OLS())
 J_recovered = 2 * sqrt(3) * coef(f)[1]
 
 (r2 = round(r2_energy(f); digits = 12), J_true, J_recovered)
@@ -139,7 +139,7 @@ function heis_torque(c, J)
 end
 torques = [heis_torque(c, J_true) for c in configs]
 
-fc = fit(SCEFit, SCEDataset(basis, configs, E, torques), OLS(); torque_weight = 0.5)
+fc = fit(SLCEFit, SLCEDataset(basis, configs, E, torques), OLS(); torque_weight = 0.5)
 (r2_energy = round(r2_energy(fc); digits = 12), r2_torque = round(r2_torque(fc); digits = 12))
 ```
 

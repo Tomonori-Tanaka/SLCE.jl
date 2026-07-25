@@ -1,5 +1,5 @@
 # Fitted-model introspection — a stable, code-neutral view of the multipole terms of a
-# fitted SCE. Downstream packages (e.g. the mean-field samplers in `SCETools.jl`) consume
+# fitted SCE. Downstream packages (e.g. the mean-field samplers in `SLCETools.jl`) consume
 # the fitted Hamiltonian through this surface instead of reaching into the SALC-basis
 # internals (`model.basis.salc_basis.salcs`, `SALCMember` / `SALCTerm` fields), so the basis
 # representation can evolve without breaking them. The general per-term dump is
@@ -9,7 +9,7 @@
 """
     MultipoleTerm
 
-One multipole term of a fitted [`SCEPredictor`](@ref): the **raw** fitted coefficient
+One multipole term of a fitted [`SLCEModel`](@ref): the **raw** fitted coefficient
 `coef = jϕ_k` (the per-N scale `(4π)^(body/2)` is *not* applied — apply it once, at the
 consumer, from `body`), the cluster `body` order, the member `atoms` and their periodic
 `shifts`, the per-site angular momenta `ls`, and the rank-`body` real coefficient tensor
@@ -33,10 +33,10 @@ end
 
 # The number of atoms in the (training-cell) crystal the model was fitted on (a method of
 # the exported `n_atoms`, so downstream consumers need not reach into `model.basis.crystal`).
-n_atoms(model::SCEPredictor)::Int = n_atoms(model.basis.crystal)
+n_atoms(model::SLCEModel)::Int = n_atoms(model.basis.crystal)
 
 """
-    multipole_terms(model::SCEPredictor) -> Vector{MultipoleTerm}
+    multipole_terms(model::SLCEModel) -> Vector{MultipoleTerm}
 
 A code-neutral, flat view of a fitted SCE: one [`MultipoleTerm`](@ref) per cluster member
 and `l`-ordering of every SALC with a nonzero coefficient. This is the stable public
@@ -44,7 +44,7 @@ contract a downstream consumer (a mean-field sampler, an energy evaluator, …) 
 *instead of* the SALC-basis internals; the per-N scale `(4π)^(body/2)` is left for the
 consumer to apply once, so the returned `coef` is exactly the fitted `jϕ`.
 """
-function multipole_terms(model::SCEPredictor)::Vector{MultipoleTerm}
+function multipole_terms(model::SLCEModel)::Vector{MultipoleTerm}
     salcs = model.basis.salc_basis.salcs
     out = MultipoleTerm[]
     @inbounds for k in eachindex(model.jphi)
@@ -61,7 +61,7 @@ function multipole_terms(model::SCEPredictor)::Vector{MultipoleTerm}
 end
 
 """
-    bilinear_terms(model::SCEPredictor)
+    bilinear_terms(model::SLCEModel)
 
 The bilinear pair (`ls=[1,1]`: Heisenberg + Dzyaloshinskii–Moriya + symmetric-anisotropic)
 and single-ion (`ls=[2]`) channels of a fitted SCE, extracted as Cartesian `3×3` matrices
@@ -78,7 +78,7 @@ Reuses the same validated tesseral→Cartesian conversion as the Sunny export
 ([`to_sunny`](@ref)); the higher-order channels it lists are kept by the full
 [`multipole_terms`](@ref) view.
 """
-function bilinear_terms(model::SCEPredictor)
+function bilinear_terms(model::SLCEModel)
     t = _bilinear_terms(model)
     return (; pairs = t.pairs, onsites = t.onsites, skipped = t.skipped)
 end

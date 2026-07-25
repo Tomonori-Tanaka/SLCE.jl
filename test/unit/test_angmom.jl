@@ -1,5 +1,5 @@
 using Test
-using SCEFitting: AngularMomentum, Harmonics
+using SLCE: AngularMomentum, Harmonics
 using StaticArrays
 using LinearAlgebra
 using Random
@@ -90,7 +90,7 @@ const Dreal = AngularMomentum.wignerD_real
         # U^{(l)}: Z_l^m = Σ_{m'} U[m,m'] Y_l^{m'}, indexed row/col = m+l+1.
         # Convention-independent anchor (does not use the Magesty oracle).
         for l = 0:3
-            U = SCEFitting.AngularMomentum.c2r_matrix(l)
+            U = SLCE.AngularMomentum.c2r_matrix(l)
             ix(m) = m + l + 1
             ref = zeros(ComplexF64, 2l + 1, 2l + 1)
             ref[ix(0), ix(0)] = 1

@@ -1,5 +1,5 @@
 using Test
-using SCEFitting
+using SLCE
 using Tables
 using LinearAlgebra
 using Random
@@ -8,10 +8,10 @@ using Random
     rng = MersenneTwister(5)
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    basis = SCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false))
+    basis = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false))
     m = n_salcs(basis)
     configs = [(E = randn(rng, 3, 2); E ./ sqrt.(sum(abs2, E; dims = 1))) for _ = 1:40]
-    f = fit(SCEFit, SCEDataset(basis, configs, randn(rng, 40)), OLS())
+    f = fit(SLCEFit, SLCEDataset(basis, configs, randn(rng, 40)), OLS())
     c = coeftable(f)
 
     @testset "Tables.jl interface + schema" begin
@@ -59,13 +59,13 @@ using Random
         @test coef(c) == f.jphi
         @test intercept(c) === f.j0
         # fit and its model give the same table
-        cm = coeftable(SCEPredictor(f))
+        cm = coeftable(SLCEModel(f))
         @test Tables.columntable(cm) == Tables.columntable(c)
     end
 
     @testset "empty model" begin
-        eb = SCEBasis(crystal, BasisSpec(; nbody = 1, cutoff = 0.1, lmax = [0]))
-        ce = coeftable(SCEPredictor(eb, 0.5, Float64[], eb.salc_basis.keys))
+        eb = SLCEBasis(crystal, BasisSpec(; nbody = 1, cutoff = 0.1, lmax = [0]))
+        ce = coeftable(SLCEModel(eb, 0.5, Float64[], eb.salc_basis.keys))
         @test length(ce) == 0
         @test Tables.istable(typeof(ce))
         ct = Tables.columntable(ce)
@@ -83,7 +83,7 @@ using Random
         one = repr(c)
         @test occursin("$m terms", one) && occursin("j0=", one)
         # a short table prints no truncation marker
-        short = coeftable(SCEPredictor(basis, 0.0, zeros(m)[1:1], basis.salc_basis.keys[1:1]))
+        short = coeftable(SLCEModel(basis, 0.0, zeros(m)[1:1], basis.salc_basis.keys[1:1]))
         @test !occursin("more", sprint(show, MIME("text/plain"), short))
     end
 

@@ -1,4 +1,4 @@
-# Sunny-export validation: build a Sunny.System from a fitted SCEPredictor and confirm
+# Sunny-export validation: build a Sunny.System from a fitted SLCEModel and confirm
 # its classical energy reproduces the SCE energy. Runs in a separate environment
 # (heavy Sunny dependency), mirroring `test/oracle/`. The conversion math itself is
 # already covered Sunny-free in `test/unit/test_sunny.jl`; here we check the actual
@@ -8,11 +8,11 @@ using Test
 using Random
 using LinearAlgebra
 using StaticArrays
-import SCEFitting
-import Sunny   # triggers SCEFittingSunnyExt
-import Spglib  # triggers SCEFittingSpglibExt (real space groups for the unfold)
+import SLCE
+import Sunny   # triggers SLCESunnyExt
+import Spglib  # triggers SLCESpglibExt (real space groups for the unfold)
 
-const MR = SCEFitting
+const MR = SLCE
 
 _rdir(rng) = (v = randn(rng, 3); v / norm(v))
 _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
@@ -39,9 +39,9 @@ end
     rng = MersenneTwister(1)
 
     @testset "bilinear exchange: energy matches across modes and spins" begin
-        b = MR.SCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
+        b = MR.SLCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
                                             isotropy = false))
-        model = MR.SCEPredictor(b, 0.5, randn(rng, MR.n_salcs(b)), b.salc_basis.keys)
+        model = MR.SLCEModel(b, 0.5, randn(rng, MR.n_salcs(b)), b.salc_basis.keys)
         @test energy_error(model, 1.5, :dipole_uncorrected) < 1e-10
         @test energy_error(model, 1.0, :dipole) < 1e-10            # exchange is mode-independent
         @test energy_error(model, 2.5, :dipole) < 1e-10           # and spin-length-independent
@@ -49,47 +49,47 @@ end
 
     @testset "single-ion anisotropy: classical and quantum-mode energies" begin
         cr1 = MR.Crystal(lat, reshape([0.0, 0, 0], 3, 1), [1], ["Fe"])
-        bo = MR.SCEBasis(cr1, MR.BasisSpec(; nbody = 1, cutoff = 1.5, lmax = [2],
+        bo = MR.SLCEBasis(cr1, MR.BasisSpec(; nbody = 1, cutoff = 1.5, lmax = [2],
                                              isotropy = false))
-        mo = MR.SCEPredictor(bo, 0.0, randn(rng, MR.n_salcs(bo)), bo.salc_basis.keys)
+        mo = MR.SLCEModel(bo, 0.0, randn(rng, MR.n_salcs(bo)), bo.salc_basis.keys)
         @test energy_error(mo, 1.5, :dipole_uncorrected) < 1e-10
         @test energy_error(mo, 1.0, :dipole) < 1e-10              # s ≥ 1: quantum factor exact
         @test_throws ErrorException MR.to_sunny(mo; spins = 0.5, mode = :dipole)   # spin-1/2 guard
     end
 
     @testset "explicit (supercell) placement: energy matches" begin
-        b = MR.SCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
+        b = MR.SLCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
                                             isotropy = false))
-        model = MR.SCEPredictor(b, 0.3, randn(rng, MR.n_salcs(b)), b.salc_basis.keys)
+        model = MR.SLCEModel(b, 0.3, randn(rng, MR.n_salcs(b)), b.salc_basis.keys)
         @test energy_error(model, 1.5, :dipole_uncorrected; placement = :explicit) < 1e-10
     end
 
     @testset "pair + single-ion together (supported channels) match" begin
         # lmax=[2] also brings unsupported ls=[2,2] pairs; zero those so the exported
         # System and the model carry the same energy, then check consistency.
-        b = MR.SCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
+        b = MR.SLCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
                                             isotropy = false))
         keys = b.salc_basis.keys
         jphi = randn(rng, MR.n_salcs(b))
         for k in eachindex(keys)
             MR._classify_salc(keys[k].ls) === :unsupported && (jphi[k] = 0.0)
         end
-        model = MR.SCEPredictor(b, 0.2, jphi, keys)
+        model = MR.SLCEModel(b, 0.2, jphi, keys)
         @test energy_error(model, 1.5, :dipole_uncorrected) < 1e-10
     end
 
     @testset "unsupported channels trigger a warning" begin
-        b = MR.SCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
+        b = MR.SLCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
                                             isotropy = false))
-        model = MR.SCEPredictor(b, 0.0, ones(MR.n_salcs(b)), b.salc_basis.keys)
+        model = MR.SLCEModel(b, 0.0, ones(MR.n_salcs(b)), b.salc_basis.keys)
         @test_logs (:warn,) match_mode = :any MR.to_sunny(model; spins = 1.5,
                                                           mode = :dipole_uncorrected)
     end
 
     @testset "spins as a per-species mapping" begin
-        b = MR.SCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
+        b = MR.SLCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
                                             isotropy = true))
-        model = MR.SCEPredictor(b, 0.0, [0.01], b.salc_basis.keys)
+        model = MR.SLCEModel(b, 0.0, [0.01], b.salc_basis.keys)
         @test energy_error(model, Dict("Fe" => 1.5), :dipole_uncorrected) < 1e-10
     end
 
@@ -113,9 +113,9 @@ end
     end
 
     @testset "spin scaling routes (:moment / :coupling)" begin
-        b = MR.SCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
+        b = MR.SLCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
                                             isotropy = false))
-        model = MR.SCEPredictor(b, 0.5, randn(rng, MR.n_salcs(b)), b.salc_basis.keys)
+        model = MR.SLCEModel(b, 0.5, randn(rng, MR.n_salcs(b)), b.salc_basis.keys)
         # :coupling carries S_eff in the couplings; energy is rescaled by 1/S. Works for a
         # NON-half-integer S_eff (1.1) that Sunny's `Moment` (the :moment route) rejects.
         @test coupling_energy_error(model, 1.1, :dipole_uncorrected) < 1e-10
@@ -130,9 +130,9 @@ end
         # Single-ion: the placeholder Moment can carry the classical (uncorrected) term,
         # but not the quantum (:dipole) quadrupole — that combination is rejected.
         cr1 = MR.Crystal(lat, reshape([0.0, 0, 0], 3, 1), [1], ["Fe"])
-        bo = MR.SCEBasis(cr1, MR.BasisSpec(; nbody = 1, cutoff = 1.5, lmax = [2],
+        bo = MR.SLCEBasis(cr1, MR.BasisSpec(; nbody = 1, cutoff = 1.5, lmax = [2],
                                              isotropy = false))
-        mo = MR.SCEPredictor(bo, 0.0, randn(rng, MR.n_salcs(bo)), bo.salc_basis.keys)
+        mo = MR.SLCEModel(bo, 0.0, randn(rng, MR.n_salcs(bo)), bo.salc_basis.keys)
         @test coupling_energy_error(mo, 1.1, :dipole_uncorrected) < 1e-10
         @test_throws ErrorException MR.to_sunny(mo; spins = 1.1, scaling = :coupling,
                                                 mode = :dipole)
@@ -142,10 +142,10 @@ end
         spg = MR.SpglibBackend()
         lat3 = MR.Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
         crc = MR.Crystal(lat3, [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75], [1, 1, 1, 1], ["Fe"])
-        bc = MR.SCEBasis(crc, MR.BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1],
+        bc = MR.SLCEBasis(crc, MR.BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1],
                                              isotropy = true); backend = spg)
         # Ferromagnetic nearest-neighbor coupling: aligned spins are the ground state.
-        mc = MR.SCEPredictor(bc, 0.0, [-0.02], bc.salc_basis.keys)
+        mc = MR.SLCEModel(bc, 0.0, [-0.02], bc.salc_basis.keys)
 
         function chain_dispersion(S, scaling)
             sys = MR.to_sunny(mc; spins = S, scaling = scaling, placement = :primitive)
@@ -200,9 +200,9 @@ end
         # 4-atom chain = 4× a 1-atom primitive chain
         lat = MR.Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
         crc = MR.Crystal(lat, [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75], [1, 1, 1, 1], ["Fe"])
-        bc = MR.SCEBasis(crc, MR.BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1],
+        bc = MR.SLCEBasis(crc, MR.BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1],
                                              isotropy = false); backend = spg)
-        mc = MR.SCEPredictor(bc, 0.5, randn(rng, MR.n_salcs(bc)), bc.salc_basis.keys)
+        mc = MR.SLCEModel(bc, 0.5, randn(rng, MR.n_salcs(bc)), bc.salc_basis.keys)
         me, prim = primitive_energy_error(mc, 1.5, :dipole_uncorrected)
         @test prim.clean && length(prim.positions) == 1
         @test me < 1e-10
@@ -210,9 +210,9 @@ end
         # bcc conventional (2 atoms) = 2× a 1-atom primitive
         latb = MR.Lattice(Matrix(3.0 * I(3)))
         crb = MR.Crystal(latb, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
-        bb = MR.SCEBasis(crb, MR.BasisSpec(; nbody = 2, cutoff = 2.7, lmax = [1],
+        bb = MR.SLCEBasis(crb, MR.BasisSpec(; nbody = 2, cutoff = 2.7, lmax = [1],
                                              isotropy = false); backend = spg)
-        mb = MR.SCEPredictor(bb, 0.0, randn(rng, MR.n_salcs(bb)), bb.salc_basis.keys)
+        mb = MR.SLCEModel(bb, 0.0, randn(rng, MR.n_salcs(bb)), bb.salc_basis.keys)
         meb, primb = primitive_energy_error(mb, 2.0, :dipole)
         @test primb.clean
         @test meb < 1e-10
@@ -223,9 +223,9 @@ end
         crs = MR.Crystal(MR.Lattice([6.0 0 0; 0 6.0 0; 0 0 3.0]),
                          [0.0 0.5 0.0 0.5; 0.0 0.0 0.5 0.5; 0.0 0.0 0.0 0.0],
                          [1, 1, 1, 1], ["Fe"])
-        bs = MR.SCEBasis(crs, MR.BasisSpec(; nbody = 2, cutoff = 3.1, lmax = [1],
+        bs = MR.SLCEBasis(crs, MR.BasisSpec(; nbody = 2, cutoff = 3.1, lmax = [1],
                                              isotropy = true); backend = spg)
-        ms = MR.SCEPredictor(bs, 0.0, [0.01], bs.salc_basis.keys)
+        ms = MR.SLCEModel(bs, 0.0, [0.01], bs.salc_basis.keys)
         sys = MR.to_sunny(ms; spins = 1.5)                # default placement/mode: must not throw
         @test sys isa Sunny.System
         mes, prims = primitive_energy_error(ms, 1.5, :dipole_uncorrected)

@@ -1,14 +1,14 @@
 # Building the basis
 
 ```@meta
-CurrentModule = SCEFitting
+CurrentModule = SLCE
 ```
 
 The first half of the workflow turns a crystal and an interaction specification into a
 symmetry-adapted SALC basis — the fixed set of invariants ``\Phi_\varphi`` whose
 coefficients the fit will recover. This page covers the four ingredients:
 [`Crystal`](@ref), [`BasisSpec`](@ref), the periodic image selection, and the symmetry
-backend, all assembled by [`SCEBasis`](@ref).
+backend, all assembled by [`SLCEBasis`](@ref).
 
 ## Geometry: `Lattice` and `Crystal`
 
@@ -16,7 +16,7 @@ A [`Lattice`](@ref) holds the cell vectors as columns; a [`Crystal`](@ref) adds
 fractional atomic positions, integer species labels, and per-species names.
 
 ```@example basis
-using SCEFitting
+using SLCE
 import Spglib
 
 lat = Lattice([3.0 0 0; 0 3.0 0; 0 0 3.0])           # columns are the cell vectors aᵢ
@@ -84,13 +84,13 @@ cutoff and is reserved for the (future) spin-spiral / generalized-Bloch path.
 
 ```@example basis
 # `build_neighbor_list` is public but unexported — call it qualified.
-nl = SCEFitting.build_neighbor_list(cr, Inf, MinimumImage())   # full Wigner–Seitz cell
+nl = SLCE.build_neighbor_list(cr, Inf, MinimumImage())   # full Wigner–Seitz cell
 length([p for p in nl.pairs if (p.i, p.j) == (1, 2)])  # the 8-fold body-diagonal corner tie
 ```
 
 This is a load-bearing distinction with subtleties at the cell boundary (and for `N ≥ 3`
 clusters); it has its own chapter, [Periodic resolvability](../theory/resolvability.md).
-You rarely call `build_neighbor_list` directly — `SCEBasis` threads the selection through
+You rarely call `build_neighbor_list` directly — `SLCEBasis` threads the selection through
 for you — but `cutoff = Inf` in the `BasisSpec` is how you ask for the whole cell.
 
 ## Symmetry backends
@@ -104,7 +104,7 @@ products onto the space-group-invariant SALCs. The backend is pluggable:
   Provided by an extension: `import Spglib` activates it.
 
 ```@example basis
-basis = SCEBasis(cr, interaction; backend = SpglibBackend())
+basis = SLCEBasis(cr, interaction; backend = SpglibBackend())
 (basis.spacegroup.symbol, basis.spacegroup.number, n_salcs(basis))
 ```
 
@@ -128,9 +128,9 @@ construction's last step folds the members into a **canonical, duplicate-free fo
 one term per site→`l` assignment — so evaluation, model files, and downstream
 consumers pay for each instance exactly once.
 
-## What `SCEBasis` produces
+## What `SLCEBasis` produces
 
-[`SCEBasis`](@ref) bundles the crystal, the space group, the SALC basis, and the
+[`SLCEBasis`](@ref) bundles the crystal, the space group, the SALC basis, and the
 spec it was built from (the `spec` field). Each basis function is a [`SALC`](@ref)
 addressed by a canonical
 [`SALCKey`](@ref) — a stable identity (body order, orbit, sorted `l`-multiset, `Lf`,

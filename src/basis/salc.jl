@@ -165,7 +165,7 @@ Evaluate `Φ(e)` for a single (super)cell spin configuration `e` (`3 × n_atoms`
 unit columns). Periodic with the cell, so lattice shifts map back to the same
 column (`site(a, R) → a`). Hot loops may pass `cache` — either a reusable
 `Vector{Float64}` (the dnPl recursion workspace of the cache-threaded
-`Harmonics.Zlm_unsafe`) or a full `SCEFitting.SALCScratch` (dnPl workspace plus
+`Harmonics.Zlm_unsafe`) or a full `SLCE.SALCScratch` (dnPl workspace plus
 the per-site harmonic tables, removing every per-term allocation); values are
 identical in all three forms.
 """

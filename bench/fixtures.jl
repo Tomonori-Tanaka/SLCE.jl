@@ -1,13 +1,13 @@
-# Shared fixtures and timing helpers for the SCEFitting benchmark scripts.
+# Shared fixtures and timing helpers for the SLCE benchmark scripts.
 #
 # `include`d (not `import`ed) by each bench/bench_*.jl. Each script does
-# `using SCEFitting` first; this file then layers the fixtures and the small
+# `using SLCE` first; this file then layers the fixtures and the small
 # `@timed`/`@allocations` harness on top. Mirrors the standalone-script style of
 # Magesty.jl/bench (no package coupling) while keeping the common pieces DRY.
 
-using SCEFitting
+using SLCE
 # Public (unexported) staging functions the stage-level benches drive directly.
-using SCEFitting: analyze_symmetry, build_neighbor_list, build_clusters, build_salc_basis
+using SLCE: analyze_symmetry, build_neighbor_list, build_clusters, build_salc_basis
 using LinearAlgebra: norm
 using Statistics: median, mean
 using Printf: @printf

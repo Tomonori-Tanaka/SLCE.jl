@@ -6,7 +6,7 @@
 # (`w > 0`), together with the centering constants `xbar`/`ybar` (for the analytic `j0`)
 # and the per-row resampling-unit `groups`. Shared by `fit` and `refit` so the two build
 # byte-identical designs.
-function _assemble_problem(dataset::SCEDataset, w::Float64)
+function _assemble_problem(dataset::SLCEDataset, w::Float64)
     X_E = dataset.X_E
     y_E = dataset.y_E
     xbar = vec(mean(X_E; dims = 1))
@@ -32,7 +32,7 @@ function _assemble_problem(dataset::SCEDataset, w::Float64)
 end
 
 """
-    fit(SCEFit, dataset, estimator; torque_weight = 0.0) -> SCEFit
+    fit(SLCEFit, dataset, estimator; torque_weight = 0.0) -> SLCEFit
 
 Fit the SCE coefficients. The energy design matrix is column-centered, so the
 reference energy `j0` is recovered analytically as `mean(y_E − X_E·jϕ)`
@@ -40,7 +40,7 @@ reference energy `j0` is recovered analytically as `mean(y_E − X_E·jϕ)`
 `solve_coefficients`.
 
 With `torque_weight = w ∈ (0, 1]` and a torque-carrying `dataset` (see
-[`SCEDataset`](@ref)), the fit minimizes the per-sample-normalized objective
+[`SLCEDataset`](@ref)), the fit minimizes the per-sample-normalized objective
 
     L = (1 − w)·MSE_energy + w·MSE_torque
 
@@ -55,24 +55,24 @@ configuration's energy row and its torque-component rows are never split across 
 train/holdout boundary, which would otherwise leak within-configuration structure
 into the CV estimate and bias λ selection.
 """
-function fit(::Type{SCEFit}, dataset::SCEDataset, estimator::AbstractEstimator;
-             torque_weight::Real = 0.0)::SCEFit
+function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator;
+             torque_weight::Real = 0.0)::SLCEFit
     isempty(dataset.y_E) && throw(ArgumentError("dataset has no observations"))
     w = Float64(torque_weight)
     (0.0 <= w <= 1.0) || throw(ArgumentError("torque_weight must be in [0, 1]; got $w"))
     if w > 0 && !has_torque(dataset)
         throw(ArgumentError("torque_weight = $w but the dataset has no torque data; " *
-                            "build it with SCEDataset(basis, configs, energies, torques)"))
+                            "build it with SLCEDataset(basis, configs, energies, torques)"))
     end
     X, y, xbar, ybar, groups = _assemble_problem(dataset, w)
     jphi = solve_coefficients(estimator, X, y; groups = groups)
     j0 = ybar - dot(xbar, jphi)
     residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
-    return SCEFit(dataset, j0, jphi, estimator, residuals, w)
+    return SLCEFit(dataset, j0, jphi, estimator, residuals, w)
 end
 
 """
-    refit(f::SCEFit, estimator = OLS(); threshold = 0.0) -> SCEFit
+    refit(f::SLCEFit, estimator = OLS(); threshold = 0.0) -> SLCEFit
 
 Re-fit on the **support** of an existing fit `f` — the classic de-biasing step that
 follows a sparse fit: select the basis functions a regularized estimator kept, then
@@ -95,8 +95,8 @@ A [`PrecomputedPilot`](@ref) (or an [`AdaptiveLasso`](@ref) whose pilot is one) 
 rejected: its fixed coefficient vector has the original column count, not the refit
 support length, and is meaningless once a support has been chosen.
 """
-function refit(f::SCEFit, estimator::AbstractEstimator = OLS();
-               threshold::Real = 0.0)::SCEFit
+function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
+               threshold::Real = 0.0)::SLCEFit
     threshold >= 0 || throw(ArgumentError("refit threshold must be ≥ 0; got $threshold"))
     _reject_precomputed_pilot(estimator)
     dataset = f.dataset
@@ -121,7 +121,7 @@ function refit(f::SCEFit, estimator::AbstractEstimator = OLS();
     end
     j0 = ybar - dot(xbar, jphi)
     residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
-    return SCEFit(dataset, j0, jphi, estimator, residuals, w)
+    return SLCEFit(dataset, j0, jphi, estimator, residuals, w)
 end
 
 # A `PrecomputedPilot` carries a fixed, full-design coefficient vector. `refit` and
@@ -148,11 +148,11 @@ function _reject_precomputed_pilot(e::AbstractEstimator)
 end
 
 """
-    SCEPredictor(f::SCEFit) -> SCEPredictor
+    SLCEModel(f::SLCEFit) -> SLCEModel
 
 Extract the lightweight predictor from a fit.
 """
-SCEPredictor(f::SCEFit) = SCEPredictor(f.dataset.basis, f.j0, f.jphi, f.dataset.basis.salc_basis.keys)
+SLCEModel(f::SLCEFit) = SLCEModel(f.dataset.basis, f.j0, f.jphi, f.dataset.basis.salc_basis.keys)
 
 """
     predict_energy(model, data) -> Float64 or Vector{Float64}
@@ -161,7 +161,7 @@ Predict the energy of a spin configuration (`3 × n_atoms` matrix) or a vector o
 configurations. The vector form is evaluated in parallel over `Threads.nthreads()`
 threads (set `julia -t` / `JULIA_NUM_THREADS`); the result is thread-count-independent.
 """
-function predict_energy(model::SCEPredictor, config::AbstractMatrix{<:Real})::Float64
+function predict_energy(model::SLCEModel, config::AbstractMatrix{<:Real})::Float64
     _validate_config(config, n_atoms(model.basis.crystal))
     salcs = model.basis.salc_basis.salcs
     e = model.j0
@@ -171,7 +171,7 @@ function predict_energy(model::SCEPredictor, config::AbstractMatrix{<:Real})::Fl
     end
     return e
 end
-function predict_energy(model::SCEPredictor, configs::AbstractVector)::Vector{Float64}
+function predict_energy(model::SLCEModel, configs::AbstractVector)::Vector{Float64}
     nat = n_atoms(model.basis.crystal)
     for (i, c) in enumerate(configs)                   # serial: clean errors, not wrapped
         _validate_config(c, nat; label = "config $i")
@@ -182,7 +182,7 @@ function predict_energy(model::SCEPredictor, configs::AbstractVector)::Vector{Fl
     end
     return out
 end
-predict_energy(f::SCEFit, data) = predict_energy(SCEPredictor(f), data)
+predict_energy(f::SLCEFit, data) = predict_energy(SLCEModel(f), data)
 
 """
     predict_torque(model, config) -> Matrix{Float64}
@@ -195,7 +195,7 @@ derivative of the same surface [`predict_energy`](@ref) evaluates, so the two ar
 consistent by construction (`τ = −e × ∇E`). The vector form is evaluated in parallel
 over `Threads.nthreads()` threads; the result is thread-count-independent.
 """
-function predict_torque(model::SCEPredictor, config::AbstractMatrix{<:Real})::Matrix{Float64}
+function predict_torque(model::SLCEModel, config::AbstractMatrix{<:Real})::Matrix{Float64}
     nat = n_atoms(model.basis.crystal)
     _validate_config(config, nat)
     salcs = model.basis.salc_basis.salcs
@@ -215,7 +215,7 @@ function predict_torque(model::SCEPredictor, config::AbstractMatrix{<:Real})::Ma
     end
     return T
 end
-function predict_torque(model::SCEPredictor, configs::AbstractVector)::Vector{Matrix{Float64}}
+function predict_torque(model::SLCEModel, configs::AbstractVector)::Vector{Matrix{Float64}}
     nat = n_atoms(model.basis.crystal)
     for (i, c) in enumerate(configs)                   # serial: clean errors, not wrapped
         _validate_config(c, nat; label = "config $i")
@@ -226,4 +226,4 @@ function predict_torque(model::SCEPredictor, configs::AbstractVector)::Vector{Ma
     end
     return out
 end
-predict_torque(f::SCEFit, data) = predict_torque(SCEPredictor(f), data)
+predict_torque(f::SLCEFit, data) = predict_torque(SLCEModel(f), data)

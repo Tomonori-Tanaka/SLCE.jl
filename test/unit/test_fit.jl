@@ -1,15 +1,15 @@
 using Test
-using SCEFitting
+using SLCE
 using LinearAlgebra
 using Random
 
-struct _DummyEstimator <: SCEFitting.AbstractEstimator end
+struct _DummyEstimator <: SLCE.AbstractEstimator end
 
 @testset "fit / predict" begin
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     spec = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = true)
-    basis = SCEBasis(crystal, spec)                 # NoSymmetry backend (no Spglib needed)
+    basis = SLCEBasis(crystal, spec)                 # NoSymmetry backend (no Spglib needed)
     m = length(basis.salc_basis)
     @test m > 0
 
@@ -26,26 +26,26 @@ struct _DummyEstimator <: SCEFitting.AbstractEstimator end
         @test length(salcs(basis)) == m
     end
 
-    @testset "SCEPredictor(basis, j0, jphi) fills keys from the basis" begin
+    @testset "SLCEModel(basis, j0, jphi) fills keys from the basis" begin
         jphi3 = randn(MersenneTwister(7), m)
-        p = SCEPredictor(basis, 0.25, jphi3)
+        p = SLCEModel(basis, 0.25, jphi3)
         @test p.keys == basis.salc_basis.keys
         @test p.j0 == 0.25 && p.jphi == jphi3
-        @test_throws DimensionMismatch SCEPredictor(basis, 0.0, zeros(m + 1))
+        @test_throws DimensionMismatch SLCEModel(basis, 0.0, zeros(m + 1))
     end
 
     rng = MersenneTwister(1)
     configs = [randcfg(rng, 2) for _ = 1:40]
 
     # synthetic energies that lie exactly in the SALC span
-    ds0 = SCEDataset(basis, configs, zeros(length(configs)))
+    ds0 = SLCEDataset(basis, configs, zeros(length(configs)))
     true_jphi = randn(rng, m)
     true_j0 = 0.7
     y = true_j0 .+ ds0.X_E * true_jphi
-    ds = SCEDataset(basis, configs, y)
+    ds = SLCEDataset(basis, configs, y)
 
     @testset "OLS recovers an in-span target" begin
-        f = fit(SCEFit, ds, OLS())
+        f = fit(SLCEFit, ds, OLS())
         @test r2_energy(f) ≈ 1.0 atol = 1e-9
         @test rmse_energy(f) < 1e-6
         @test isapprox(predict_energy(f, configs), y; atol = 1e-7)
@@ -54,10 +54,10 @@ struct _DummyEstimator <: SCEFitting.AbstractEstimator end
     end
 
     @testset "Ridge(0) ≈ OLS; Ridge(λ) shrinks" begin
-        f = fit(SCEFit, ds, OLS())
-        f0 = fit(SCEFit, ds, Ridge(lambda = 0.0))
+        f = fit(SLCEFit, ds, OLS())
+        f0 = fit(SLCEFit, ds, Ridge(lambda = 0.0))
         @test isapprox(coef(f0), coef(f); atol = 1e-6)
-        fλ = fit(SCEFit, ds, Ridge(lambda = 10.0))
+        fλ = fit(SLCEFit, ds, Ridge(lambda = 10.0))
         @test norm(coef(fλ)) <= norm(coef(f)) + 1e-9
     end
 
@@ -74,7 +74,7 @@ struct _DummyEstimator <: SCEFitting.AbstractEstimator end
         en = ElasticNet(; alpha = 0.4, lambda = 0.2, select = :lambda_1se, nfolds = 5, seed = 9)
         @test en.alpha == 0.4 && en.lambda == 0.2 && en.select === :lambda_1se
         @test ElasticNet().lambda === nothing                       # default: choose by CV
-        @test !SCEFitting.islinear(Lasso())                     # not a closed-form estimator
+        @test !SLCE.islinear(Lasso())                     # not a closed-form estimator
 
         @test_throws ArgumentError ElasticNet(; alpha = 1.5)
         @test_throws ArgumentError ElasticNet(; alpha = -0.1)
@@ -92,16 +92,16 @@ end
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     # isotropy = false ⇒ a wide (44-column) basis, so concentration / selection is meaningful
     interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false)
-    basis = SCEBasis(crystal, interaction)
+    basis = SLCEBasis(crystal, interaction)
     m = length(basis.salc_basis)
     @test m > 10
 
     rng = MersenneTwister(11)
     configs = [randcfg(rng, 2) for _ = 1:80]
-    ds0 = SCEDataset(basis, configs, zeros(length(configs)))
+    ds0 = SLCEDataset(basis, configs, zeros(length(configs)))
 
     @testset "AdaptiveRidge: validation, islinear, lambda = 0 ⇒ OLS" begin
-        @test SCEFitting.islinear(AdaptiveRidge(lambda = 1e-3))   # linear smoother (GCV-eligible)
+        @test SLCE.islinear(AdaptiveRidge(lambda = 1e-3))   # linear smoother (GCV-eligible)
         ar = AdaptiveRidge(lambda = 1e-3, epsilon = 1e-6, max_iter = 100, tol = 1e-8)
         @test ar.lambda == 1e-3 && ar.epsilon == 1e-6 && ar.max_iter == 100 && ar.tol == 1e-8
         @test_throws ArgumentError AdaptiveRidge(lambda = -1.0)
@@ -111,14 +111,14 @@ end
 
         dense = randn(rng, m)
         y = 0.5 .+ ds0.X_E * dense
-        ds = SCEDataset(basis, configs, y)
+        ds = SLCEDataset(basis, configs, y)
         # The penalty vanishes at lambda = 0, so the reweighting is a no-op ⇒ plain OLS.
-        f0 = fit(SCEFit, ds, AdaptiveRidge(lambda = 0.0))
-        fols = fit(SCEFit, ds, OLS())
+        f0 = fit(SLCEFit, ds, AdaptiveRidge(lambda = 0.0))
+        fols = fit(SLCEFit, ds, OLS())
         @test isapprox(coef(f0), coef(fols); atol = 1e-7)
         @test isapprox(intercept(f0), intercept(fols); atol = 1e-9)
         # A tiny penalty still recovers an in-span target essentially exactly.
-        ftiny = fit(SCEFit, ds, AdaptiveRidge(lambda = 1e-10))
+        ftiny = fit(SLCEFit, ds, AdaptiveRidge(lambda = 1e-10))
         @test r2_energy(ftiny) > 1 - 1e-6
     end
 
@@ -145,7 +145,7 @@ end
     @testset "PrecomputedPilot: returns fixed coefficients, flows through fit" begin
         dense = randn(rng, m)
         y = 0.3 .+ ds0.X_E * dense
-        ds = SCEDataset(basis, configs, y)
+        ds = SLCEDataset(basis, configs, y)
         beta = randn(rng, m)
         @test solve_coefficients(PrecomputedPilot(beta), ds.X_E, ds.y_E) == beta
         @test_throws DimensionMismatch solve_coefficients(PrecomputedPilot([1.0]), ds.X_E, ds.y_E)
@@ -153,7 +153,7 @@ end
         src = copy(beta); pp = PrecomputedPilot(src); src[1] += 100.0
         @test solve_coefficients(pp, ds.X_E, ds.y_E)[1] == beta[1]
         # Used as the estimator itself: jphi is the stored vector, j0 recovered analytically.
-        f = fit(SCEFit, ds, PrecomputedPilot(beta))
+        f = fit(SLCEFit, ds, PrecomputedPilot(beta))
         @test coef(f) == beta
         @test sprint(show, PrecomputedPilot(beta)) == "PrecomputedPilot($m coefficients)"
     end
@@ -162,7 +162,7 @@ end
         al = AdaptiveLasso()
         @test al.pilot isa OLS && al.lambda === nothing && al.gamma == 1.0 && al.standardize
         @test AdaptiveLasso(pilot = Ridge(lambda = 1e-4), gamma = 0.5, lambda = 1e-3).gamma == 0.5
-        @test !SCEFitting.islinear(AdaptiveLasso())             # pilot + L1 path: not a smoother
+        @test !SLCE.islinear(AdaptiveLasso())             # pilot + L1 path: not a smoother
         @test_throws ArgumentError AdaptiveLasso(gamma = -1.0)
         @test_throws ArgumentError AdaptiveLasso(epsilon = 0.0)
         @test_throws ArgumentError AdaptiveLasso(select = :bogus)
@@ -178,24 +178,24 @@ end
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false)
-    basis = SCEBasis(crystal, interaction)
+    basis = SLCEBasis(crystal, interaction)
     m = length(basis.salc_basis)
     @test m > 10
 
     rng = MersenneTwister(11)
     configs = [randcfg(rng, 2) for _ = 1:80]
-    ds0 = SCEDataset(basis, configs, zeros(length(configs)))
+    ds0 = SLCEDataset(basis, configs, zeros(length(configs)))
 
     # A sparse in-span signal on two columns + noise (the regime selection is for).
     ktrue = [3, 7]
     beta = zeros(m); beta[ktrue] .= [1.0, -0.7]
     y = 0.4 .+ ds0.X_E * beta .+ 0.005 .* randn(rng, length(configs))
-    ds = SCEDataset(basis, configs, y)
-    truem = SCEPredictor(basis, 0.4, beta, basis.salc_basis.keys)
-    dst = SCEDataset(basis, configs, 0.4 .+ ds0.X_E * beta, predict_torque(truem, configs))
+    ds = SLCEDataset(basis, configs, y)
+    truem = SLCEModel(basis, 0.4, beta, basis.salc_basis.keys)
+    dst = SLCEDataset(basis, configs, 0.4 .+ ds0.X_E * beta, predict_torque(truem, configs))
 
     @testset "energy accessors: dof, residuals, rss, and metric consistency" begin
-        f = fit(SCEFit, ds, OLS())
+        f = fit(SLCEFit, ds, OLS())
         @test dof(f) == m + 1                                   # coefficients + intercept
         @test residuals_energy(f) === f.residuals               # the stored energy residuals
         @test length(residuals_energy(f)) == nobs(f)
@@ -214,10 +214,10 @@ end
     end
 
     @testset "torque accessors on a co-fit are mutually consistent" begin
-        fco = fit(SCEFit, dst, OLS(); torque_weight = 0.3)
+        fco = fit(SLCEFit, dst, OLS(); torque_weight = 0.3)
         @test length(residuals_torque(fco)) == length(dst.y_T)
         # from-scratch reference: the flattened torque prediction of the fitted model
-        t_ref = dst.y_T .- reduce(vcat, vec.(predict_torque(SCEPredictor(fco), configs)))
+        t_ref = dst.y_T .- reduce(vcat, vec.(predict_torque(SLCEModel(fco), configs)))
         @test residuals_torque(fco) ≈ t_ref atol = 1e-9
         @test rss_torque(fco) ≈ sum(abs2, t_ref) atol = 1e-9
         @test rmse_torque(fco) ≈ sqrt(sum(abs2, t_ref) / length(dst.y_T)) atol = 1e-9
@@ -225,22 +225,22 @@ end
     end
 
     @testset "StatsAPI generics default to the energy block" begin
-        f = fit(SCEFit, ds, OLS())
+        f = fit(SLCEFit, ds, OLS())
         @test residuals(f) === residuals_energy(f)
         @test r2(f) == r2_energy(f)
         @test predict(f, configs) ≈ predict_energy(f, configs)
-        model = SCEPredictor(f)
+        model = SLCEModel(f)
         @test predict(model, configs) ≈ predict_energy(model, configs)
         @test predict(model, configs[1]) ≈ predict_energy(model, configs[1])
         # islinear (StatsAPI): closed-form estimators vs penalty-path / unknown ones
-        @test SCEFitting.islinear(OLS()) && SCEFitting.islinear(Ridge())
-        @test SCEFitting.islinear(AdaptiveRidge(lambda = 1e-3))
-        @test !SCEFitting.islinear(Lasso()) && !SCEFitting.islinear(ElasticNet())
-        @test !SCEFitting.islinear(_DummyEstimator())
+        @test SLCE.islinear(OLS()) && SLCE.islinear(Ridge())
+        @test SLCE.islinear(AdaptiveRidge(lambda = 1e-3))
+        @test !SLCE.islinear(Lasso()) && !SLCE.islinear(ElasticNet())
+        @test !SLCE.islinear(_DummyEstimator())
     end
 
     @testset "refit(threshold = 0) on a dense OLS fit is (near) identity" begin
-        f = fit(SCEFit, ds, OLS())
+        f = fit(SLCEFit, ds, OLS())
         fr = refit(f)                                           # default OLS, keep nonzero support
         @test isapprox(coef(fr), coef(f); atol = 1e-7)
         @test isapprox(intercept(fr), intercept(f); atol = 1e-9)
@@ -249,7 +249,7 @@ end
     @testset "refit de-biases a selected support" begin
         # AdaptiveRidge concentrates onto the true columns; a scaled-magnitude threshold
         # then keeps the dominant ones and OLS re-solves on just those.
-        fa = fit(SCEFit, ds, AdaptiveRidge(lambda = 1e-2))
+        fa = fit(SLCEFit, ds, AdaptiveRidge(lambda = 1e-2))
         Xc = ds.X_E .- sum(ds.X_E; dims = 1) ./ size(ds.X_E, 1)
         contrib = [abs(coef(fa)[j]) * norm(@view Xc[:, j]) for j = 1:m]
         fr = refit(fa; threshold = 0.05 * maximum(contrib))
@@ -261,7 +261,7 @@ end
     end
 
     @testset "refit edge cases: empty support, validation, pilot rejection" begin
-        f = fit(SCEFit, ds, OLS())
+        f = fit(SLCEFit, ds, OLS())
         # An unreachable threshold drops every column ⇒ all-zero jϕ, j0 = mean(y_E).
         fr = @test_logs (:warn,) refit(f; threshold = 1e12)
         @test all(iszero, coef(fr))

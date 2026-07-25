@@ -2,7 +2,7 @@
 # dataset's spin configurations. Split out of model.jl (pipeline types).
 
 # Energy design matrix: X_E[config, salc] = Φ_salc(config).
-function _design_energy(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{Float64}
+function _design_energy(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{Float64}
     salcs = basis.salc_basis.salcs
     n = length(cfgs)
     m = length(salcs)
@@ -21,7 +21,7 @@ end
 # Torque design matrix: for each SALC column, each config, each atom, the three
 # components of τ_a = −e_a × ∂Φ/∂e_a (the physical / Landau–Lifshitz torque) stacked
 # config-major / atom-major / xyz.
-function _design_torque(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{Float64}
+function _design_torque(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{Float64}
     salcs = basis.salc_basis.salcs
     n = length(cfgs)
     m = length(salcs)

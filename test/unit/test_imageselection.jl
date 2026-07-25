@@ -1,6 +1,6 @@
 using Test
-using SCEFitting
-using SCEFitting: candidate_clusters, read_setup, _assemble_spacegroup, _design_energy
+using SLCE
+using SLCE: candidate_clusters, read_setup, _assemble_spacegroup, _design_energy
 using StaticArrays
 using LinearAlgebra
 using Random
@@ -20,7 +20,7 @@ end
 # an independent oracle for the in-source search.
 function _brute_min_dist(crystal, i, j; box = 4)
     A = crystal.lattice.vectors
-    cart = SCEFitting.cartesian_positions(crystal)
+    cart = SLCE.cartesian_positions(crystal)
     ri = SVector{3,Float64}(cart[:, i]...)
     rj = SVector{3,Float64}(cart[:, j]...)
     best = Inf
@@ -110,7 +110,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         cl = candidate_clusters(cr, build_neighbor_list(cr, Inf, MinimumImage()), 3;
                                 selection = MinimumImage())
         A = cr.lattice.vectors
-        cart = SCEFitting.cartesian_positions(cr)
+        cart = SLCE.cartesian_positions(cr)
         sitepos(b, R) = SVector{3,Float64}(cart[:, b]...) + A * SVector{3,Float64}(R...)
         @test !isempty(cl[3])
         for m in cl[3]
@@ -175,7 +175,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
         inter = BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], isotropy = true)
-        @test n_salcs(SCEBasis(cr, inter)) ≥ 1                    # default (NoSymmetry) build succeeds
+        @test n_salcs(SLCEBasis(cr, inter)) ≥ 1                    # default (NoSymmetry) build succeeds
         # with the cubic sign symmetry the 8 WS-corner ties collapse to one orbit;
         # the centered energy design matrix must then have full column rank — i.e. the
         # minimum-image enumeration left no aliased, collinear pair columns behind.
@@ -183,7 +183,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         cls = build_clusters(cr, build_neighbor_list(cr, Inf, MinimumImage()), sg;
                              nbody = 2, selection = MinimumImage())
         salcs = build_salc_basis(cr, sg, cls; lmax_by_species = [1], isotropy = true)
-        b = SCEBasis(cr, sg, salcs, inter)
+        b = SLCEBasis(cr, sg, salcs, inter)
         rng = MersenneTwister(11)
         randcol() = (v = randn(rng, 3); v / norm(v))
         cfgs = [hcat(randcol(), randcol()) for _ = 1:40]
@@ -217,18 +217,18 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         # unknown selection errors
         p3 = joinpath(dir, "bad.toml"); write(p3, body * "images = \"nope\"\n")
         @test_throws ArgumentError read_setup(p3)
-        # SCEBasis(path) builds (MinimumImage + Inf), keyword override to AllImages errors on Inf
-        @test n_salcs(SCEBasis(p1)) ≥ 1
-        @test_throws ArgumentError SCEBasis(p1; images = AllImages())
+        # SLCEBasis(path) builds (MinimumImage + Inf), keyword override to AllImages errors on Inf
+        @test n_salcs(SLCEBasis(p1)) ≥ 1
+        @test_throws ArgumentError SLCEBasis(p1; images = AllImages())
     end
 
     @testset "persistence round-trips a cutoff = Inf basis" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
-        b = SCEBasis(cr, BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], isotropy = true))
+        b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], isotropy = true))
         path = joinpath(mktempdir(), "wsbasis.toml")
-        SCEFitting.save(path, b)
-        b2 = SCEFitting.load(SCEBasis, path)
+        SLCE.save(path, b)
+        b2 = SLCE.load(SLCEBasis, path)
         @test b2.spec.cutoff[1][1, 1] == Inf
         @test n_salcs(b2) == n_salcs(b)
     end

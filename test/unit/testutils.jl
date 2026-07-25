@@ -67,18 +67,18 @@ same_members(a, b) =
 # `_canonicalize_members` folds the mess back to the original members exactly
 # (0.5·T + 0.5·T == T bitwise). Exercises axis transposition + re-anchoring.
 function split_roundtrip_exact(salc, perms_by_body::Dict{Int,NTuple{2,Vector{Int}}})
-    red = SCEFitting.SALCMember[]
+    red = SLCE.SALCMember[]
     R0 = SVector(1, -2, 3)
     for m in salc.members
         N = length(m.atoms)
         pa, pb = perms_by_body[N]
         for (p, deanchor) in ((pa, false), (pb, true))
             sh = [deanchor ? m.shifts[i] + R0 : m.shifts[i] for i in p]
-            terms = SCEFitting.SALCTerm[
-                SCEFitting.SALCTerm(t.ls[p], 0.5 .* permutedims(t.folded, p))
+            terms = SLCE.SALCTerm[
+                SLCE.SALCTerm(t.ls[p], 0.5 .* permutedims(t.folded, p))
                 for t in m.terms]
-            push!(red, SCEFitting.SALCMember(m.atoms[p], sh, terms))
+            push!(red, SLCE.SALCMember(m.atoms[p], sh, terms))
         end
     end
-    @test same_members(SCEFitting._canonicalize_members(red), salc.members)
+    @test same_members(SLCE._canonicalize_members(red), salc.members)
 end

@@ -1,6 +1,6 @@
 using Test
-using SCEFitting
-using SCEFitting: _assemble_spacegroup, n_ops
+using SLCE
+using SLCE: _assemble_spacegroup, n_ops
 using StaticArrays
 using LinearAlgebra
 

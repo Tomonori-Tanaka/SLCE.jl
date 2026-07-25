@@ -1,11 +1,11 @@
 # Model selection for the fit-accuracy-vs-Monte-Carlo-cost trade-off: group labels and
-# a-priori MC costs over an `SCEBasis` (the fixed weights of `GroupAdaptiveRidge`), GCV /
+# a-priori MC costs over an `SLCEBasis` (the fixed weights of `GroupAdaptiveRidge`), GCV /
 # effective degrees of freedom for linear estimators, and the λ-path driver with the
 # cost-aware Pareto selection rule. Lives after `fit.jl`/`diagnostics.jl` in the include
-# order because it needs `SCEBasis`, `SCEDataset`, `SCEFit`, and `_assemble_problem`.
+# order because it needs `SLCEBasis`, `SLCEDataset`, `SLCEFit`, and `_assemble_problem`.
 
 """
-    salc_groups(basis::SCEBasis) -> Vector{Int}
+    salc_groups(basis::SLCEBasis) -> Vector{Int}
 
 Per-design-matrix-column group labels (contiguous `1:G`, one label per SALC in
 `SALCKey` order): columns grouped by `(key.body, key.orbit_id, key.ls)`. This is the
@@ -15,7 +15,7 @@ disappears only when **every** coefficient of the group is zero. Feed the labels
 [`GroupAdaptiveRidge`](@ref) (or use the `GroupAdaptiveRidge(basis; ...)` convenience
 constructor, which calls this for you).
 """
-function salc_groups(basis::SCEBasis)::Vector{Int}
+function salc_groups(basis::SLCEBasis)::Vector{Int}
     ks = basis.salc_basis.keys
     labels = Vector{Int}(undef, length(ks))
     g = 0
@@ -42,7 +42,7 @@ function _push_entries!(set::Set{_EntryKey}, atoms::Vector{Int},
                         shifts::Vector{SVector{3,Int}}, ls::Vector{Int},
                         folded::Array{Float64})::Nothing
     for idx in CartesianIndices(folded)
-        # exact != 0.0 is deliberate coupling: it mirrors SCEMonteCarlo's own
+        # exact != 0.0 is deliberate coupling: it mirrors SLCEMonteCarlo's own
         # exact-zero entry skip, so the count matches what a sweep would touch —
         # do not soften to an isapprox
         if folded[idx] != 0.0
@@ -72,13 +72,13 @@ function _validate_labels(labels::AbstractVector{<:Integer}, n::Int, what::Strin
 end
 
 """
-    group_costs(basis::SCEBasis,
+    group_costs(basis::SLCEBasis,
                 labels::AbstractVector{<:Integer} = salc_groups(basis)) -> Vector{Int}
 
 Per-group Monte-Carlo cost: the number of **distinct contraction entries** — keys
 `(member sites, l-assignment, nonzero tensor index)` — in the union over the group's
 SALCs (canonical members, schema v4). This is an **a-priori proxy (a lower bound)**
-for the entries a `SCEMonteCarlo` sweep realizes: an entry vanishes only when the
+for the entries a `SLCEMonteCarlo` sweep realizes: an entry vanishes only when the
 whole group is zero, and SALC channels whose tensors are proportional fold into one
 realized entry, while non-proportional channels of one group are realized separately
 downstream — the union undercounts those. The relative ordering it induces is what
@@ -86,7 +86,7 @@ the selection needs. Costs are additive across the [`salc_groups`](@ref) partiti
 (distinct `(body, orbit_id, ls)` groups never share an entry key); `labels` may also
 be any coarser contiguous `1:G` partition of the columns.
 """
-function group_costs(basis::SCEBasis,
+function group_costs(basis::SLCEBasis,
                      labels::AbstractVector{<:Integer} = salc_groups(basis))::Vector{Int}
     sl = basis.salc_basis.salcs
     G = _validate_labels(labels, length(sl), "group_costs")
@@ -101,7 +101,7 @@ function group_costs(basis::SCEBasis,
 end
 
 """
-    cost_weights(basis::SCEBasis; theta::Real = 1.0)
+    cost_weights(basis::SLCEBasis; theta::Real = 1.0)
         -> (; labels::Vector{Int}, weights::Vector{Float64})
 
 Fixed [`GroupAdaptiveRidge`](@ref) weights over the [`salc_groups`](@ref) partition:
@@ -116,7 +116,7 @@ its keep with a correspondingly larger error reduction. Sweeping `theta` changes
 *order* in which groups are eliminated along a λ path, so the lower envelope over
 several `theta` values traces the (cost, error) Pareto front (see [`select_fit`](@ref)).
 """
-function cost_weights(basis::SCEBasis; theta::Real = 1.0)
+function cost_weights(basis::SLCEBasis; theta::Real = 1.0)
     (0 <= theta <= 1) || throw(ArgumentError("theta must be in [0, 1]; got $theta"))
     labels = salc_groups(basis)
     c = group_costs(basis, labels)
@@ -135,14 +135,14 @@ function cost_weights(basis::SCEBasis; theta::Real = 1.0)
 end
 
 """
-    GroupAdaptiveRidge(basis::SCEBasis; lambda, theta = 1.0, epsilon = 1e-8,
+    GroupAdaptiveRidge(basis::SLCEBasis; lambda, theta = 1.0, epsilon = 1e-8,
                        max_iter = 50, tol = 1e-6)
 
 Cost-weighted group estimator for `basis`: [`salc_groups`](@ref) column labels with the
 fixed [`cost_weights`](@ref)`(basis; theta)` weights. See the primary
 [`GroupAdaptiveRidge`](@ref) constructor for the estimator itself.
 """
-function GroupAdaptiveRidge(basis::SCEBasis; lambda::Real, theta::Real = 1.0,
+function GroupAdaptiveRidge(basis::SLCEBasis; lambda::Real, theta::Real = 1.0,
                             epsilon::Real = 1e-8, max_iter::Integer = 50,
                             tol::Real = 1e-6)
     lw = cost_weights(basis; theta = theta)
@@ -220,7 +220,7 @@ function _edof(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64};
 end
 
 """
-    effective_dof(f::SCEFit) -> Float64
+    effective_dof(f::SLCEFit) -> Float64
 
 Effective degrees of freedom of a linear-estimator fit: `tr(H) + 1`, where `H =
 X(X'X + λ·Diagonal(w))⁻¹X'` is the hat matrix of the assembled (centered / whitened)
@@ -231,7 +231,7 @@ parametric count. Linear estimators only ([`islinear`](@ref)); the adaptive memb
 ([`AdaptiveRidge`](@ref) / [`GroupAdaptiveRidge`](@ref)) are handled in the standard
 converged-weight sense.
 """
-function effective_dof(f::SCEFit)::Float64
+function effective_dof(f::SLCEFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "effective_dof requires a linear estimator (`islinear`); " *
         "got $(typeof(f.estimator))"))
@@ -242,7 +242,7 @@ function effective_dof(f::SCEFit)::Float64
 end
 
 # The GCV score (and the effective dof it used, intercept included) on an already-
-# assembled problem; shared by `gcv(::SCEFit)` and the `select_fit` λ-path driver
+# assembled problem; shared by `gcv(::SLCEFit)` and the `select_fit` λ-path driver
 # (which passes its cached `XtX`). `w === nothing` ⇔ unpenalized. The score is `Inf`
 # when `df` approaches the row count `n` (the near-interpolating regime, where the GCV
 # denominator loses meaning); the ≥ 1 slack keeps the score from exploding on rounding
@@ -259,7 +259,7 @@ function _gcv_score(X::Matrix{Float64}, y::Vector{Float64}, beta::Vector{Float64
 end
 
 """
-    gcv(f::SCEFit) -> Float64
+    gcv(f::SLCEFit) -> Float64
 
 Generalized cross-validation score of a linear-estimator fit:
 
@@ -276,7 +276,7 @@ Linear estimators only ([`islinear`](@ref)).
     co-fit, prefer the grouped cross-validation criterion
     ([`select_fit`](@ref)`(...; criterion = :cv)`); use this GCV as a fast reference.
 """
-function gcv(f::SCEFit)::Float64
+function gcv(f::SLCEFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "gcv requires a linear estimator (`islinear`); got $(typeof(f.estimator))"))
     X, y, _, _, _ = _assemble_problem(f.dataset, f.torque_weight)
@@ -343,7 +343,7 @@ Result of [`select_fit`](@ref): the descending λ path with the per-λ selection
 where it is not computed), alive-group count, and predicted Monte-Carlo cost
 `Σ_{g alive} c_g`; plus the selection tolerance `delta`, the effective absolute alive
 `threshold` at the selected λ, the `selected` index, and the selected `fit` (re-solved
-cold at the selected λ, so `fit(SCEFit, dataset, estimator)` reproduces it — and its
+cold at the selected λ, so `fit(SLCEFit, dataset, estimator)` reproduces it — and its
 row of the table is re-derived from that cold solve, so `fit` / `threshold` /
 `n_alive[selected]` / `cost[selected]` are mutually consistent). De-bias with
 `refit(path.fit; threshold = path.threshold)`, which reproduces exactly the reported
@@ -360,7 +360,7 @@ struct SelectionPath
     delta::Float64
     threshold::Float64            # effective absolute alive threshold at `selected`
     selected::Int
-    fit::SCEFit
+    fit::SLCEFit
 end
 
 Tables.istable(::Type{SelectionPath}) = true
@@ -382,7 +382,7 @@ function Base.show(io::IO, ::MIME"text/plain", p::SelectionPath)
 end
 
 """
-    select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
+    select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
                lambdas, torque_weight = 0.0, criterion = :gcv, delta = 0.05,
                costs = nothing, threshold = nothing, nfolds = 5, seed = 1)
         -> SelectionPath
@@ -416,12 +416,12 @@ verbatim (and `threshold = 0` counts every group alive — the cost column is th
 flat). The effective absolute threshold at the selected λ is returned as
 `path.threshold`; de-bias with `refit(path.fit; threshold = path.threshold)` to
 realize exactly the reported support. The predicted Monte-Carlo cost of a fit is
-`Σ_{g alive} c_g` with `c_g` from `costs` (default: `SCEFitting.group_costs` of the
+`Σ_{g alive} c_g` with `c_g` from `costs` (default: `SLCE.group_costs` of the
 dataset's basis under `est`'s column partition). `delta` sets the accuracy tolerance
-of the cost–error trade; sweep the `theta` of `SCEFitting.cost_weights` to tilt the
+of the cost–error trade; sweep the `theta` of `SLCE.cost_weights` to tilt the
 penalty itself and trace a Pareto front over both knobs.
 """
-function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
+function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
                     lambdas::AbstractVector{<:Real}, torque_weight::Real = 0.0,
                     criterion::Symbol = :gcv, delta::Real = 0.05,
                     costs::Union{Nothing,AbstractVector{<:Real}} = nothing,
@@ -553,7 +553,7 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
     sel = _select_pareto(score, cost, Float64(delta))
     est_sel = GroupAdaptiveRidge(lams[sel], est.column_groups, est.group_weights,
                                  est.epsilon, est.max_iter, est.tol)
-    fsel = fit(SCEFit, dataset, est_sel; torque_weight = w)
+    fsel = fit(SLCEFit, dataset, est_sel; torque_weight = w)
     # Re-derive the selected row from the cold re-solve, so `fit` / `threshold` /
     # `n_alive[selected]` / `cost[selected]` are mutually consistent (warm and cold
     # agree only within the IRLS tol — a knife-edge coefficient could differ). Under
@@ -622,7 +622,7 @@ struct SupportPath
     rmse_torque::Vector{Float64}  # NaN per entry when the evalset has no torque
     delta::Float64
     selected::Int
-    fit::SCEFit
+    fit::SLCEFit
 end
 
 Tables.istable(::Type{SupportPath}) = true
@@ -645,7 +645,7 @@ function Base.show(io::IO, ::MIME"text/plain", p::SupportPath)
 end
 
 """
-    select_support(f::SCEFit; thresholds = 25, delta = 0.05, labels = nothing,
+    select_support(f::SLCEFit; thresholds = 25, delta = 0.05, labels = nothing,
                    costs = nothing, evalset = f.dataset, estimator = OLS())
         -> SupportPath
 
@@ -663,20 +663,20 @@ the predicted cost is `Σ_{g alive} c_g`, and the point's fit is
 `refit(f, estimator; threshold = t)` — note the refit keeps *columns* above `t`, so a
 weak column of an alive group may still be dropped (the group's cost is paid either
 way). The `score` is the fit's own objective `(1 − w)·MSE_E + w·MSE_T`
-(`w = f.torque_weight`) evaluated on `evalset` — pass a held-out `SCEDataset` (built
+(`w = f.torque_weight`) evaluated on `evalset` — pass a held-out `SLCEDataset` (built
 on the same basis; see dataset slicing) for an honest error axis; the default is the
 in-sample training set. `thresholds` is either a point count for the automatic grid
 (**at most** that many points, log-rank-spaced on the per-group magnitude spectrum
 plus the full-support anchor — duplicate ranks and exact magnitude ties collapse) or
 an explicit vector of absolute thresholds. `labels`/`costs` default to
-`SCEFitting.salc_groups` / `SCEFitting.group_costs` of the training basis.
+`SLCE.salc_groups` / `SLCE.group_costs` of the training basis.
 """
-function select_support(f::SCEFit;
+function select_support(f::SLCEFit;
                         thresholds::Union{Integer,AbstractVector{<:Real}} = 25,
                         delta::Real = 0.05,
                         labels::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                         costs::Union{Nothing,AbstractVector{<:Real}} = nothing,
-                        evalset::SCEDataset = f.dataset,
+                        evalset::SLCEDataset = f.dataset,
                         estimator::AbstractEstimator = OLS())::SupportPath
     delta >= 0 || throw(ArgumentError("delta must be ≥ 0; got $delta"))
     _reject_precomputed_pilot(estimator)
@@ -688,7 +688,7 @@ function select_support(f::SCEFit;
     length(cg) == G ||
         throw(ArgumentError("costs length $(length(cg)) ≠ number of groups $G"))
     evalset.basis.salc_basis.fingerprint == basis.salc_basis.fingerprint ||
-        throw(ArgumentError("evalset was built on a different SCEBasis than the fit"))
+        throw(ArgumentError("evalset was built on a different SLCEBasis than the fit"))
     w = f.torque_weight
     if w > 0 && !has_torque(evalset)
         throw(ArgumentError("f is a torque co-fit (torque_weight = $w) but evalset " *
@@ -718,7 +718,7 @@ function select_support(f::SCEFit;
     score = Vector{Float64}(undef, nt)
     rmseE = Vector{Float64}(undef, nt)
     rmseT = fill(NaN, nt)
-    fits = Vector{SCEFit}(undef, nt)
+    fits = Vector{SLCEFit}(undef, nt)
     for i = 1:nt
         alive = falses(G)
         for g = 1:G
@@ -795,11 +795,11 @@ function Base.show(io::IO, ::MIME"text/plain", r::CVResult)
 end
 
 """
-    cross_validate(dataset::SCEDataset, estimator::AbstractEstimator;
+    cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
                    torque_weight = 0.0, nfolds = 5, seed = 1) -> CVResult
 
 Configuration-grouped `nfolds`-fold cross-validation of
-`fit(SCEFit, dataset, estimator; torque_weight)`: each fold's model is fit from
+`fit(SLCEFit, dataset, estimator; torque_weight)`: each fold's model is fit from
 scratch on the training configurations only (energy centering and torque whitening
 included — nothing leaks across the split), then scored on the held-out
 configurations in prediction space. A configuration is one resampling unit, so its
@@ -821,7 +821,7 @@ A `PrecomputedPilot` (or an `AdaptiveLasso` carrying one) is rejected: its fixed
 full-data coefficient vector does not depend on the training fold, so the holdout
 score would leak the held-out data.
 """
-function cross_validate(dataset::SCEDataset, estimator::AbstractEstimator;
+function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
                         torque_weight::Real = 0.0, nfolds::Integer = 5,
                         seed::Integer = 1)::CVResult
     w = Float64(torque_weight)
@@ -857,7 +857,7 @@ function cross_validate(dataset::SCEDataset, estimator::AbstractEstimator;
     for k = 1:nf
         ho = findall(==(k), folds)
         tr = findall(!=(k), folds)
-        f = fit(SCEFit, dataset[tr], estimator; torque_weight = w)
+        f = fit(SLCEFit, dataset[tr], estimator; torque_weight = w)
         hset = dataset[ho]
         residE = hset.y_E .- (f.j0 .+ hset.X_E * f.jphi)
         mseE = mean(abs2, residE)

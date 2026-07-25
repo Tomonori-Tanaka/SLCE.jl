@@ -1,7 +1,7 @@
 # Tutorials
 
 Narrated, end-to-end runs of the full workflow. Each is self-contained and executable, and
-each is also available as a script under [`examples/`](https://github.com/Tomonori-Tanaka/SCEFitting.jl)
+each is also available as a script under [`examples/`](https://github.com/Tomonori-Tanaka/SLCE.jl)
 in the repository.
 
 ```@contents

@@ -1,20 +1,20 @@
 # API reference
 
 ```@meta
-CurrentModule = SCEFitting
+CurrentModule = SLCE
 ```
 
 ```@docs
-SCEFitting
+SLCE
 ```
 
 The public API, grouped by pipeline stage. It comes in two tiers: the **exported**
-names (available after `using SCEFitting`) and the **public but unexported** names —
+names (available after `using SLCE`) and the **public but unexported** names —
 declared with the `public` keyword and reached by qualification
-(`SCEFitting.salcs(basis)`, `SCEFitting.build_neighbor_list(...)`, …); the
-[`SCEBasis`](@ref) constructor drives the latter for you. The headline workflow is
-built from `Crystal` + `BasisSpec` → [`SCEBasis`](@ref) → [`SCEDataset`](@ref) →
-[`fit`](@ref) → [`SCEPredictor`](@ref).
+(`SLCE.salcs(basis)`, `SLCE.build_neighbor_list(...)`, …); the
+[`SLCEBasis`](@ref) constructor drives the latter for you. The headline workflow is
+built from `Crystal` + `BasisSpec` → [`SLCEBasis`](@ref) → [`SLCEDataset`](@ref) →
+[`fit`](@ref) → [`SLCEModel`](@ref).
 
 ```@index
 ```
@@ -73,16 +73,16 @@ evaluate_salc
 
 ## BasisSpec, basis, dataset, model
 
-`SCEPredictor(fit)` extracts the lightweight predictor from a fit;
-`SCEPredictor(basis, j0, jphi)` assembles a synthetic model directly from a basis and
-hand-set coefficients (both are documented under [`SCEPredictor`](@ref)).
+`SLCEModel(fit)` extracts the lightweight predictor from a fit;
+`SLCEModel(basis, j0, jphi)` assembles a synthetic model directly from a basis and
+hand-set coefficients (both are documented under [`SLCEModel`](@ref)).
 
 ```@docs
 BasisSpec
-SCEBasis
-SCEDataset
-SCEPredictor
-SCEFit
+SLCEBasis
+SLCEDataset
+SLCEModel
+SLCEFit
 n_salcs
 salcs
 read_setup
@@ -92,9 +92,9 @@ Datasets slice and concatenate without recomputing design rows (see
 [Slicing and concatenation](guide/fitting.md#Slicing-and-concatenation)):
 
 ```@docs
-Base.length(::SCEDataset)
-Base.getindex(::SCEDataset, ::AbstractVector{<:Integer})
-Base.vcat(::SCEDataset, ::SCEDataset...)
+Base.length(::SLCEDataset)
+Base.getindex(::SLCEDataset, ::AbstractVector{<:Integer})
+Base.vcat(::SLCEDataset, ::SLCEDataset...)
 ```
 
 ## Fitting
@@ -154,7 +154,7 @@ residuals_torque
 ## Model selection
 
 The fit-accuracy-vs-Monte-Carlo-cost workflow: `salc_groups` / `group_costs` /
-`cost_weights` (public, unexported — call as `SCEFitting.salc_groups` etc.) build the
+`cost_weights` (public, unexported — call as `SLCE.salc_groups` etc.) build the
 per-group cost weights of a [`GroupAdaptiveRidge`](@ref); `gcv` / `effective_dof` are
 the closed-form hat-matrix diagnostics of the linear estimators; `select_fit` drives
 the λ path and applies the cost-aware Pareto rule; `cross_validate` is the generic
@@ -170,9 +170,9 @@ select_support
 SupportPath
 cross_validate
 CVResult
-SCEFitting.salc_groups
-SCEFitting.group_costs
-SCEFitting.cost_weights
+SLCE.salc_groups
+SLCE.group_costs
+SLCE.cost_weights
 ```
 
 ## Tabular coefficients
@@ -192,14 +192,14 @@ to_sunny
 
 ## Fitted-model introspection
 
-A code-neutral view of a fitted [`SCEPredictor`](@ref)'s multipole terms, the stable public
+A code-neutral view of a fitted [`SLCEModel`](@ref)'s multipole terms, the stable public
 contract downstream packages (e.g. the mean-field samplers in
-[`SCETools.jl`](https://github.com/Tomonori-Tanaka/SCETools.jl)) read instead of the
+[`SLCETools.jl`](https://github.com/Tomonori-Tanaka/SLCETools.jl)) read instead of the
 SALC-basis internals.
 `multipole_terms` is the general per-term dump; `bilinear_terms` is the bilinear (`ls=[1,1]`)
 and single-ion (`ls=[2]`) extraction as Cartesian `3×3` matrices (the same validated
 extraction the Sunny export consumes). The tesseral spherical-harmonic kernel
-[`SCEFitting.Harmonics`](@ref Harmonics) is the stable submodule those consumers pair it
+[`SLCE.Harmonics`](@ref Harmonics) is the stable submodule those consumers pair it
 with — see the next section.
 
 ```@docs
@@ -210,7 +210,7 @@ bilinear_terms
 
 ## Harmonics kernel
 
-The `Harmonics` submodule (public, unexported — call as `SCEFitting.Harmonics.Zlm` etc.)
+The `Harmonics` submodule (public, unexported — call as `SLCE.Harmonics.Zlm` etc.)
 is the tesseral spherical-harmonic kernel, and a **stable surface for downstream
 packages**: `Zlm` / `Zlm_unsafe`, `grad_Zlm` / `grad_Zlm_unsafe`, `lm_index`, `num_lm`,
 and the tesseral normalization constants `Harmonics.N1 = √(3/4π)`,
@@ -220,7 +220,7 @@ extraction and downstream exchange mappings so the forward and inverse conversio
 cannot drift apart).
 
 The `_unsafe` variants skip input validation on the **unit-direction contract**: the
-caller guarantees `u` is a unit 3-vector. SCETools.jl's hot paths (the mean-field
+caller guarantees `u` is a unit 3-vector. SLCETools.jl's hot paths (the mean-field
 samplers) call `Zlm_unsafe` under exactly this contract.
 
 ```@docs
@@ -256,10 +256,10 @@ AngularMomentum.complex_to_real_tensor
 ## DFT data sources
 
 The **code-agnostic boundary** of the training-data input: the SCE pipeline only ever sees
-`SpinDatum` / [`SCEDataset`](@ref). Concrete DFT-code adapters (the VASP POSCAR / OSZICAR
+`SpinDatum` / [`SLCEDataset`](@ref). Concrete DFT-code adapters (the VASP POSCAR / OSZICAR
 reader and INCAR writer) live in the companion
-[SCETools.jl](https://github.com/Tomonori-Tanaka/SCETools.jl) package
-(`SCETools.VASP.read_poscar` / `Oszicar` / `write_inputs`), so adding a code touches neither
+[SLCETools.jl](https://github.com/Tomonori-Tanaka/SLCETools.jl) package
+(`SLCETools.VASP.read_poscar` / `Oszicar` / `write_inputs`), so adding a code touches neither
 the core nor its exports.
 
 ```@docs
@@ -280,9 +280,9 @@ read_embset
 ## Persistence
 
 `save` / `load` are intentionally **not exported** (the names clash with FileIO / JLD2 /
-CSV); call them as `SCEFitting.save` / `SCEFitting.load`.
+CSV); call them as `SLCE.save` / `SLCE.load`.
 
 ```@docs
-SCEFitting.save
-SCEFitting.load
+SLCE.save
+SLCE.load
 ```

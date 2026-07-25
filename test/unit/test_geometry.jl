@@ -1,6 +1,6 @@
 using Test
-using SCEFitting
-using SCEFitting: cartesian_positions, interplanar_spacing
+using SLCE
+using SLCE: cartesian_positions, interplanar_spacing
 using StaticArrays
 using LinearAlgebra
 
@@ -11,7 +11,7 @@ using LinearAlgebra
 function brute_neighbors(crystal, cutoff; margin = 2)
     lat = crystal.lattice
     A = lat.vectors
-    nat = SCEFitting.n_atoms(crystal)
+    nat = SLCE.n_atoms(crystal)
     cart = cartesian_positions(crystal)
     rng = ntuple(d -> lat.pbc[d] ?
                  (ceil(Int, cutoff * norm(lat.reciprocal[d, :])) + margin) : 0, 3)

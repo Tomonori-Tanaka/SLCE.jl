@@ -3,7 +3,7 @@ TOML input files.
 
 A human-authored `input.toml` collects an SCE run's *setup* parameters — the
 crystal, the interaction (cluster) spec, and the symmetry settings — in one
-readable file, so a basis can be built with `SCEBasis("input.toml")` instead of
+readable file, so a basis can be built with `SLCEBasis("input.toml")` instead of
 constructing `Crystal` / `BasisSpec` in Julia. Training data and the choice of
 estimator are intentionally kept out of this file (load data and fit in Julia),
 mirroring the basis/data separation.
@@ -171,7 +171,7 @@ Parse a human-authored TOML input file (schema in the file-level docstring of
 file's `[interaction]` section), symmetry `backend::AbstractSymmetryBackend`,
 `tol::Float64`, and the periodic-image selection `images::AbstractImageSelection`.
 Training data and the estimator are **not** part of the file (see
-[`SCEDataset`](@ref) / [`fit`](@ref)). See also `SCEBasis(path)`.
+[`SLCEDataset`](@ref) / [`fit`](@ref)). See also `SLCEBasis(path)`.
 """
 function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
                                                        spec::BasisSpec,
@@ -197,21 +197,21 @@ function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
 end
 
 """
-    SCEBasis(path::AbstractString; backend = nothing, tol = nothing, images = nothing)
-        -> SCEBasis
+    SLCEBasis(path::AbstractString; backend = nothing, tol = nothing, images = nothing)
+        -> SLCEBasis
 
-Build an [`SCEBasis`](@ref) directly from a TOML input file ([`read_setup`](@ref)).
+Build an [`SLCEBasis`](@ref) directly from a TOML input file ([`read_setup`](@ref)).
 The file's `[symmetry]` backend/tol and `[interaction].images` are used unless
 overridden by the keyword arguments (e.g. `backend = SpglibBackend()` forces Spglib
 regardless of the file). Using the Spglib backend requires `using Spglib`.
 """
-function SCEBasis(path::AbstractString;
+function SLCEBasis(path::AbstractString;
                   backend::Union{Nothing,AbstractSymmetryBackend} = nothing,
                   tol::Union{Nothing,Real} = nothing,
-                  images::Union{Nothing,AbstractImageSelection} = nothing)::SCEBasis
+                  images::Union{Nothing,AbstractImageSelection} = nothing)::SLCEBasis
     inp = read_setup(path)
     be = backend === nothing ? inp.backend : backend
     tl = tol === nothing ? inp.tol : Float64(tol)
     im = images === nothing ? inp.images : images
-    return SCEBasis(inp.crystal, inp.spec; backend = be, tol = tl, images = im)
+    return SLCEBasis(inp.crystal, inp.spec; backend = be, tol = tl, images = im)
 end

@@ -1,4 +1,4 @@
-# Documentation build for SCEFitting.jl.
+# Documentation build for SLCE.jl.
 #
 #   make build        build the HTML site into build/
 #   make serve        build, then serve it locally with live reload (LiveServer.jl)

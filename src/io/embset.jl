@@ -1,6 +1,6 @@
 # Reader for Magesty's EMBSET training-set format — the legacy plain-text exchange
 # format for constrained-noncollinear DFT spin configurations. Kept in the core (not
-# an SCETools adapter) because the format is DFT-code-agnostic: it carries exactly
+# an SLCETools adapter) because the format is DFT-code-agnostic: it carries exactly
 # the observables `SpinDatum` stores (energy, per-atom moment and constraining-field
 # vectors) with no code-specific metadata.
 
@@ -11,7 +11,7 @@ An [`AbstractDFTSource`](@ref) for a Magesty EMBSET training-set file, so a lega
 training set drops straight into the pipeline:
 
 ```julia
-dataset = SCEDataset(basis, EmbsetFile("EMBSET"))
+dataset = SLCEDataset(basis, EmbsetFile("EMBSET"))
 ```
 
 `read_configs` on it is [`read_embset`](@ref)`(path; ...)` — see there for the format
@@ -58,7 +58,7 @@ instead of silently reassigning moments).
 
 Torques are derived as `τ_a = m_a × B_a` by the [`SpinDatum`](@ref) constructor, which
 also receives `zero_moment_atol` (the ẑ-placeholder threshold for non-magnetic atoms —
-`SCEDataset` then rejects a placeholder on any basis-referenced atom).
+`SLCEDataset` then rejects a placeholder on any basis-referenced atom).
 """
 function read_embset(path::AbstractString; n_atoms::Union{Integer,Nothing} = nothing,
                      zero_moment_atol::Real = 1e-10)::Vector{SpinDatum}

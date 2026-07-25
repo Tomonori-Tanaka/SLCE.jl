@@ -1,12 +1,12 @@
-module SCEFittingSpglibExt
+module SLCESpglibExt
 
 # Provides `analyze_symmetry(::SpglibBackend, …)` when Spglib is loaded. The
 # SpglibBackend type itself lives in the core package, so it can be named (and
 # dispatched on) without this extension; only the actual space-group analysis
 # lights up here.
 
-using SCEFitting: Crystal, SpglibBackend, _assemble_spacegroup
-import SCEFitting: analyze_symmetry
+using SLCE: Crystal, SpglibBackend, _assemble_spacegroup
+import SLCE: analyze_symmetry
 using Spglib
 
 function analyze_symmetry(::SpglibBackend, crystal::Crystal; tol::Real = 1e-5)
@@ -20,4 +20,4 @@ function analyze_symmetry(::SpglibBackend, crystal::Crystal; tol::Real = 1e-5)
                                 ds.international_symbol, ds.spacegroup_number; tol = tol)
 end
 
-end # module SCEFittingSpglibExt
+end # module SLCESpglibExt

@@ -1,7 +1,7 @@
 # Verification: angular momentum
 
 ```@meta
-CurrentModule = SCEFitting
+CurrentModule = SLCE
 ```
 
 The SALC projection rests on three pieces of angular-momentum machinery, all
@@ -22,10 +22,10 @@ Angular Momentum*), including three selection-rule zeros. The notation
 `⟨j₁ m₁; j₂ m₂ → J M⟩` stands for ``\langle j_1 m_1\, j_2 m_2 | J M \rangle``:
 
 ```@example am
-using SCEFitting
+using SLCE
 using Printf, Markdown
 
-const CG = SCEFitting.AngularMomentum.clebsch_gordan
+const CG = SLCE.AngularMomentum.clebsch_gordan
 
 known = [
     (1, 0, 1, 0, 0, 0,   "−1/√3",              -1 / sqrt(3)),
@@ -130,7 +130,7 @@ println("both sweeps pass at the 1e-12 tolerance")
 
 ## Real Wigner-D matrices
 
-[`wignerD_real`](@ref SCEFitting.AngularMomentum.wignerD_real) must satisfy the
+[`wignerD_real`](@ref SLCE.AngularMomentum.wignerD_real) must satisfy the
 functional identity ``Z_{l m}(R\hat{\boldsymbol u}) = \sum_{m'} \Delta^{(l)}_{m m'}(R)\,
 Z_{l m'}(\hat{\boldsymbol u})`` for *every* direction — the SALC projector applies it to
 arbitrary spin configurations. The sweep below checks that identity on fresh
@@ -141,9 +141,9 @@ inversion parity ``\Delta(-I) = (-1)^l I``:
 
 ```@example am
 using LinearAlgebra, Random
-using SCEFitting: Harmonics
+using SLCE: Harmonics
 
-const Dreal = SCEFitting.AngularMomentum.wignerD_real
+const Dreal = SLCE.AngularMomentum.wignerD_real
 
 rand_unit(rng) = normalize(randn(rng, 3))
 function rand_rotation(rng)
@@ -188,12 +188,12 @@ println("all Wigner-D checks pass at the 1e-9 tolerance ",
 
 ## Complex→real unitary
 
-[`c2r_matrix`](@ref SCEFitting.AngularMomentum.c2r_matrix) is compared against the
+[`c2r_matrix`](@ref SLCE.AngularMomentum.c2r_matrix) is compared against the
 closed form of the tesseral transformation (the paper's Eq. B2) — a
 convention-independent anchor written out digit by digit, plus unitarity:
 
 ```@example am
-const c2r = SCEFitting.AngularMomentum.c2r_matrix
+const c2r = SLCE.AngularMomentum.c2r_matrix
 
 function c2r_deviations(lmax)
     dev_form = 0.0
@@ -230,8 +230,8 @@ The SALC construction couples products of *tesseral* harmonics, so it needs the
 CG coefficients **in the real basis** — this section derives them from the
 familiar complex ones for the simplest case, two ``l = 1`` sites, using the exact
 code path of the basis build
-([`coeff_tensor_complex`](@ref SCEFitting.AngularMomentum.coeff_tensor_complex) →
-[`complex_to_real_tensor`](@ref SCEFitting.AngularMomentum.complex_to_real_tensor)).
+([`coeff_tensor_complex`](@ref SLCE.AngularMomentum.coeff_tensor_complex) →
+[`complex_to_real_tensor`](@ref SLCE.AngularMomentum.complex_to_real_tensor)).
 
 **Step 1 — the complex CG coefficients.** The standard coupling
 
@@ -315,7 +315,7 @@ per ``L``, physically irrelevant) makes every sector real. This is precisely wha
 (`build_real_bases([1, 1])`) and printing each ``\tilde{M}`` slice:
 
 ```@example am
-const AM = SCEFitting.AngularMomentum
+const AM = SLCE.AngularMomentum
 real11 = Dict(Lf => T for (_, Lf, T) in AM.build_real_bases([1, 1]))
 
 slices(L) = ["\\tilde C^{(" * string(L) * ")}_{\\tilde M = " * string(k - L - 1) *

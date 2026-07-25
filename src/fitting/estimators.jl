@@ -245,13 +245,13 @@ where `g = column_groups[j]`, `β_g` is the current coefficient sub-vector of gr
 `p_g` its column count, and `v_g = group_weights[g]` a **fixed** positive per-group
 weight. At a converged fixed point the penalty contribution of a surviving group tends
 to `lambda·v_g` (a constant per alive group), so `v_g` is exactly the group-L0 weight —
-e.g. a Monte-Carlo cost weight from `SCEFitting.cost_weights`. The denominator equals
+e.g. a Monte-Carlo cost weight from `SLCE.cost_weights`. The denominator equals
 `p_g·(mean_j βⱼ² + epsilon)`, so `epsilon` is a per-coefficient magnitude floor
 independent of the group size (the same calibration as [`AdaptiveRidge`](@ref), whose
 update this reproduces exactly for singleton groups with unit weights).
 
 `column_groups` labels the design-matrix **columns** with contiguous group ids `1:G`
-(every label present; for an SCE fit use `SCEFitting.salc_groups`); it is unrelated to
+(every label present; for an SCE fit use `SLCE.salc_groups`); it is unrelated to
 the per-**row** `groups` keyword of [`solve_coefficients`](@ref), which this estimator
 ignores. `group_weights` has length `G`. Both vectors are copied at construction.
 `lambda = 0` reduces to [`OLS`](@ref). Like `AdaptiveRidge`, the converged fit is a
@@ -456,7 +456,7 @@ function solve_coefficients(est::GroupAdaptiveRidge, X::AbstractMatrix, y::Abstr
     length(est.column_groups) == size(X, 2) || throw(DimensionMismatch(
         "GroupAdaptiveRidge column_groups length $(length(est.column_groups)) does not " *
         "match design-matrix column count $(size(X, 2)); the labels were likely built " *
-        "on a different SCEBasis."))
+        "on a different SLCEBasis."))
     # Exact zero only (see the AdaptiveRidge method above): at lambda = 0 the penalty
     # diagonal is gone and the Gram matrix may be singular — route to QR (min-norm) OLS.
     est.lambda == 0.0 && return solve_coefficients(OLS(), X, y)
@@ -470,6 +470,6 @@ function solve_coefficients(est::PrecomputedPilot, X::AbstractMatrix, y::Abstrac
     length(est.beta) == size(X, 2) || throw(DimensionMismatch(
         "PrecomputedPilot coefficient length $(length(est.beta)) does not match " *
         "design-matrix column count $(size(X, 2)); the pilot was likely fit on a " *
-        "different SCEBasis."))
+        "different SLCEBasis."))
     return copy(est.beta)
 end

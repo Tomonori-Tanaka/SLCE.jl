@@ -1,7 +1,7 @@
 # The spin-cluster expansion
 
 ```@meta
-CurrentModule = SCEFitting
+CurrentModule = SLCE
 ```
 
 ## The problem
@@ -86,7 +86,7 @@ this kernel.
 
 Stacking ``\Phi_\varphi`` over configurations gives the **energy design matrix**
 ``X_E[\text{config}, \varphi] = \Phi_\varphi(\text{config})``, materialized by
-[`SCEDataset`](@ref). The fit is then a linear regression of the DFT energies on ``X_E``.
+[`SLCEDataset`](@ref). The fit is then a linear regression of the DFT energies on ``X_E``.
 [`fit`](@ref) column-centers ``X_E``, so the intercept ``j_0`` is recovered analytically as
 the mean residual — *independent of the estimator* — and the centered problem is solved by
 the chosen [`AbstractEstimator`](@ref) (OLS, ridge, or a GLMNet Lasso / elastic net).

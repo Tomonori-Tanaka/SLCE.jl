@@ -1,21 +1,21 @@
 # The code-agnostic DFT data boundary (src/io/dftsource.jl): `SpinDatum`,
-# `read_configs`, and `SCEDataset(basis, data/src)`. The headline gate is the torque
+# `read_configs`, and `SLCEDataset(basis, data/src)`. The headline gate is the torque
 # convention `τ_a = m_a × B_a` (the physical / Landau–Lifshitz torque) — CLAUDE.md
 # designates this file as the convention source every DFT adapter must match, so a
 # closed-form sign check lives here, next to the definition. A silent sign flip
 # would bias every energy+torque co-fit while all self-consistency tests still pass.
 
 using Test
-using SCEFitting
+using SLCE
 using LinearAlgebra
 using Random
 
 # A minimal in-memory source, exercising the `read_configs` extension seam the way a
-# real adapter (e.g. SCETools.VASP.Oszicar) does.
+# real adapter (e.g. SLCETools.VASP.Oszicar) does.
 struct _MemSource <: AbstractDFTSource
     data::Vector{SpinDatum}
 end
-SCEFitting.read_configs(s::_MemSource) = s.data
+SLCE.read_configs(s::_MemSource) = s.data
 
 struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpose
 
@@ -56,14 +56,14 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         # dataset-level guards
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-        basis = SCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
+        basis = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
                                        isotropy = true))
-        @test_throws ArgumentError SCEDataset(basis, SpinDatum[])             # empty data
+        @test_throws ArgumentError SLCEDataset(basis, SpinDatum[])             # empty data
         # all-zero torque targets with use_torque = true must fail loudly
         rng = MersenneTwister(3)
         nofield = [SpinDatum(0.1, randn(rng, 3, 2), zeros(3, 2)) for _ = 1:3]
-        @test_throws ArgumentError SCEDataset(basis, nofield)
-        ds = SCEDataset(basis, nofield; use_torque = false)                   # energy-only OK
+        @test_throws ArgumentError SLCEDataset(basis, nofield)
+        ds = SLCEDataset(basis, nofield; use_torque = false)                   # energy-only OK
         @test !has_torque(ds)
     end
 
@@ -73,17 +73,17 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         # so only the Fe single-ion SALCs reference an atom (no Fe–Fe pair exists:
         # a single Fe atom has no self-pair under MinimumImage).
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 2], ["Fe", "B"])
-        basis = SCEBasis(cr, BasisSpec(cr; nbody = 2, cutoff = 1.5,
+        basis = SLCEBasis(cr, BasisSpec(cr; nbody = 2, cutoff = 1.5,
                                        lmax = ["Fe" => 2, "B" => 0]))
         # quenched B is fine — the basis never reads it
         m_okay = [2.0 0.0; 0.0 0.0; 0.0 0.0]
-        ds = SCEDataset(basis, [SpinDatum(0.0, m_okay, zeros(3, 2))];
+        ds = SLCEDataset(basis, [SpinDatum(0.0, m_okay, zeros(3, 2))];
                         use_torque = false)
         @test length(ds) == 1
         # quenched Fe is an error naming the config, atom, and species
         m_bad = [0.0 0.0; 0.0 1.0; 0.0 0.0]
         err = try
-            SCEDataset(basis, [SpinDatum(0.0, m_okay, zeros(3, 2)),
+            SLCEDataset(basis, [SpinDatum(0.0, m_okay, zeros(3, 2)),
                                SpinDatum(0.0, m_bad, zeros(3, 2))];
                        use_torque = false)
             nothing
@@ -93,7 +93,7 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         @test err isa ArgumentError
         @test occursin("config 2", err.msg) && occursin("(Fe)", err.msg)
         # atom-count mismatch is caught at the same boundary
-        @test_throws DimensionMismatch SCEDataset(
+        @test_throws DimensionMismatch SLCEDataset(
             basis, [SpinDatum(0.0, zeros(3, 3) .+ 1.0, zeros(3, 3))];
             use_torque = false)
     end
@@ -101,13 +101,13 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
     @testset "source → dataset round trip carries directions / energies / torques" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-        basis = SCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
+        basis = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
                                        isotropy = true))
         rng = MersenneTwister(5)
         data = [SpinDatum(0.1 * k, randn(rng, 3, 2), 0.1 .* randn(rng, 3, 2)) for k = 1:4]
         src = _MemSource(data)
         @test read_configs(src) === data
-        ds = SCEDataset(basis, src)
+        ds = SLCEDataset(basis, src)
         @test has_torque(ds)
         @test ds.y_E == [0.1 * k for k = 1:4]
         @test ds.configs == [d.directions for d in data]

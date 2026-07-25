@@ -1,6 +1,6 @@
-using SCEFitting
+using SLCE
 using Aqua
 
 @testset "Aqua" begin
-    Aqua.test_all(SCEFitting)
+    Aqua.test_all(SLCE)
 end

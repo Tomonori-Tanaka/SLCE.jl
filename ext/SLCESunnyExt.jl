@@ -1,14 +1,14 @@
-module SCEFittingSunnyExt
+module SLCESunnyExt
 
-# Assembles a Sunny.jl `System` from a fitted SCEPredictor. All the conversion math
+# Assembles a Sunny.jl `System` from a fitted SLCEModel. All the conversion math
 # (folded tesseral tensor → Cartesian matrix, directed-member folding, the supercell
-# → primitive unfold, the energy gate) lives in the core (`src/sce/sunny.jl`); this
+# → primitive unfold, the energy gate) lives in the core (`src/slce/sunny.jl`); this
 # extension only places the core-computed matrices into Sunny constructs, so it stays
 # thin and the numerics are validated without Sunny.
 
-using SCEFitting: SCEPredictor, BilinearTerms, SunnyPrimitive, _bilinear_terms,
+using SLCE: SLCEModel, BilinearTerms, SunnyPrimitive, _bilinear_terms,
     _sunny_primitive, n_atoms
-import SCEFitting: to_sunny
+import SLCE: to_sunny
 using Sunny
 using StaticArrays
 using LinearAlgebra: dot
@@ -78,7 +78,7 @@ _smom(plan::_SpinPlan, type::AbstractString)::Float64 =
 # Resolve `spins` over the crystal's species and pick the scaling route and single-ion
 # mode. `:auto` keys off whether every S_eff is a half-integer: `:moment` + `:dipole`
 # for genuine quantum spins, `:coupling` + `:dipole_uncorrected` for itinerant ones.
-function _resolve_plan(model::SCEPredictor, spins, mode::Symbol, scaling::Symbol)::_SpinPlan
+function _resolve_plan(model::SLCEModel, spins, mode::Symbol, scaling::Symbol)::_SpinPlan
     cr = model.basis.crystal
     lookup = _spin_lookup(spins)
     sphys = Float64[lookup(t) for t in cr.species_labels]   # one per species
@@ -131,7 +131,7 @@ _onsite_operator(A::SMatrix{3,3,Float64,9}, S, factor::Float64) =
     factor * sum(A[i, j] * (S[i] * S[j] + S[j] * S[i]) / 2 for i = 1:3, j = 1:3)
 
 # The training supercell as a P1 Sunny crystal (every atom its own sublattice).
-function _build_supercell(model::SCEPredictor, plan::_SpinPlan, g::Real)
+function _build_supercell(model::SLCEModel, plan::_SpinPlan, g::Real)
     cr = model.basis.crystal
     nat = n_atoms(cr)
     latvecs = Matrix{Float64}(cr.lattice.vectors)
@@ -177,7 +177,7 @@ function _build_primitive(prim::SunnyPrimitive, plan::_SpinPlan, g::Real)
     return sys
 end
 
-function to_sunny(model::SCEPredictor; spins, g::Real = 2, mode::Symbol = :auto,
+function to_sunny(model::SLCEModel; spins, g::Real = 2, mode::Symbol = :auto,
                   scaling::Symbol = :auto, placement::Symbol = :auto)
     placement in (:auto, :primitive, :explicit) ||
         error("placement must be :auto, :primitive, or :explicit; got $placement")
@@ -203,4 +203,4 @@ function to_sunny(model::SCEPredictor; spins, g::Real = 2, mode::Symbol = :auto,
     return sys
 end
 
-end # module SCEFittingSunnyExt
+end # module SLCESunnyExt

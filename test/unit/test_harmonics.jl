@@ -1,5 +1,5 @@
 using Test
-using SCEFitting: Harmonics
+using SLCE: Harmonics
 using StaticArrays
 using LinearAlgebra
 using Random

@@ -3,10 +3,10 @@
 #
 # Run:  julia --project=examples examples/heisenberg_chain.jl
 
-using SCEFitting
+using SLCE
 import Spglib           # `import` (not `using`): just load it to activate the
                         # SpglibBackend extension, without importing names that
-                        # clash with SCEFitting's `Lattice`/`Crystal`.
+                        # clash with SLCE's `Lattice`/`Crystal`.
 using LinearAlgebra
 using Random
 
@@ -21,19 +21,19 @@ chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
 
 # Nearest-neighbor 2-body interaction, isotropic (Heisenberg) channel only.
 interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true)
-basis = SCEBasis(chain, interaction; backend = SpglibBackend())
+basis = SLCEBasis(chain, interaction; backend = SpglibBackend())
 println("space group : ", basis.spacegroup.symbol, " (#", basis.spacegroup.number, ")")
 println("# SALCs     : ", n_salcs(basis))
 
 # Synthetic Heisenberg training data. (`salcs` is public but unexported — qualify it.)
-heis = SCEFitting.salcs(basis)[1]            # the nearest-neighbor Heisenberg SALC
+heis = SLCE.salcs(basis)[1]            # the nearest-neighbor Heisenberg SALC
 J_true = 0.0137
 configs = [randcfg(4) for _ = 1:40]
 E = [J_true * 0.5 * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
      for c in configs]
 
 # Fit and recover J (the SALC normalization gives J = 2√3 · jphi).
-f = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
+f = fit(SLCEFit, SLCEDataset(basis, configs, E), OLS())
 J_recovered = 2 * sqrt(3) * coef(f)[1]
 
 println("R²          : ", round(r2_energy(f); digits = 12))
@@ -58,7 +58,7 @@ function heisenberg_torque(c, J)
 end
 torques = [heisenberg_torque(c, J_true) for c in configs]
 
-fc = fit(SCEFit, SCEDataset(basis, configs, E, torques), OLS(); torque_weight = 0.5)
+fc = fit(SLCEFit, SLCEDataset(basis, configs, E, torques), OLS(); torque_weight = 0.5)
 println("\nco-fit R² (energy): ", round(r2_energy(fc); digits = 12))
 println("co-fit R² (torque): ", round(r2_torque(fc); digits = 12))
 @assert isapprox(predict_torque(fc, configs[1]), torques[1]; atol = 1e-6)

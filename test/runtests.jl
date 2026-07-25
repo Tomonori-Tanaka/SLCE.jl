@@ -1,16 +1,16 @@
 using Test
 
-# Construction internals are public but unexported (the `SCEBasis` constructor drives them
+# Construction internals are public but unexported (the `SLCEBasis` constructor drives them
 # for you); the suite reaches them by qualification. Brought into the test module here so
 # every included unit file sees them without each repeating the import.
-using SCEFitting: build_neighbor_list, build_clusters, build_salc_basis, evaluate_salc,
+using SLCE: build_neighbor_list, build_clusters, build_salc_basis, evaluate_salc,
     salcs, SALC, SALCKey, SALCBasis, NeighborPair, NeighborList, ClusterMember,
     ClusterOrbit, ClusterSet, analyze_symmetry, n_ops, SymOp, SpaceGroup,
     interplanar_spacing, solve_coefficients
 
 const TEST_MODE = get(ENV, "TEST_MODE", "default")
 
-@testset "SCEFitting.jl" begin
+@testset "SLCE.jl" begin
     if TEST_MODE in ("default", "all", "unit")
         include("unit/testutils.jl")     # shared helpers (rand_unit / randcfg /
                                          # canonical-member gates)

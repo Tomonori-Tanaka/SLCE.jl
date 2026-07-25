@@ -1,7 +1,7 @@
 # Kagome three-body
 
 ```@meta
-CurrentModule = SCEFitting
+CurrentModule = SLCE
 ```
 
 Beyond pairs, the new physics is that a space-group operation can *permute* the sites of a
@@ -14,7 +14,7 @@ recovers a synthetic 3-body model from energies and torques.
 ## The kagome basis
 
 ```@example kagome
-using SCEFitting
+using SLCE
 import Spglib
 using LinearAlgebra, Random
 
@@ -27,7 +27,7 @@ frac = [0.0 0.5 0.5; 0.5 0.0 0.5; 0.0 0.0 0.0]
 kagome = Crystal(lat, frac, [1, 1, 1], ["Fe"])
 
 interaction = BasisSpec(; nbody = 3, cutoff = 1.2, lmax = [2])   # up to 3-body, l ≤ 2
-basis = SCEBasis(kagome, interaction; backend = SpglibBackend())
+basis = SLCEBasis(kagome, interaction; backend = SpglibBackend())
 
 (space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))
 ```
@@ -57,9 +57,9 @@ end
 
 # The representative 3-body cluster: home atoms + their periodic lattice shifts.
 # (These construction internals are public but unexported — call them qualified.)
-sg   = SCEFitting.analyze_symmetry(SpglibBackend(), kagome)
-nl   = SCEFitting.build_neighbor_list(kagome, SCEFitting._superset_cutoff(interaction), MinimumImage())
-clus = SCEFitting.build_clusters(kagome, nl, sg; nbody = 3).by_body[3][1].representative
+sg   = SLCE.analyze_symmetry(SpglibBackend(), kagome)
+nl   = SLCE.build_neighbor_list(kagome, SLCE._superset_cutoff(interaction), MinimumImage())
+clus = SLCE.build_clusters(kagome, nl, sg; nbody = 3).by_body[3][1].representative
 corners = [Point2f((A * Float64.(clus.shifts[k]) + base[:, clus.atoms[k]])[1:2]...)
            for k in 1:3]
 
@@ -108,7 +108,7 @@ The ``l = (1,1,2)``, ``L_f = 0`` three-body channel combines the distinct ``l``-
 into one SALC, stored as several *terms* per member:
 
 ```@example kagome
-s112 = first(s for s in SCEFitting.salcs(basis)
+s112 = first(s for s in SLCE.salcs(basis)
              if s.key.body == 3 && s.ls == [1, 1, 2] && s.Lf == 0)
 length(s112.members[1].terms)        # number of l-orderings folded into this one SALC
 ```
@@ -126,15 +126,15 @@ and recover the couplings with an energy + torque co-fit.
 ```@example kagome
 m       = n_salcs(basis)
 configs = [randcfg(3) for _ = 1:200]
-skel    = SCEDataset(basis, configs, zeros(length(configs)))   # for its design matrix
+skel    = SLCEDataset(basis, configs, zeros(length(configs)))   # for its design matrix
 J_true  = randn(rng, m)
 j0_true = 0.5
 energies = j0_true .+ skel.X_E * J_true
 
-model0  = SCEPredictor(basis, j0_true, J_true)   # a synthetic model from hand-set couplings
+model0  = SLCEModel(basis, j0_true, J_true)   # a synthetic model from hand-set couplings
 torques = [predict_torque(model0, c) for c in configs]
 
-f = fit(SCEFit, SCEDataset(basis, configs, energies, torques), OLS(); torque_weight = 0.3)
+f = fit(SLCEFit, SLCEDataset(basis, configs, energies, torques), OLS(); torque_weight = 0.3)
 (r2_energy = round(r2_energy(f); digits = 12),
  r2_torque = round(r2_torque(f); digits = 12),
  max_dJ    = round(maximum(abs, coef(f) .- J_true); sigdigits = 3))

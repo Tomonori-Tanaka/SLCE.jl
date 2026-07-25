@@ -1,11 +1,11 @@
 using Test
-using SCEFitting: Harmonics, AngularMomentum
-using SCEFitting
+using SLCE: Harmonics, AngularMomentum
+using SLCE
 using StaticArrays
 using LinearAlgebra
 using Random
 
-const coupled_bases = SCEFitting.coupled_bases
+const coupled_bases = SLCE.coupled_bases
 const Dreal = AngularMomentum.wignerD_real
 
 # Coupled field components f_Mf(e₁,…,e_N) = Σ tensor[m…, Mf] ∏ Zₗᵢmᵢ(eᵢ).

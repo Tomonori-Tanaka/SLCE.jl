@@ -1,7 +1,7 @@
 # Persistence and I/O
 
 ```@meta
-CurrentModule = SCEFitting
+CurrentModule = SLCE
 ```
 
 Building a SALC basis is the expensive step, and a fitted model is worth keeping. This
@@ -11,13 +11,13 @@ through the code-agnostic source interface.
 
 ## Saving and reloading a model
 
-`SCEFitting.save` / `SCEFitting.load` serialize a basis or a model to a
+`SLCE.save` / `SLCE.load` serialize a basis or a model to a
 self-contained, human-readable **TOML** document. (They are intentionally *not* exported —
 the names clash with FileIO / JLD2 / CSV — so qualify them.)
 
 ```julia
-SCEFitting.save("model.toml", SCEPredictor(f))      # or save("basis.toml", basis)
-model = SCEFitting.load(SCEPredictor, "model.toml")
+SLCE.save("model.toml", SLCEModel(f))      # or save("basis.toml", basis)
+model = SLCE.load(SLCEModel, "model.toml")
 predict_energy(model, configs)
 ```
 
@@ -55,7 +55,7 @@ tol     = 1.0e-5
 ```
 
 ```julia
-basis = SCEBasis("input.toml")     # reads [symmetry] backend/tol from the file
+basis = SLCEBasis("input.toml")     # reads [symmetry] backend/tol from the file
 ```
 
 The `[interaction]` section also takes the label-keyed / per-body forms (see
@@ -121,13 +121,13 @@ table / IO / plotting package.
 DFT-code I/O is isolated at the *training-data boundary*. The core owns only the
 **abstract seam**: a source implements [`read_configs`](@ref)`(src) -> Vector{SpinDatum}`,
 and the SCE pipeline only ever sees the code-agnostic [`SpinDatum`](@ref) /
-[`SCEDataset`](@ref) — once you have the data, the originating code is irrelevant.
+[`SLCEDataset`](@ref) — once you have the data, the originating code is irrelevant.
 
 ```julia
-basis   = SCEBasis(crystal, interaction)
+basis   = SLCEBasis(crystal, interaction)
 src     = some_source                                    # any AbstractDFTSource
-dataset = SCEDataset(basis, src)                         # read_configs(src) under the hood
-fit(SCEFit, dataset, OLS(); torque_weight = 0.5)
+dataset = SLCEDataset(basis, src)                         # read_configs(src) under the hood
+fit(SLCEFit, dataset, OLS(); torque_weight = 0.5)
 ```
 
 The torque target from a constrained calculation is
@@ -137,22 +137,22 @@ Landau–Lifshitz torque), the *same* physical quantity, sign, and layout as the
 so the co-fit is consistent.
 
 The **concrete DFT-code adapters** live in the companion
-[SCETools.jl](https://github.com/Tomonori-Tanaka/SCETools.jl) package, not in the core. For
+[SLCETools.jl](https://github.com/Tomonori-Tanaka/SLCETools.jl) package, not in the core. For
 VASP:
 
 ```julia
-using SCEFitting, SCETools
-using SCETools.VASP: read_poscar, Oszicar
+using SLCE, SLCETools
+using SLCETools.VASP: read_poscar, Oszicar
 
 crystal = read_poscar("POSCAR")                          # → Crystal
-basis   = SCEBasis(crystal, interaction)
+basis   = SLCEBasis(crystal, interaction)
 src     = Oszicar(["run1/OSZICAR", "run2/OSZICAR"])      # an AbstractDFTSource (constrained NCL)
-dataset = SCEDataset(basis, src)
-fit(SCEFit, dataset, OLS(); torque_weight = 0.5)
+dataset = SLCEDataset(basis, src)
+fit(SLCEFit, dataset, OLS(); torque_weight = 0.5)
 ```
 
-Adding another code is one more sibling adapter in SCETools — the core and its exports do
-not change. SCETools.VASP also writes the *inverse* direction (sampled configurations →
+Adding another code is one more sibling adapter in SLCETools — the core and its exports do
+not change. SLCETools.VASP also writes the *inverse* direction (sampled configurations →
 constrained-noncollinear INCAR / input sets) for generating new training data.
 
 ### Legacy Magesty training sets (EMBSET)
@@ -162,7 +162,7 @@ DFT-code-agnostic (energies plus per-atom moment and constraining-field vectors,
 what [`SpinDatum`](@ref) stores), so an existing Magesty data set drops straight in:
 
 ```julia
-dataset = SCEDataset(basis, EmbsetFile("EMBSET"))        # or read_embset("EMBSET")
+dataset = SLCEDataset(basis, EmbsetFile("EMBSET"))        # or read_embset("EMBSET")
 ```
 
 See [`read_embset`](@ref) for the format and its validation rules (the reader is
