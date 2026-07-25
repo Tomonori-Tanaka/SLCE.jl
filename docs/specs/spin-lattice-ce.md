@@ -67,14 +67,16 @@ What changes is the per-site label: from `l::Int` to `(channel, degree k,
 rank l)`. Cascade: `SALCTerm.ls` / `SALCKey.ls` (`src/basis/salc.jl:9-34`),
 persist schema (v4 → v5, back-read v4 as spin-channel-only), `coeftable`,
 `salc_groups`/`group_costs` (`src/fitting/selection.jl`), `MultipoleTerm`
-(`src/sce/introspect.jl:25`, widen compatibly — it is the documented
-downstream contract).
+(`src/sce/introspect.jl:25` — superseded by D0: frozen p = 0 view that throws
+on joint models; successor `DecoratedTerm`, see `spin-lattice-ce-design.md`
+§7).
 
 ## Displacement basis convention (settled in the addendum)
 
 No ACE-style radial basis. Per-site degree-`p` monomials decompose as
 `Sym^p(R³) ≅ ⊕_k |u|^{2k} · {rank-(p−2k) solid harmonics}`, so the site
-label set is `(k, l)` with `l ≤ k`, `l ≡ k (mod 2)`, each once. Consequences:
+label set at degree `p` is `(k, l)` with `2k + l = p`, i.e. `l ≤ p`,
+`l ≡ p (mod 2)`, `k = (p−l)/2`, each once. Consequences:
 
 - The CG/projection engine sees only `l`; `k` is a passive degree label.
 - Enumerating only harmonic-decomposition labels builds the `Sym^k`
