@@ -270,7 +270,9 @@ slots; packed-integer cleverness; per-species row layouts.
   §14): `bilinear_terms(model; displacements)`, `force_constants(model;
   spins, order)` → `ForceConstantSet`, `dynamical_matrix`,
   `exchange_strain_derivatives`, `magnetoelastic_constants` (cubic ⇒
-  `(; B1, B2)`), `magnon_phonon_vertices` (docstring says "adiabatic"),
+  `(; B1, B2)`; ε-linear part comes from the p=1 relative-displacement
+  sectors via the two-site affine substitution — single-site p=2 contributes
+  O(ε²) only, see gate (e) correction), `magnon_phonon_vertices` (docstring says "adiabatic"),
   `to_sunny(model; clamp = true)`. **Clamped-ion caveat (review):** the
   strain deliverables computed by direct ε-substitution are clamped-ion
   values; measured B₁/B₂ and elastic constants are relaxed-ion (internal-strain
@@ -438,8 +440,17 @@ multitask + GPU); (c) l044 predictions oracle via serialized full-digit
 fixtures (no co-loading); (d) span equivalence old vs p = 0-restricted new
 basis; (i) u = 0 bitwise degeneracy.
 
-New-physics exact gates: (e) cubic single-site l=2×p: exactly 2 invariants
-(B₁/B₂); (f) SOC-less pair+ligand p=1: dJ/dr + ligand term, NO DMI — **on a
+New-physics exact gates: (e) cubic single-site l=2×p=2: exactly 2 invariants
+(the O_h count E_g⊗E_g ⊕ T_2g⊗T_2g. **Correction 2026-07-25, paper
+cold-read:** these are NOT the ε-linear B₁/B₂ — the affine relation is a
+two-site difference, so a single-site p=2 monomial enters the strain
+expansion only at O(ε²). The ε-linear B₁/B₂ live in the l=2 spin ×
+neighbor-shell p=1 relative-displacement sectors; their affine substitution
+u_i − u_a = ε·d_ia yields B₁/B₂ as shell sums, same closed form and
+origin-independence as dJ/dε. The count 2 transfers because it is an
+irrep-content statement); (e2) cubic l=2 × neighbor-shell p=1: the ε-linear
+contraction reproduces exactly the two-constant cubic magnetoelastic form —
+this, not (e), is the B₁/B₂ gate; (f) SOC-less pair+ligand p=1: dJ/dr + ligand term, NO DMI — **on a
 mixed spec** (soc-false coupled sectors coexisting with a soc-true sector);
 (g) count ≡ projector rank (prototype oracle) incl. permuting-pair AND
 centrosymmetric mixed cluster (spin l=1 × disp l=1 ⇒ 0 invariants — the
