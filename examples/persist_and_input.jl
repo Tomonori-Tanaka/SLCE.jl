@@ -43,11 +43,12 @@ println("from input.toml → space group ", basis.spacegroup.symbol,
 heis = SLCE.salcs(basis)[1]   # public-unexported: call it qualified
 J_true = 0.0137
 configs = [randcfg(4) for _ = 1:40]
-E = [J_true * 0.5 * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
+E = [J_true * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
      for c in configs]
 f = fit(SLCEFit, SLCEDataset(basis, configs, E), OLS())
 model = SLCEModel(f)
 println("fitted J = ", round(2 * sqrt(3) * coef(f)[1]; digits = 6), "  (true ", J_true, ")")
+@assert isapprox(2 * sqrt(3) * coef(f)[1], J_true; rtol = 1e-6)
 
 # the coefficients as a Tables.jl source — DataFrame(coeftable(f)) / CSV.write(...) also work
 println("\n", coeftable(f))

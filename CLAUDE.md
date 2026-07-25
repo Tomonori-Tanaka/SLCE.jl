@@ -198,14 +198,18 @@ Easy to break silently — confirm before touching the algorithm.
   literal `Lf == 0` filter) deliberately kept its name, so a blind sed on
   continuation lines breaks it.
 - **Example/tutorial hand-built ground truths ↔ canonical member semantics**
-  (`examples/*.jl`, `docs/src/tutorials/*.md`): synthetic energies/torques written as
-  sums over `salc.members` assume each physical cluster instance appears ONCE (the
-  canonical duplicate-free form, persist v4). The pre-v4 examples were written against
-  ordered-image lists (each bond twice) and silently encoded half the coupling after
-  the member fold landed — caught only by the example's own `@assert` because the
-  examples are outside the unit suites. Changing member multiplicity/canonicalization →
-  re-run every example AND the executable tutorials (`docs/make.jl` runs them, but
-  asserts exist only in `examples/`).
+  (`examples/*.jl`, `docs/src/tutorials/*.md`, `docs/src/getting_started.md`,
+  `README.md`): synthetic energies/torques written as sums over `salc.members` assume
+  each physical cluster instance appears ONCE (the canonical duplicate-free form,
+  persist v4). The pre-v4 examples were written against ordered-image lists (each bond
+  twice) and silently encoded half the coupling after the member fold landed — and the
+  first fix pass caught only `heisenberg_chain`, missing the SAME expression in
+  `persist_and_input.jl`, `getting_started.md`, and `README.md` (grep the whole repo
+  for the pattern, not the file you started from). Caught only by per-example
+  `@assert`s (every J-recovery example must self-gate — `persist_and_input` gained
+  one). Changing member multiplicity/canonicalization → re-run every example AND the
+  executable tutorials (`docs/make.jl` runs them; README snippets run nowhere — review
+  them by hand).
 - **`coeftable` columns ↔ `SALCKey` fields** (`slce/coeftable.jl`): each result row is
   read straight off a `SALCKey` (`body` / `orbit_id` / `ls`→comma string / `Lf` /
   `block`) plus `jphi`; the `J` column pairs with `basis.salc_basis.keys` **positionally**

@@ -215,7 +215,7 @@ end
     @testset "sector-table spec doc round-trips (TOML) and legacy layouts read" begin
         labels = ["Nd", "Fe", "B"]
         sp = BasisSpec(labels; lmax = 2, pmax = ["*" => 0, "Fe" => 2],
-                       disp_scale = 0.05, sectors = [
+                       sectors = [
             Sector(spin = (nbody = 2:3, lmax = 2, lsum = 4), cutoff = 8.0),
             Sector(spin = [1, 1], disp = 1:2, soc = false,
                    cutoff = ["Fe-*" => 6.0, "*-*" => Inf])])
@@ -229,7 +229,7 @@ end
         @test sp2.sectors[2].soc == false && isinf(sp2.sectors[2].cutoff[1, 1])
         @test sp2.sectors[1].spin_lmax == 2 && sp2.sectors[1].spin_lsum == 4
         @test sp2.sectors[2].spin_lmax == SLCE.LSUM_UNCAPPED
-        @test sp2.disp_scale == 0.05 && sp2.pmax == [0, 2, 0]
+        @test sp2.disp_scale == 1.0 && sp2.pmax == [0, 2, 0]
         # a legacy "isotropy"-keyed spec doc (v3/v4 layout) reads with the inversion
         dl = MR._spec_doc(BasisSpec(labels; nbody = 2, cutoff = 3.7, lmax = 1))
         @test dl["soc"] === true && !haskey(dl, "isotropy")

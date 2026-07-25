@@ -60,6 +60,33 @@ release, so everything lives under *Unreleased*.
   the even-`Σl_spin` screen instead of applying it; the seat anchors the
   gate (o) representation pins (M2d) and the verification oracle.
 
+### Fixed — M2b-3 review (numerical-reviewer + code-reviewer)
+
+- The canonical-members `J/2` ground-truth bug was fixed in only one of four
+  coupled sites: the same `J*0.5*Σ_members` expression (and matching torque
+  gradient) also lived in `examples/persist_and_input.jl`,
+  `docs/src/getting_started.md`, and `README.md` — all fixed, and
+  `persist_and_input.jl` now self-gates its `J` recovery with an `@assert`.
+- `bench/` and `README.md` were not migrated to `soc` and were entirely dead
+  (the fixture forwarded the rejected `isotropy` keyword; `bench_nd2fe14b`
+  read the removed field and its asset TOML used the removed key). Migrated
+  with the inversion applied (`isotropy = true` → `soc = false`; the internal
+  `build_salc_basis` kwarg reads `isotropy = !spec.soc`).
+- `disp_scale ≠ 1.0` is now refused: the field is persisted and compared but
+  no displacement kernel applies it yet, so accepting it stored a unit
+  convention the tensors did not honour. The joint data layer (M3) wires it
+  in and lifts the guard.
+- An `:explicit` spin multiset whose rank exceeds every species' `lmax` now
+  errors ("the sector would contribute nothing") instead of silently building
+  an empty sector.
+- `cartesian_positions` hoisted out of the per-orbit threaded loop in the
+  sector builder; `BasisSpec`'s canonical constructor now defensively copies
+  its container fields (matching `SectorRule`); the `Sector` docstring's
+  derived-body-order example corrected; the design-notes input-schema
+  narrative updated to `soc`. The oracle suite gains a sector-vs-dense
+  bit-identity case under a real space group with per-species caps (the unit
+  suite only exercises P1 — Spglib is absent there).
+
 ### Changed — decoration labels + SALCKey v5 (joint spin–lattice M2a, BREAKING)
 
 - **`SALCKey` layout**: the sorted `ls::Vector{Int}` label is replaced by the

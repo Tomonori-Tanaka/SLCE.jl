@@ -28,6 +28,8 @@ interaction term itself. Stored in resolved, dense canonical form:
 - `disp_scale::Float64` — the fixed displacement scale (Å) the displacement
   kernels are evaluated in units of; persisted with the basis (like the `(4π)`
   spin normalization, it is part of the model definition, not a fit knob).
+  Until the joint data layer (M3) wires it into the kernels, only the default
+  `1.0` is accepted — a declared-but-inapplied unit convention is refused.
 - `species_labels::Vector{String}` — the labels the spec was resolved against
   (empty when constructed index-keyed).
 
@@ -127,18 +129,34 @@ struct BasisSpec
                                         "$(r.nbody[1]):$(r.nbody[2]) but nbody = " *
                                         "$nbody — the sector would contribute " *
                                         "nothing"))
+                r.spin_mode == :explicit &&
+                    maximum(r.spin_ls) > maximum(lmax) &&
+                    throw(ArgumentError("sectors[$i]: explicit spin rank " *
+                                        "$(maximum(r.spin_ls)) exceeds every " *
+                                        "species' lmax ($lmax) — the sector " *
+                                        "would contribute nothing"))
             end
         end
         isfinite(disp_scale) && disp_scale > 0 ||
             throw(ArgumentError("disp_scale must be a finite positive length (Å); " *
                                 "got $disp_scale"))
+        # Refusing beats a silent unit lie: the field is part of the persisted
+        # format, but no displacement kernel applies it yet — accepting ≠ 1
+        # would persist a unit convention the numbers do not honour. The joint
+        # data layer (M3) wires it in and lifts this guard.
+        disp_scale == 1.0 ||
+            throw(ArgumentError("disp_scale ≠ 1 is declared but not yet applied " *
+                                "by the displacement kernels (the joint data " *
+                                "layer, M3, wires it in) — refusing a unit " *
+                                "convention the stored tensors would not honour"))
         isempty(species_labels) || length(species_labels) == nkd ||
             throw(ArgumentError("$(length(species_labels)) species labels for " *
                                 "$nkd lmax entries"))
         allunique(species_labels) ||
             throw(ArgumentError("species labels must be unique; got $species_labels"))
-        return new(nbody, lmax, pmax, lsum, cutoff, soc, sectors, disp_scale,
-                   species_labels)
+        return new(nbody, copy(lmax), copy(pmax), copy(lsum),
+                   Matrix{Float64}[copy(M) for M in cutoff], soc, copy(sectors),
+                   disp_scale, copy(species_labels))
     end
 end
 

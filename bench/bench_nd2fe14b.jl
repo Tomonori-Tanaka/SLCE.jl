@@ -11,8 +11,8 @@
 # the cutoff keeping the cliques compact (SLCE has no `lsum` cap, so an
 # unbounded 3-body basis would blow up combinatorially). Pass `2 103 inf` for the
 # every-resolvable-pair, many-orbit variant (205 pair orbits — Magesty's -1
-# sentinel). `lmax` and `isotropy` come from the asset file
-# ([4,4,2,2,2,2,2,2,0], isotropy = true).
+# sentinel). `lmax` and `soc` come from the asset file
+# ([4,4,2,2,2,2,2,2,0], soc = false — the isotropic/scalar channel).
 
 using SLCE
 import Spglib
@@ -25,10 +25,10 @@ cutoff = argf(3, 4.0)
 inp  = read_setup(joinpath(@__DIR__, "assets", "nd2fe14b.toml"))
 cr   = inp.crystal
 spec = BasisSpec(; nbody = nbody, cutoff = cutoff, lmax = inp.spec.lmax,
-                 isotropy = inp.spec.isotropy)
+                 soc = inp.spec.soc)
 
 bench_header("Nd2Fe14B — nbody=$nbody, $m configs, cutoff=$cutoff, " *
-             "lmax=$(spec.lmax), isotropy=$(spec.isotropy)")
+             "lmax=$(spec.lmax), soc=$(spec.soc)")
 println("atoms = $(n_atoms(cr))   species = $(join(cr.species_labels, ","))")
 
 # Stage-level timings (the SALC projection is the expected hotspot at 16 ops).
@@ -44,7 +44,7 @@ cs = build_clusters(cr, nl, sg; nbody = spec.nbody, selection = MinimumImage(),
                          cutoff = spec.cutoff)
 println("→ orbits by body = $(sort(collect(k => length(v) for (k, v) in cs.by_body)))")
 bench_one("build_salc_basis", () -> build_salc_basis(cr, sg, cs;
-              lmax_by_species = spec.lmax, isotropy = spec.isotropy))
+              lmax_by_species = spec.lmax, isotropy = !spec.soc))
 
 b = SLCEBasis(cr, spec; backend = SpglibBackend(), tol = inp.tol)
 println("→ n_salcs = $(n_salcs(b))")

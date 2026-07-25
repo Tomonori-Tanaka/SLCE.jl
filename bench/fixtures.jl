@@ -51,13 +51,13 @@ function rand_configs(crystal, m::Integer; seed::Integer = 1)
 end
 
 """
-    basis_spec(; nbody = 2, cutoff = 2.6, lmax = 1, isotropy = false) -> BasisSpec
+    basis_spec(; nbody = 2, cutoff = 2.6, lmax = 1, soc = true) -> BasisSpec
 
 A [`BasisSpec`](@ref) for the single-species fixtures (`lmax` is broadcast to the one
 species).
 """
-basis_spec(; nbody = 2, cutoff = 2.6, lmax = 1, isotropy = false) =
-    BasisSpec(; nbody = nbody, cutoff = cutoff, lmax = [lmax], isotropy = isotropy)
+basis_spec(; nbody = 2, cutoff = 2.6, lmax = 1, soc = true) =
+    BasisSpec(; nbody = nbody, cutoff = cutoff, lmax = [lmax], soc = soc)
 
 # ---------------------------------------------------------------------------
 # Timing harness.

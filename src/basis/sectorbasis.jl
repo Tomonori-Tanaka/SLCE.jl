@@ -118,6 +118,7 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup,
     use_minimage = selection isa MinimumImage
     dmin2 = use_minimage ? _dmin2_matrix(neighbors, n_atoms(crystal)) :
             Matrix{Float64}(undef, 0, 0)
+    cart = cartesian_positions(crystal)      # read-only, shared across orbits
     work = Tuple{Int,Int,ClusterOrbit}[]
     for N in sort(collect(keys(clusters.by_body)))
         for (orbit_id, O) in enumerate(clusters.by_body[N])
@@ -127,7 +128,7 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup,
     parts = Vector{Vector{SALC}}(undef, length(work))
     Threads.@threads for w in eachindex(work)
         (N, orbit_id, O) = work[w]
-        gates = _orbit_edge_gates(crystal, O, dmin2, use_minimage)
+        gates = _orbit_edge_gates(crystal, O, cart, dmin2, use_minimage)
         parts[w] = _orbit_salcs_sectors(crystal, spacegroup, N, orbit_id, O, spec,
                                         gates, wcache)
     end

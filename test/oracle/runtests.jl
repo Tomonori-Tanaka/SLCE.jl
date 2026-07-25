@@ -260,6 +260,41 @@ end
         end
     end
 
+    @testset "sector-expressed pure spin ≡ dense build under real symmetry" begin
+        # The unit suite runs the sector/dense bit-identity gates at P1 only
+        # (Spglib is absent there); this pins the same identity — keys, members,
+        # slots, folded tensors, fingerprint — under a real space group with
+        # inequivalent species and per-species caps.
+        lat = SLCE.Lattice(Matrix(4.0 * LinearAlgebra.I(3)))
+        frac = [0.0 0.5 0.5; 0.0 0.5 0.5; 0.0 0.5 0.0]
+        cr = SLCE.Crystal(lat, frac, [1, 2, 3], ["Nd", "Fe", "B"])
+        for soc in (true, false)
+            lg = SLCE.SLCEBasis(cr,
+                SLCE.BasisSpec(cr; nbody = 2, cutoff = 3.7, lsum = 4, soc = soc,
+                               lmax = ["Nd" => 2, "Fe" => 1, "B" => 0]);
+                backend = SLCE.SpglibBackend())
+            sc = SLCE.SLCEBasis(cr,
+                SLCE.BasisSpec(cr; lmax = ["Nd" => 2, "Fe" => 1, "B" => 0],
+                               lsum = 4,
+                               sectors = [SLCE.Sector(spin = (nbody = 1:2,),
+                                                      cutoff = 3.7, soc = soc)]);
+                backend = SLCE.SpglibBackend())
+            @test lg.salc_basis.keys == sc.salc_basis.keys
+            @test lg.salc_basis.fingerprint == sc.salc_basis.fingerprint
+            for (a, b) in zip(SLCE.salcs(lg), SLCE.salcs(sc))
+                @test length(a.members) == length(b.members)
+                for (ma, mb) in zip(a.members, b.members)
+                    @test ma.atoms == mb.atoms && ma.shifts == mb.shifts
+                    @test length(ma.terms) == length(mb.terms)
+                    for (ta, tb) in zip(ma.terms, mb.terms)
+                        @test ta.slots == tb.slots && ta.folded == tb.folded
+                    end
+                end
+            end
+            @test SLCE.n_salcs(lg) > 0
+        end
+    end
+
     @testset "N-body SALC dimensions vs Magesty (kagome, 1/2/3-body)" begin
         # A kagome cell (P6/mmm): three equivalent sites whose triangle has C₃ᵥ site
         # symmetry permuting them — exercises coupling-path mixing and, for unequal-l

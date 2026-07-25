@@ -234,7 +234,7 @@ zero-dependency format:
 - **Input** (`io/input.jl`): a human-authored `input.toml` — `[structure]` (inline
   crystal: `lattice` as a list of the three lattice vectors, fractional `positions`,
   per-atom `species`, `species_labels`), `[interaction]` (`nbody`, `cutoff`, `lsum`,
-  per-species `lmax`, `isotropy`), and optional `[symmetry]` (`backend`, `tol`).
+  per-species `lmax`, `soc`), and optional `[symmetry]` (`backend`, `tol`).
   `SLCEBasis("input.toml")` builds the basis; keyword arguments override the file's
   backend/tol. Like Magesty, training data and the estimator are kept **out** of this
   file (loaded / chosen in Julia) — `input.toml` specifies only what defines the basis.

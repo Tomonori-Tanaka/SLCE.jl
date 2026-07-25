@@ -737,12 +737,11 @@ end
 # each edge's own distance. Symmetry images share edge-length multisets, so the
 # representative decides the orbit.
 function _orbit_edge_gates(crystal::Crystal, O::ClusterOrbit,
-                           dmin2::Matrix{Float64},
+                           cart::Matrix{Float64}, dmin2::Matrix{Float64},
                            use_minimage::Bool)::Vector{Tuple{Int,Int,Float64}}
     rep = O.representative
     N = length(rep.atoms)
     A = crystal.lattice.vectors
-    cart = cartesian_positions(crystal)
     pos(k) = SVector{3,Float64}(cart[1, rep.atoms[k]], cart[2, rep.atoms[k]],
                                 cart[3, rep.atoms[k]]) +
              A * SVector{3,Float64}(rep.shifts[k])

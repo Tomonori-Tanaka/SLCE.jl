@@ -441,11 +441,23 @@ end
             e
         end
         @test err isa ArgumentError && occursin("soc = false", err.msg)
-        # disp_scale validation (canonical constructor)
+        # disp_scale validation (canonical constructor); ≠ 1 is refused until
+        # the kernels apply it (M3) — a declared-but-inert unit convention lies
         @test_throws E BasisSpec(_TRUNC_LABELS; lmax = 1, nbody = 2, cutoff = Inf,
                                  disp_scale = 0.0)
+        @test_throws E BasisSpec(_TRUNC_LABELS; lmax = 1, nbody = 2, cutoff = Inf,
+                                 disp_scale = 0.05)
         @test BasisSpec(_TRUNC_LABELS; lmax = 1, nbody = 2, cutoff = Inf,
-                        disp_scale = 0.05).disp_scale == 0.05
+                        disp_scale = 1.0).disp_scale == 1.0
+        # an explicit spin multiset no species can carry is loud, not empty
+        err2 = try
+            BasisSpec(_TRUNC_LABELS; lmax = 1, sectors = [Sector(spin = [2, 2],
+                                                                 cutoff = 5.0)])
+            nothing
+        catch e
+            e
+        end
+        @test err2 isa ArgumentError && occursin("contribute nothing", err2.msg)
         # odd maximum total displacement degree warns (boundedness heuristic)
         @test_logs (:warn, r"odd") BasisSpec(_TRUNC_LABELS; lmax = 0, pmax = 3,
             sectors = [Sector(disp = (degree = 2:3,), cutoff = 6.0)])

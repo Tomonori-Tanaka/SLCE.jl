@@ -42,14 +42,14 @@ frac = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
 chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
 
 # nearest-neighbor 2-body interaction, isotropic (Heisenberg) channel only
-interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true)
+interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], soc = false)
 basis = SLCEBasis(chain, interaction; backend = SpglibBackend())
 
 # synthetic Heisenberg data E = J Σ_⟨ij⟩ e_i·e_j, then fit
 configs = [mapreduce(_ -> (v = randn(3); v / norm(v)), hcat, 1:4) for _ in 1:30]
 heis = SLCE.salcs(basis)[1]   # public-but-unexported: call it qualified
 J = 0.0137
-E = [J * 0.5 * sum(c[:, m.atoms[1]]' * c[:, m.atoms[2]] for m in heis.members) for c in configs]
+E = [J * sum(c[:, m.atoms[1]]' * c[:, m.atoms[2]] for m in heis.members) for c in configs]
 
 f = fit(SLCEFit, SLCEDataset(basis, configs, E), OLS())
 r2_energy(f)                      # ≈ 1.0
@@ -91,7 +91,7 @@ species_labels = ["Fe"]
 nbody = 2
 cutoff = 2.6
 lmax = [1]
-isotropy = true
+soc      = false
 
 [symmetry]
 backend = "spglib"   # or "none"

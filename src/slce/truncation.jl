@@ -287,7 +287,8 @@ truncation table), intersected with the spec-global per-species caps
   every body order realizable from the `spin`/`disp` content — note a site may
   carry a spin factor AND a displacement factor, so e.g. `spin = [2]`,
   `disp = (degree = 1:2,)` realizes body orders 1 (both factors on one site)
-  and 2 (spin site + displacement site).
+  through 3 (the spin site plus two degree-1 displacement sites); pass
+  `nbody = 1` for the on-site SOC sector.
 
 A `Sector` is unresolved sugar; the [`BasisSpec`](@ref) constructor resolves it
 against the species labels into the dense canonical [`SLCE.SectorRule`](@ref)

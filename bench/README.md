@@ -35,7 +35,7 @@ Positional arguments are optional. **Defaults are the recorded stress baselines*
   explicitly, e.g. `bench_salcbasis.jl 2 2 2.6` (16 atoms, first shell).
 - **`bench_nd2fe14b.jl`**: the 68-atom Nd₂Fe₁₄B cell (`assets/nd2fe14b.toml`) —
   9 sublattice species, 16 symmetry ops, per-species `lmax = [4,4,2,2,2,2,2,2,0]`
-  (B non-magnetic), `isotropy = true`, `nbody = 3` with `cutoff = 4.0` Å (compact
+  (B non-magnetic), `soc = false`, `nbody = 3` with `cutoff = 4.0` Å (compact
   cliques — like the real l044 run, which SLCE bounds by cutoff instead of
   Magesty's `lsum`), `m = 103` configs with torques (the real training-set size).
   Unlike the high-symmetry bcc fixture it stresses the many-orbit / few-ops regime
@@ -48,7 +48,7 @@ Positional arguments are optional. **Defaults are the recorded stress baselines*
 
 - `bcc_fe(n; a = 2.87)` — an `n×n×n` bcc Fe supercell (`Crystal`),
 - `rand_configs(crystal, m; seed)` — `m` random unit-column spin configs,
-- `basis_spec(; nbody, cutoff, lmax, isotropy)` — the matching `BasisSpec`,
+- `basis_spec(; nbody, cutoff, lmax, soc)` — the matching `BasisSpec`,
 - `bench_one(label, f; ntrials)` — warm-up + `@timed`/`@allocations` (median/min ms,
   alloc count, MiB), for hot paths too heavy for `@benchmark` sampling,
 - `bench_header(title)`, `argn(i, default)`, `argf(i, default)`.
