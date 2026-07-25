@@ -85,8 +85,10 @@ struct SALCTerm
     folded::Array{Float64}
 end
 
-# The per-axis spin ranks of a pure-spin term (the v4 `ls` view).
-_term_spin_ls(t::SALCTerm)::Vector{Int} = Int[s.factor.l for s in t.slots]
+# The SPIN-axis ranks of a term, in slot order (the v4 `ls` view for a
+# pure-spin identity term; DISP axes are excluded by construction).
+_term_spin_ls(t::SALCTerm)::Vector{Int} =
+    Int[s.factor.l for s in t.slots if s.factor.channel == SPIN]
 
 """
     SALCMember
@@ -244,6 +246,11 @@ evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real}, cache::Vector{Float64})::Fl
     evaluate_salc(salc, e, _wrap_scratch(cache))
 function evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real},
                        scratch::SALCScratch)::Float64
+    # Refuse a displacement-decorated SALC: this form would silently read a
+    # DISP rank as a spin harmonic and use the wrong (4π) scale (the same
+    # refusing-beats-mis-scaling rule as `multipole_terms`). O(body) per call.
+    all(is_pure_spin, salc.decors) || throw(ArgumentError(
+        "displacement-decorated SALC: use evaluate_salc(salc, e, u)"))
     scale = (4π)^(salc.body / 2)
     total = 0.0
     @inbounds for m in salc.members
@@ -330,6 +337,9 @@ accumulate_grad!(G::AbstractMatrix{Float64}, salc::SALC, e::AbstractMatrix{<:Rea
 function accumulate_grad!(G::AbstractMatrix{Float64}, salc::SALC,
                           e::AbstractMatrix{<:Real}, weight::Real,
                           scratch::SALCScratch)
+    all(is_pure_spin, salc.decors) || throw(ArgumentError(
+        "displacement-decorated SALC: the joint gradient (forces + torque) " *
+        "is not implemented yet (M3)"))
     weight == 0.0 && return G
     scale = weight * (4π)^(salc.body / 2)
     @inbounds for m in salc.members
@@ -417,6 +427,9 @@ evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real}, u::AbstractMatrix{<:Real}) 
     evaluate_salc(salc, e, u, SALCScratch())
 function evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real},
                        u::AbstractMatrix{<:Real}, scratch::SALCScratch)::Float64
+    size(u) == size(e) || throw(ArgumentError(
+        "displacement field u has size $(size(u)); expected $(size(e)) " *
+        "(same 3 × n_atoms column convention as the spin configuration)"))
     n_spin = count(has_spin, salc.decors)
     scale = (4π)^(n_spin / 2)
     total = 0.0

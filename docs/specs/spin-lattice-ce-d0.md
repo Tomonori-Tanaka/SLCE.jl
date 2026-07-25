@@ -793,7 +793,7 @@ Rejected: per-species row layouts (breaks flat gather + GPU tables); duplicating
 
 ## C. Coupling tree and sector constraints
 
-Spin-slots-first left coupling ⇒ `Lseq[n_spin] = L_S` well-defined; ops preserve channel ⇒ projector block-diagonal over L_S ⇒ `SALCKey.LS`. Spec knob `spin_mode::Symbol ∈ (:soc, :nosoc)` [per sector — see E]; `:nosoc` = one-line L_S == 0 filter; legacy `isotropy = true` ≡ `:nosoc` exactly. Store key + labels + members; NOT the Lseq path (stabilizer-mixed internal gauge). LS pays for: hierarchical freeze, sector masking, per-sector group selection.
+Spin-slots-first left coupling ⇒ L_S well-defined per path (with `coupling_paths`' convention `Lseq = [L₁₂, L₁₂₃, …]` it is `Lseq[n_spin − 1]`, edges: 0 / l₁ / Lf — NOT `Lseq[n_spin]`, fixed 2026-07-25 review); ops preserve channel ⇒ projector block-diagonal over L_S ⇒ `SALCKey.LS`. Spec knob `spin_mode::Symbol ∈ (:soc, :nosoc)` [per sector — see E]; `:nosoc` = one-line L_S == 0 filter; legacy `isotropy = true` ≡ `:nosoc` exactly. Store key + labels + members; NOT the Lseq path (stabilizer-mixed internal gauge). LS pays for: hierarchical freeze, sector masking, per-sector group selection.
 
 ## D. Group action — Wigner in production, polynomial composition as oracle
 

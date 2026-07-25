@@ -508,6 +508,9 @@ function _orbit_salcs_decors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
     stab = _stabilizer(crystal, spacegroup, rep)
     perms = unique([perm for (_, perm) in stab])
     conns = _connect_all(crystal, spacegroup, rep, O.members)
+    allunique(labels) || throw(ArgumentError(
+        "duplicate decoration labels: each label projects to the same SALCs " *
+        "twice (exactly collinear design columns)"))
     blockcount = Dict{Tuple{Vector{SiteDecor},Int,Int},Int}()
     for label in labels
         length(label) == N ||
@@ -519,15 +522,24 @@ function _orbit_salcs_decors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
             throw(ArgumentError("Σl_spin must be even (time-reversal screen); " *
                                 "got label $label"))
         # Distinct site assignments of the multiset, one canonical representative
-        # per orbit of the site-permutation group (mirrors `_enumerate_ls`).
-        arrangements = _multiset_arrangements(label)
+        # per orbit of the site-permutation group — in EXACTLY `_enumerate_ls`'s
+        # order (review blocker): orbits are discovered in colex (site-1-fastest,
+        # i.e. `Iterators.product`) order, the emitted representative is the
+        # lex-min of the orbit, and the assignment list is `unique(rep[p])`.
+        # Any other order relabels `block` indices / permutes the gauge columns
+        # on pure-spin labels, silently breaking key-addressed coefficient
+        # re-pairing the moment this engine backs `build_salc_basis`.
+        arrangements = sort(_multiset_arrangements(label);
+                            by = a -> reverse!([_decortuple(d) for d in a]))
         seen = Set{Vector{SiteDecor}}()
-        for t in arrangements
-            t in seen && continue
-            assignments = unique([_assignment_image(t, p) for p in perms])
-            for a in assignments
-                push!(seen, a)
+        for tarr in arrangements
+            tarr in seen && continue
+            orbit = unique([tarr[p] for p in perms])
+            for o in orbit
+                push!(seen, o)
             end
+            t = minimum(orbit)                   # lex-min canonical representative
+            assignments = unique([t[p] for p in perms])
             slotlists = [_assignment_slots(a) for a in assignments]
             cbs = [_decor_coupled_bases(sl) for sl in slotlists]
             blockset = sort(unique((ls, lf) for cbo in cbs for (ls, lf, _) in cbo))

@@ -81,6 +81,9 @@ Easy to break silently — confirm before touching the algorithm.
   The gate is the finite-difference self-consistency `predict_torque ≈ −e × ∇E_FD`
   (`test/unit/test_torque.jl`, `test_nbody.jl`): the torque must be the exact (negative
   rotation-) derivative of the energy surface. Change one kernel, re-check the other.
+  Both spin-only forms REFUSE displacement-decorated SALCs (the joint energy form is
+  `evaluate_salc(salc, e, u)`; the joint gradient — forces + torque — is not
+  implemented until M3, and the refusal is the guard against silent mis-scaling).
 - **Image selection ↔ neighbor list ↔ cluster edges** (`geometry/neighborlist.jl`,
   `clusters/enumerate.jl`, `slce/model.jl`): `SLCEBasis` threads one `images` value to
   **both** `build_neighbor_list` and `candidate_clusters`/`build_clusters`; they must
@@ -105,6 +108,18 @@ Easy to break silently — confirm before touching the algorithm.
   edge against *that body order's* radius — so `neighbors` is a superset that the
   per-order matrices trim. The per-pair admission has its own brute-force gate in
   `test/unit/test_truncation.jl`; change either side and re-check both pins.
+- **Pure-spin ↔ decor SALC engines** (`basis/salcbasis.jl`):
+  `_project_and_fold`/`_transport_term`/`_enumerate_ls` (production, oracle-pinned
+  bitwise) and `_project_and_fold_decors`/`_transport_term_decors`/
+  `_orbit_salcs_decors` (mixed channels) are two implementations of ONE
+  construction. The decor engine must reproduce the pure-spin engine's
+  enumeration order exactly — orbit representatives discovered in colex
+  (`Iterators.product`) order, lex-min representative, assignments
+  `unique(rep[p])` — or `block` indices and the canonical gauge silently change
+  and key-addressed coefficient re-pairing breaks. Gate: "engines agree on pure
+  spin" in `test/unit/test_mixedsalc.jl`, incl. the Cs-triangle (2 ordering
+  orbits) and C3v-triangle (3 assignments) shapes. Change either engine → re-run
+  that gate + the oracle suite.
 - **SALC construction ↔ the ground-truth invariance test** (`test/unit/test_salc.jl`,
   `test/unit/test_nbody.jl`, `test/oracle/runtests.jl`): every SALC must satisfy
   `Φ(g·e) = Φ(e)` (non-collinear spins, all `Lf`, **all body orders**) and
@@ -132,6 +147,12 @@ Easy to break silently — confirm before touching the algorithm.
   mutable state in the per-orbit path (or a lazily-filled cache) reintroduces a race;
   keep it task-local. Gate: `test/unit/test_salc.jl` "build is deterministic / thread-safe"
   plus the oracle, run under `julia -t N>1`.
+- **`SALCKey`/`SALC` field surface ↔ ALL test environments**: the unit suite is
+  not the only consumer — `test/sunny/runtests.jl`, `test/glmnet/runtests.jl`,
+  `test/oracle/runtests.jl`, and `examples/*.jl` read key/SALC fields and are
+  NOT exercised by CI (`TEST_MODE=all` only). Rename a field → grep all of
+  `test/` and `examples/` (the M2a rename missed sunny/glmnet/examples until
+  review).
 - **Design-matrix columns are identified by `SALCKey`** (`SALCBasis.keys`, sorted),
   not by construction order. The key must stay **injective**: `block` runs across all
   canonical `l`-orderings that share one sorted `ls` label (a proper-subgroup site

@@ -164,6 +164,10 @@ end
         end
         for sd in doc["salcs"]
             _v4key!(sd["key"])
+            for md in sd["members"], td in md["terms"]
+                td["ls"] = Int[t[4] for t in td["slots"]]   # identity spin slots
+                delete!(td, "slots")
+            end
         end
         for cd in doc["couplings"]
             _v4key!(cd["key"])

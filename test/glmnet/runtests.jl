@@ -26,7 +26,7 @@ avg(x) = sum(x) / length(x)
     m = MR.n_salcs(basis)
     @test m > 10
     keys = basis.salc_basis.keys
-    kiso = findfirst(k -> sort(collect(k.ls)) == [1, 1] && k.Lf == 0, keys)
+    kiso = findfirst(k -> sort(SLCE.spin_ls(k)) == [1, 1] && k.Lf == 0, keys)
     @test kiso !== nothing                       # the isotropic (Heisenberg) channel
 
     rng = MersenneTwister(7)

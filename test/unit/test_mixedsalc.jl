@@ -17,6 +17,36 @@ using Random
 # runs pull them in here
 isdefined(@__MODULE__, :same_members) || include("testutils.jl")
 
+# Molecule-in-a-box triangles (local copies of the test_nbody.jl fixtures):
+# Cs isosceles (2 ordering orbits for ls = [1,1,2]) and C3v equilateral
+# (one orbit of 3 assignments) — the review-blocker shapes for the anti-drift
+# gate (block-index and gauge order must match the pure-spin engine exactly).
+function _mx_triangle_cs(; L = 8.0)
+    c = SVector{3,Float64}(0.5, 0.5, 0.5)
+    offs = [SVector{3,Float64}(0.0, 1.5, 0.0), SVector{3,Float64}(-1.0, 0.0, 0.0),
+            SVector{3,Float64}(1.0, 0.0, 0.0)]
+    frac = reduce(hcat, [c + o / L for o in offs])
+    crystal = Crystal(Lattice(Matrix(L * I(3))), frac, [1, 1, 1], ["Fe"])
+    σ = SMatrix{3,3,Float64}([-1.0 0 0; 0 1 0; 0 0 1])
+    rots = [SMatrix{3,3,Float64}(I), σ]
+    trans = [(SMatrix{3,3,Float64}(I) - R) * c for R in rots]
+    return crystal, _assemble_spacegroup(crystal, rots, trans, "Cs", 0; tol = 1e-6)
+end
+
+function _mx_triangle_c3v(; L = 6.0, r = 1.2)
+    c = SVector{3,Float64}(0.5, 0.5, 0.5)
+    ang = deg2rad.([90.0, 210.0, 330.0])
+    offs = [SVector{3,Float64}(r * cos(a), r * sin(a), 0.0) for a in ang]
+    frac = reduce(hcat, [c + o / L for o in offs])
+    crystal = Crystal(Lattice(Matrix(L * I(3))), frac, [1, 1, 1], ["Fe"])
+    cz(θ) = SMatrix{3,3,Float64}([cos(θ) -sin(θ) 0; sin(θ) cos(θ) 0; 0 0 1])
+    M1 = SMatrix{3,3,Float64}([-1.0 0 0; 0 1 0; 0 0 1])
+    rots = [SMatrix{3,3,Float64}(I), cz(2π / 3), cz(4π / 3), M1, cz(2π / 3) * M1,
+            cz(4π / 3) * M1]
+    trans = [(SMatrix{3,3,Float64}(I) - R) * c for R in rots]
+    return crystal, _assemble_spacegroup(crystal, rots, trans, "C3v", 0; tol = 1e-6)
+end
+
 # All 48 signed permutation matrices = O_h in Cartesian (= fractional for sc).
 function _oh48()
     mats = SMatrix{3,3,Float64,9}[]
@@ -81,6 +111,26 @@ end
         for (a, b) in zip(old2, new2)
             same_members(a.members, b.members)
         end
+        # Review-blocker shapes: ls = [1,1,2] on the Cs triangle SPLITS into two
+        # ordering orbits sharing one sorted label (block indices must match the
+        # pure-spin emission order), and on the C3v triangle one orbit carries
+        # 3 assignments (the gauge is column-order dependent — bitwise match
+        # required, not just span equality).
+        for (xt, st) in (_mx_triangle_cs(), _mx_triangle_c3v())
+            wc3 = SLCE._build_wig_cache(st, 2)
+            cs3 = build_clusters(xt, build_neighbor_list(xt, 2.2), st; nbody = 3)
+            O3 = cs3.by_body[3][1]
+            old3 = _orbit_salcs(xt, st, 3, 1, O3, [2], SLCE.LSUM_UNCAPPED, false,
+                                wc3)
+            new3 = _orbit_salcs_decors(xt, st, 3, 1, O3, [spin_decors([1, 1, 2])],
+                                       true, wc3)
+            old112 = [s for s in old3 if SLCE.spin_ls(s.key) == [1, 1, 2]]
+            @test length(new3) == length(old112) > 0
+            @test [s.key for s in old112] == [s.key for s in new3]
+            for (a, b) in zip(old112, new3)
+                same_members(a.members, b.members)
+            end
+        end
     end
 
     @testset "gate (e): cubic single-site l=2 × p=2 blocks" begin
@@ -110,8 +160,26 @@ end
         # ...and soc = false (L_S = 0 only) removes it.
         s0 = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], false, wcB)
         @test all(s.key.L_S == 0 for s in s0)
-        @test length(s0) == count(s -> s.key.L_S == 0, sall)
+        # soc = false is BITWISE the L_S = 0 subset of the soc = true build
+        subset = [s for s in sall if s.key.L_S == 0]
+        @test [s.key for s in s0] == [s.key for s in subset]
+        for (a, b) in zip(s0, subset)
+            same_members(a.members, b.members)
+        end
         @test length(s0) < length(sall)
+        # the (L_S = 1, Lf = 0) SALC IS the chirality twist: Φ ∝ (ê₁×ê₂)·(u₁×u₂)
+        tw = only(s for s in sall if s.key.L_S == 1 && s.key.Lf == 0)
+        rng2 = MersenneTwister(0x7715)
+        ratios = Float64[]
+        for _ = 1:6
+            e = reduce(hcat, [normalize(randn(rng2, 3)) for _ = 1:2])
+            u = randn(rng2, 3, 2) * 0.4
+            F = dot(cross(e[:, 1], e[:, 2]), cross(u[:, 1], u[:, 2]))
+            abs(F) < 1e-3 && continue
+            push!(ratios, evaluate_salc(tw, e, u) / F)
+        end
+        @test !isempty(ratios)
+        @test all(r -> isapprox(r, ratios[1]; rtol = 1e-9), ratios)
     end
 
     @testset "gate (i) core: u = 0 degeneracy and pure-spin consistency" begin
@@ -130,6 +198,16 @@ end
         for s in pure
             @test evaluate_salc(s, e, u) === evaluate_salc(s, e)
         end
+        # the spin-only forms refuse a decorated SALC instead of mis-scaling
+        mixed = first(sall)
+        @test_throws ArgumentError evaluate_salc(mixed, e)
+        @test_throws ArgumentError SLCE.accumulate_grad!(zeros(3, 2), mixed, e, 1.0)
+        @test_throws ArgumentError evaluate_salc(mixed, e, zeros(3, 1))  # size
+        # duplicate labels are rejected (collinear-column guard)
+        lab2 = [SiteDecor(; spin = 1, disp = (0, 1)),
+                SiteDecor(; spin = 1, disp = (0, 1))]
+        @test_throws ArgumentError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
+                                                       [lab2, lab2], true, wcB)
     end
 
     @testset "mixed space-group invariance + time reversal" begin

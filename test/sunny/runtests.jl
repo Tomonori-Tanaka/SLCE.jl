@@ -72,7 +72,7 @@ end
         keys = b.salc_basis.keys
         jphi = randn(rng, MR.n_salcs(b))
         for k in eachindex(keys)
-            MR._classify_salc(keys[k].ls) === :unsupported && (jphi[k] = 0.0)
+            MR._classify_salc(keys[k].decors) === :unsupported && (jphi[k] = 0.0)
         end
         model = MR.SLCEModel(b, 0.2, jphi, keys)
         @test energy_error(model, 1.5, :dipole_uncorrected) < 1e-10

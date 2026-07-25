@@ -28,7 +28,7 @@ println("# SALCs     : ", n_salcs(basis))
 # A 3-body, unequal-l channel is a multi-term SALC (combines l-orderings).
 # (`salcs` is public but unexported — qualify it.)
 s112 = first(s for s in SLCE.salcs(basis)
-             if s.key.body == 3 && s.ls == [1, 1, 2] && s.Lf == 0)
+             if s.key.body == 3 && SLCE.spin_ls(s.key) == [1, 1, 2] && s.Lf == 0)
 println("3-body ls=[1,1,2], Lf=0 SALC: ", length(s112.members[1].terms), " orderings (terms) per member")
 
 # Synthetic in-span data: random true couplings, recover them from energies + torques.

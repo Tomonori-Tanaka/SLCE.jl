@@ -169,7 +169,12 @@ capability consumed by both the introspection and the Sunny interop.
   count ≡ CountingOracle 9 on the doubly-decorated bond, gate (g2)
   chirality-twist `L_S = 1` sector, gate (i) core, mixed space-group
   invariance + grey-group T. The sector-spec surface driving this engine from
-  `BasisSpec` is M2b-3.
+  `BasisSpec` is M2b-3. Normalization note: with the `(4π)^(n_spin/2)` scale a
+  spin axis evaluates as `√(2l+1)·C_lm(ê)` while a Racah disp axis is
+  `C_lm(u)|u|^{2k}` — "disp factors are scale-free" holds in the 4π sense only,
+  and the per-slot `√(2l+1)` channel asymmetry biases un-standardized
+  ridge/GAR penalties across channels (standardize columns, or fold the factor
+  into per-sector penalty weights, when mixed fitting lands in M3).
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled

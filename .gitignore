@@ -55,3 +55,4 @@ deps/src/
 
 # agent-internal scratch notes (local only)
 .claude/
+*.mem
