@@ -394,7 +394,7 @@ end
                                     lsum = [1 => 2, 2 => 4], isotropy = false)
         ours_basis = SLCE.SLCEBasis(chain, spec;
                                          backend = SLCE.SpglibBackend())
-        theirs_basis = Magesty.SLCEBasis(;
+        theirs_basis = Magesty.SCEBasis(;
             lattice = lat_m, kd = [:Fe], kd_list = [1, 1, 1, 1],
             positions = [frac[:, a] for a = 1:4],
             interaction = (body1 = (lmax = Dict(:Fe => 2),),
@@ -422,7 +422,7 @@ end
             end
         end
         ours_ds = SLCE.SLCEDataset(ours_basis, SLCE.EmbsetFile(path))
-        theirs_ds = Magesty.SLCEDataset(theirs_basis, path)
+        theirs_ds = Magesty.SCEDataset(theirs_basis, path)
 
         heldout = [reduce(hcat, [runit() for _ = 1:nat]) for _ = 1:5]
 
@@ -432,7 +432,7 @@ end
         # and is deliberately not asserted here.
         f0_ours = SLCE.fit(SLCE.SLCEFit, ours_ds, SLCE.OLS();
                                  torque_weight = 0.0)
-        f0_theirs = Magesty.fit(Magesty.SLCEFit, theirs_ds, Magesty.OLS();
+        f0_theirs = Magesty.fit(Magesty.SCEFit, theirs_ds, Magesty.OLS();
                                 torque_weight = 0.0)
         for c in heldout
             @test isapprox(SLCE.predict_energy(f0_ours, c),
@@ -442,7 +442,7 @@ end
 
         f1_ours = SLCE.fit(SLCE.SLCEFit, ours_ds, SLCE.OLS();
                                  torque_weight = 1.0)
-        f1_theirs = Magesty.fit(Magesty.SLCEFit, theirs_ds, Magesty.OLS();
+        f1_theirs = Magesty.fit(Magesty.SCEFit, theirs_ds, Magesty.OLS();
                                 torque_weight = 1.0)
         # Known, deliberate convention difference: Magesty's torque target and
         # prediction use `τ = −m (e × B)` (see its SpinConfig docstring), while
