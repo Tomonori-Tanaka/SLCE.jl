@@ -496,13 +496,38 @@ function _transport_term_decors(a::Vector{SiteDecor}, slots::Vector{SlotRef},
     return SALCTerm(slots2, G)
 end
 
+# Per-site species caps on a decor assignment (spin rank ≤ lmax[species], disp
+# degree ≤ pmax[species]). Stabilizer site permutations preserve species, so the
+# outcome is a permutation-orbit invariant — checking the canonical
+# representative decides the whole orbit, mirroring `_enumerate_ls`'s
+# enumeration-with-caps (a capped-out orbit never emits, so `block` indices
+# stay aligned between the two engines).
+function _admit_assignment(t::Vector{SiteDecor}, species::Vector{Int},
+                           lmax::Vector{Int}, pmax::Vector{Int})::Bool
+    for s in eachindex(t)
+        t[s].spin_l <= lmax[species[s]] || return false
+        disp_degree(t[s]) <= pmax[species[s]] || return false
+    end
+    return true
+end
+
 # All SALCs of one cluster orbit for explicitly-given decoration labels
 # (sorted `SiteDecor` multisets). The M2b-3 sector spec drives this through the
 # public builder; tests drive it directly. `soc = false` keeps only L_S = 0.
+# With `lmax_by_species`/`pmax_by_species` given, permutation orbits whose sites
+# violate the per-species caps are skipped (both or neither — pass the pair).
 function _orbit_salcs_decors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
                              orbit_id::Int, O::ClusterOrbit,
                              labels::Vector{Vector{SiteDecor}}, soc::Bool,
-                             wcache::_WigCache)::Vector{SALC}
+                             wcache::_WigCache;
+                             lmax_by_species::Union{Nothing,Vector{Int}} = nothing,
+                             pmax_by_species::Union{Nothing,Vector{Int}} = nothing)::Vector{SALC}
+    caps = lmax_by_species === nothing ?
+        (pmax_by_species === nothing ? nothing :
+         throw(ArgumentError("give lmax_by_species and pmax_by_species together"))) :
+        (pmax_by_species === nothing ?
+         throw(ArgumentError("give lmax_by_species and pmax_by_species together")) :
+         (lmax_by_species, pmax_by_species))
     out = SALC[]
     rep = O.representative
     stab = _stabilizer(crystal, spacegroup, rep)
@@ -539,6 +564,9 @@ function _orbit_salcs_decors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
                 push!(seen, o)
             end
             t = minimum(orbit)                   # lex-min canonical representative
+            caps === nothing ||
+                _admit_assignment(t, O.species, caps[1], caps[2]) ||
+                continue
             assignments = unique([t[p] for p in perms])
             slotlists = [_assignment_slots(a) for a in assignments]
             cbs = [_decor_coupled_bases(sl) for sl in slotlists]
@@ -569,6 +597,161 @@ function _orbit_salcs_decors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
                 end
             end
         end
+    end
+    return out
+end
+
+# ---------------------------------------------------------------------------
+# sector-driven label generation (M2b-3b)
+#
+# A resolved `SectorRule` (slce/truncation.jl) describes decoration *content*;
+# these generators expand it, per cluster orbit, into the sorted `SiteDecor`
+# multiset labels `_orbit_salcs_decors` consumes. Species-resolved per-site
+# caps are NOT applied here (a multiset does not know which site gets which
+# decor) — generation caps by the loosest species present, and the engine's
+# `_admit_assignment` filter decides per permutation orbit.
+# ---------------------------------------------------------------------------
+
+# All nondecreasing spin multisets of length `n` with entries in `1:lcap`,
+# Σl even, and Σl ≤ lsum_cap.
+function _spin_multisets(n::Int, lcap::Int, lsum_cap::Int)::Vector{Vector{Int}}
+    n == 0 && return [Int[]]
+    budget = lsum_cap == LSUM_UNCAPPED ? n * lcap : lsum_cap
+    out = Vector{Int}[]
+    ms = Int[]
+    function rec(k::Int, lo::Int, rem::Int)
+        if k > n
+            iseven(sum(ms)) && push!(out, copy(ms))
+            return
+        end
+        for l = lo:min(lcap, rem - (n - k))      # each later site needs l ≥ 1
+            push!(ms, l)
+            rec(k + 1, l, rem - l)
+            pop!(ms)
+        end
+    end
+    rec(1, 1, budget)
+    return out
+end
+
+# All (k, l) displacement labels of homogeneous degree `2k + l = d` — the exact
+# harmonic decomposition of the degree-`d` polynomials (no plethysm needed:
+# enumerating the labels IS the Sym^d restriction).
+_disp_labels_of_degree(d::Int)::Vector{Tuple{Int,Int}} =
+    Tuple{Int,Int}[(k, d - 2k) for k = 0:(d ÷ 2)]
+
+# All nondecreasing multisets of (k, l) displacement factors with total degree
+# Σ(2k + l) = p and every factor degree ≤ pcap (factors ordered by (degree, k)).
+function _disp_multisets(p::Int, pcap::Int)::Vector{Vector{Tuple{Int,Int}}}
+    p == 0 && return [Tuple{Int,Int}[]]
+    out = Vector{Tuple{Int,Int}}[]
+    ms = Tuple{Int,Int}[]
+    degkey(f::Tuple{Int,Int}) = (2 * f[1] + f[2], f[1])
+    function rec(rem::Int, lokey::Tuple{Int,Int})
+        if rem == 0
+            push!(out, copy(ms))
+            return
+        end
+        for d = 1:min(rem, pcap), f in _disp_labels_of_degree(d)
+            degkey(f) >= lokey || continue
+            push!(ms, f)
+            rec(rem - d, degkey(f))
+            pop!(ms)
+        end
+    end
+    rec(p, (0, 0))
+    return out
+end
+
+# All sorted `SiteDecor` multisets realizing spin multiset `S` + displacement
+# factor multiset `D` on exactly `N` sites: `length(S) + length(D) - N` sites
+# carry one factor of each channel (every site carries ≥ 1 factor). Tiny sizes;
+# dedup by a Set over the sorted labels.
+function _marry_multisets(S::Vector{Int}, D::Vector{Tuple{Int,Int}},
+                          N::Int)::Vector{Vector{SiteDecor}}
+    ns, nd = length(S), length(D)
+    shared = ns + nd - N
+    (0 <= shared <= min(ns, nd)) || return Vector{SiteDecor}[]
+    out = Set{Vector{SiteDecor}}()
+    for sidx in _index_subsets(ns, shared), didx in _index_subsets(nd, shared)
+        drest = setdiff(1:nd, didx)
+        for pperm in _permutations_of(didx)
+            label = SiteDecor[]
+            for (a, b) in zip(sidx, pperm)
+                push!(label, SiteDecor(; spin = S[a], disp = D[b]))
+            end
+            for a in setdiff(1:ns, sidx)
+                push!(label, SiteDecor(; spin = S[a]))
+            end
+            for b in drest
+                push!(label, SiteDecor(; disp = D[b]))
+            end
+            push!(out, sort!(label))
+        end
+    end
+    return sort!(collect(out))
+end
+
+# Ordered index subsets (combinations) of 1:n of size k, lexicographic.
+function _index_subsets(n::Int, k::Int)::Vector{Vector{Int}}
+    k == 0 && return [Int[]]
+    out = Vector{Int}[]
+    function rec(start::Int, acc::Vector{Int})
+        if length(acc) == k
+            push!(out, copy(acc))
+            return
+        end
+        for i = start:(n - (k - length(acc)) + 1)
+            push!(acc, i)
+            rec(i + 1, acc)
+            pop!(acc)
+        end
+    end
+    rec(1, Int[])
+    return out
+end
+
+# All permutations of a small index vector (swap recursion, deduplicated).
+function _permutations_of(v::Vector{Int})::Vector{Vector{Int}}
+    out = Set{Vector{Int}}()
+    p = copy(v)
+    function rec(k::Int)
+        if k >= length(p)
+            push!(out, copy(p))
+            return
+        end
+        for i = k:length(p)
+            p[k], p[i] = p[i], p[k]
+            rec(k + 1)
+            p[k], p[i] = p[i], p[k]
+        end
+    end
+    isempty(p) ? push!(out, Int[]) : rec(1)
+    return sort!(collect(out))
+end
+
+# Squared edge "gate" distances of one orbit representative, with the species
+# pair of each edge — the quantity a sector cutoff is compared against, using
+# EXACTLY `candidate_clusters`'s admission semantics: under `MinimumImage` the
+# pair is gated by its minimum-image distance (`dmin2`), under `AllImages` by
+# each edge's own distance. Symmetry images share edge-length multisets, so the
+# representative decides the orbit.
+function _orbit_edge_gates(crystal::Crystal, O::ClusterOrbit,
+                           dmin2::Matrix{Float64},
+                           use_minimage::Bool)::Vector{Tuple{Int,Int,Float64}}
+    rep = O.representative
+    N = length(rep.atoms)
+    A = crystal.lattice.vectors
+    cart = cartesian_positions(crystal)
+    pos(k) = SVector{3,Float64}(cart[1, rep.atoms[k]], cart[2, rep.atoms[k]],
+                                cart[3, rep.atoms[k]]) +
+             A * SVector{3,Float64}(rep.shifts[k])
+    sp = crystal.species
+    out = Tuple{Int,Int,Float64}[]
+    for x = 1:N, y = (x + 1):N
+        ax, ay = rep.atoms[x], rep.atoms[y]
+        gate2 = use_minimage ? dmin2[ax, ay] : sum(abs2, pos(y) - pos(x))
+        push!(out, (sp[ax], sp[ay], gate2))
     end
     return out
 end

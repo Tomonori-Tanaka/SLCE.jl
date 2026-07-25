@@ -187,8 +187,37 @@ capability consumed by both the introspection and the Sunny interop.
   together with the even-`Σl_spin` screen). The dense pure-spin form replaces
   `isotropy` with the inverted `soc` flag (deprecation errors at the keyword,
   the TOML input key, and nowhere silently); `disp_scale` is fixed in the spec
-  and persisted. Driving `_orbit_salcs_decors` from the resolved table is
-  M2b-3b; until then a sector spec refuses to build an `SLCEBasis`.
+  and persisted.
+- **Sector-driven construction (M2b-3b)**: `build_salc_basis(crystal, sg,
+  clusters, spec; neighbors, selection)` (`basis/sectorbasis.jl`) expands the
+  resolved table per cluster orbit — sector cutoff re-admission with EXACTLY
+  `candidate_clusters`'s banded semantics (MinimumImage gates the pair's
+  minimum-image distance, AllImages each edge), label generation
+  (`_spin_multisets` × `_disp_multisets` per total degree — the `(k, l)`
+  enumeration IS the Sym^p restriction — married onto the orbit's sites by
+  `_marry_multisets`, shared sites carrying both channels), per-label
+  effective `soc` = OR over the admitting sectors, then the decor engine with
+  per-species `lmax`/`pmax` permutation-orbit filtering (`_admit_assignment` —
+  species are stabilizer-invariant, so the canonical representative decides,
+  keeping `block` indices aligned with `_enumerate_ls`). Key uniqueness of the
+  union is asserted (the key-union invariant). `SLCEBasis` routes: empty
+  sectors → the pure-spin engine (bit-identical to before), else the sector
+  path. The spin-configuration `SLCEDataset` path refuses a
+  displacement-decorated basis at the boundary (joint data layer = M3). Gates
+  (`test/unit/test_sectorbasis.jl` + the build testset in
+  `test_mixedsalc.jl`): sector-expressed pure spin ≡ legacy dense bitwise
+  (incl. fingerprint, `lsum` global and sector-local, `soc` both ways), the
+  builder ≡ engine bitwise on the gate-(g) bond content (9 SALCs), overlap
+  soc=false ∪ soc=true idempotence, per-sector cutoff shell separation,
+  ligand `pmax` slot placement, u = 0 exactness over a mixed build, and a
+  mixed-basis persist round-trip.
+- **Channel representation trait (M2b-3c)**: `rep_scale(channel, detR, l)`
+  (`basis/decor.jl`, public unexported) is the single declared source of the
+  per-channel O(3) action relative to the polar Wigner matrix — SPIN axial
+  `det(R)^l`, DISP polar `1`, OCC reserved (throws). Production never applies
+  it (the even-`Σl_spin` screen ⇒ `det(R)^{Σl_spin} ≡ +1`; design record §4);
+  it seats the gate (o) representation pins and mutation teeth (M2d) and the
+  oracle's independent derivation.
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled

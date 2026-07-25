@@ -83,6 +83,7 @@ SLCE.factors
 SLCE.is_pure_spin
 SLCE.spin_decors
 SLCE.spin_ls
+SLCE.rep_scale
 ```
 
 ## SALC basis

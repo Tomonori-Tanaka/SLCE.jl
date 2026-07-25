@@ -174,6 +174,30 @@ so a sorted `ls` maps to a sorted decor label.
 spin_decors(ls::AbstractVector{<:Integer})::Vector{SiteDecor} =
     SiteDecor[SiteDecor(; spin = l) for l in ls]
 
+"""
+    rep_scale(channel::Channel, detR::Real, l::Integer) -> Float64
+
+The axial/polar scalar relating a channel's O(3) representation to the polar
+real Wigner matrix: `D_channel(l, R) = rep_scale(channel, det R, l) · D_polar(l, R)`.
+`SPIN` is axial (`det(R)^l` — spin directions are pseudovectors), `DISP` polar
+(`1.0`); `OCC` is reserved (its representation is not declared yet) and throws.
+
+This is the **single declared source of the per-channel group action** (design
+record §4). Production projection never applies it: the even-`Σl_spin`
+enumeration screen makes the product over spin slots `det(R)^{Σl_spin} ≡ +1`,
+so the one polar Wigner cache is exactly correct for both channels. The seat
+exists for the verification layer — the independent oracle and the gate (o)
+representation pins (e.g. inversion: axial `+I` for every `l`, polar
+`(−1)^l I`) consume it, and a mutation reinstating a global `det(R)^{Σl_all}`
+rule must fail against it.
+"""
+function rep_scale(channel::Channel, detR::Real, l::Integer)::Float64
+    channel == OCC &&
+        throw(ArgumentError("the OCC channel is reserved — its representation " *
+                            "is not declared in this version"))
+    return channel == SPIN ? Float64(detR)^Int(l) : 1.0
+end
+
 function Base.show(io::IO, d::SiteDecor)
     parts = String[]
     has_spin(d) && push!(parts, "spin=$(d.spin_l)")

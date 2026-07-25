@@ -479,3 +479,44 @@ l044 this front offered 38 % of the Monte-Carlo cost at a held-out torque RMSE
 cost at +19 %. The λ path (`select_fit`) remains the tool that *shapes* coefficients
 group-wise before thresholding; the threshold front is where the cost is actually
 harvested.
+
+## 14. Sector tables: one union, one projector, per-sector SOC
+
+The joint spin–lattice truncation is a **union of sectors** (`Sector` rows →
+resolved `SectorRule`s), not a product grid: the physically meaningful models —
+force constants ∪ pure-spin SCE ∪ a handful of coupled rows — are sparse in the
+(spin content × displacement degree × body order × radius) product, and a
+product-grid spec would either admit the whole block or force per-cell
+exceptions. Three decisions carry the design:
+
+- **`soc` is a per-sector truncation rule, not a second group action.** There
+  is exactly one projection (the grey magnetic group). `soc = false` keeps the
+  `L_S = 0` columns of that one basis — a theorem-backed *subset*, exact
+  together with the always-on even-`Σl_spin` screen (the screen is what kills
+  the T-odd scalar chirality `ê·(ê×ê)`, which is `L_S = 0` but Σl-odd). This is
+  also why the dense form's old `isotropy` keyword (an `Lf = 0` filter) had to
+  be *replaced* rather than generalized: at `p = 0` the two coincide
+  (`L_S ≡ Lf`), but a dJ/dr-type sector is `L_S = 0, Lf ≠ 0` and an `Lf`
+  filter would wrongly kill it. The rename carries an inversion
+  (`isotropy = true` ⇔ `soc = false`), so both the keyword and the TOML key
+  fail loudly with the mapping in the message.
+- **The union is a set-union on labels, projected once.** Per orbit, the
+  admitting sectors' label sets are merged with an OR over their `soc` flags
+  before projection; a label contributed by several sectors is projected
+  exactly once, so overlapping rows can never produce duplicate — hence
+  exactly collinear — design columns. `build_salc_basis` asserts key
+  uniqueness after the sort (the key-union invariant).
+- **Cutoffs: one envelope for the cluster set, per-sector re-admission.** The
+  cluster orbits are built once at the per-body elementwise-max envelope; each
+  sector then re-admits an orbit by comparing the same banded gate distances
+  `candidate_clusters` uses (MinimumImage: the pair's minimum-image distance;
+  AllImages: each edge), so a WS-boundary tie shell is kept or dropped whole
+  by every sector, never split.
+
+Species-resolved placement is deliberately split between generation and
+projection: a multiset label does not know which site carries which decor, so
+the generators cap by the loosest species present, and the decor engine's
+per-permutation-orbit filter (`_admit_assignment`, checked on the canonical
+representative — species are stabilizer-invariant) makes the per-site
+`lmax`/`pmax` decision exactly where `_enumerate_ls` would have made it,
+keeping `block` indices aligned between the pure-spin and decor engines.

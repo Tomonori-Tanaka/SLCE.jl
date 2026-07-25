@@ -460,8 +460,9 @@ end
                                                  cutoff = 5.0)])
         @test occursin("SectorRule", sprint(show, sp2.sectors[1]))
         @test occursin("sector 1", sprint(show, MIME("text/plain"), sp2))
-        # sector-driven basis construction is a later slice — the guard is explicit
+        # sector specs build (M2b-3b); the sector-driven content is gated in
+        # test_sectorbasis.jl / test_mixedsalc.jl
         cr = _trunc_crystal()
-        @test_throws E SLCEBasis(cr, sp2)
+        @test SLCEBasis(cr, sp2) isa SLCEBasis
     end
 end

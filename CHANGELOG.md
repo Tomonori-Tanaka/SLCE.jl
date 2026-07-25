@@ -22,9 +22,7 @@ release, so everything lives under *Unreleased*.
   derived, and `pmax` (per-species per-site displacement-degree cap; `0` =
   clamped, a ligand is `lmax = 0, pmax > 0`) is required as soon as a sector
   carries displacement content. New canonical fields: `pmax`, `sectors`,
-  `disp_scale` (the fixed, persisted displacement scale in Å). Sector-driven
-  *basis construction* is the next slice (M2b-3b) — an `SLCEBasis` build from
-  a sector spec currently throws an explicit not-wired-yet error.
+  `disp_scale` (the fixed, persisted displacement scale in Å).
 - **BREAKING — `isotropy` is replaced by `soc` (inverted!)**: the dense
   pure-spin form now takes `soc::Bool = true`; `soc = false` keeps only the
   total-spin scalar channel (`L_S = 0 ≡ Lf = 0` at `p = 0`) — exactly the old
@@ -37,6 +35,30 @@ release, so everything lives under *Unreleased*.
   and the resolved `sectors` table; legacy `isotropy`-keyed spec documents
   (v2–v4, and early-v5 local files) still read via the `soc = !isotropy` map —
   reloads are value-preserving as before.
+
+### Added — sector-driven basis construction (joint spin–lattice M2b-3b)
+
+- **A sector spec now builds an `SLCEBasis`**: `build_salc_basis(crystal, sg,
+  clusters, spec; neighbors, selection)` (`src/basis/sectorbasis.jl`) expands
+  the resolved sector table per cluster orbit — per-sector cutoff
+  re-admission with `candidate_clusters`'s exact banded semantics, spin/
+  displacement label generation (the `(k, l)` harmonic labels per total
+  degree, married onto the sites with shared spin+disp sites), per-label
+  effective `soc` = OR over admitting sectors — and projects the labels
+  through the mixed-channel decor engine with per-species `lmax`/`pmax`
+  permutation-orbit filtering. Key uniqueness of the sector union is asserted
+  (the key-union invariant). `SLCEBasis` routes automatically: a sector-less
+  spec keeps using the pure-spin engine bit-identically; a sector-expressed
+  pure-spin spec reproduces the legacy dense build bitwise (gated, incl. the
+  fingerprint).
+- The spin-configuration `SLCEDataset` constructors refuse a
+  displacement-decorated basis with a clear boundary error (the joint data
+  layer — displacements, forces — lands in M3).
+- `SLCE.rep_scale(channel, detR, l)` (public unexported): the declared
+  per-channel O(3) representation scale relative to the polar Wigner matrix
+  (SPIN axial `det(R)^l`, DISP polar `1`, OCC reserved). Production relies on
+  the even-`Σl_spin` screen instead of applying it; the seat anchors the
+  gate (o) representation pins (M2d) and the verification oracle.
 
 ### Changed — decoration labels + SALCKey v5 (joint spin–lattice M2a, BREAKING)
 

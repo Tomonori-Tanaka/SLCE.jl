@@ -278,20 +278,20 @@ function SLCEBasis(crystal::Crystal, spec::BasisSpec;
     isempty(spec.species_labels) || spec.species_labels == crystal.species_labels ||
         throw(ArgumentError("spec species labels $(spec.species_labels) do not match " *
                             "the crystal's $(crystal.species_labels)"))
-    isempty(spec.sectors) ||
-        throw(ArgumentError("sector-driven basis construction is not wired up " *
-                            "yet (M2b-3b) — only the dense pure-spin BasisSpec " *
-                            "form builds an SLCEBasis in this version"))
     sg = analyze_symmetry(backend, crystal; tol = tol)
     # The neighbor list is built at the per-pair superset radius (element-wise max
     # over body orders); each body order's own radii then trim edges per cluster in
-    # `candidate_clusters`.
+    # `candidate_clusters`. In sector mode `spec.cutoff` is the derived envelope;
+    # each sector then re-admits orbits within its own radii in the builder.
     nl = build_neighbor_list(crystal, _superset_cutoff(spec), images)
     clusters = build_clusters(crystal, nl, sg; nbody = spec.nbody, selection = images,
                               cutoff = spec.cutoff)
-    salcs = build_salc_basis(crystal, sg, clusters;
-                             lmax_by_species = spec.lmax, lsum_by_body = spec.lsum,
-                             isotropy = !spec.soc)
+    salcs = isempty(spec.sectors) ?
+        build_salc_basis(crystal, sg, clusters;
+                         lmax_by_species = spec.lmax, lsum_by_body = spec.lsum,
+                         isotropy = !spec.soc) :
+        build_salc_basis(crystal, sg, clusters, spec; neighbors = nl,
+                         selection = images)
     return SLCEBasis(crystal, sg, salcs, spec)
 end
 
@@ -460,10 +460,23 @@ function _validate_configs(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}}; atol
     return nothing
 end
 
+# The spin-configuration dataset path evaluates spin-only SALCs; refuse a
+# displacement-decorated basis at the boundary (the joint data layer — energies
+# with displacements, forces — is M3) instead of erroring inside the threaded
+# design assembly.
+function _require_pure_spin_basis(basis::SLCEBasis)
+    all(s -> all(is_pure_spin, s.key.decors), salcs(basis)) ||
+        throw(ArgumentError("the basis carries displacement-decorated SALCs — " *
+                            "the spin-configuration SLCEDataset path is pure-spin " *
+                            "only (the joint data layer lands in M3)"))
+    return nothing
+end
+
 function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::AbstractVector;
                    atol::Real = 1e-6)::SLCEDataset
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
+    _require_pure_spin_basis(basis)
     cfgs = [Matrix{Float64}(c) for c in configs]
     _validate_configs(basis, cfgs; atol = atol)
     X = _design_energy(basis, cfgs)
@@ -475,6 +488,7 @@ function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::Abstra
                    torques::AbstractVector; atol::Real = 1e-6)::SLCEDataset
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
+    _require_pure_spin_basis(basis)
     cfgs = [Matrix{Float64}(c) for c in configs]
     length(torques) == length(cfgs) ||
         throw(ArgumentError("got $(length(torques)) torque blocks for $(length(cfgs)) configs"))

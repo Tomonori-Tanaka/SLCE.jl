@@ -74,6 +74,39 @@ fallback), a body order outside `nbody` is an error rather than silently ignored
 `N`-body cluster is kept iff **every** internal edge lies within its own species-pair
 radius for that order. `display(spec)` prints the resolved truncation table.
 
+## Sector tables: the joint spin–lattice truncation
+
+The dense form above describes a pure-spin (clamped-ion) basis. The joint
+spin–lattice expansion is specified as a **sector table** — a union of
+[`Sector`](@ref) rows, each declaring one family of decorated clusters: its
+spin content (an explicit rank multiset like `[1, 1]`, or a
+`(nbody, lmax, lsum)` truncation), its displacement content (a total-degree
+budget; the `(k, l)` harmonic labels realizing each degree are derived), a
+per-sector SOC switch, and a per-sector cutoff:
+
+```julia
+spec = BasisSpec(crystal; lmax = 2, pmax = ["*" => 0, "Fe" => 3], sectors = [
+    Sector(disp = (degree = 2:3,), cutoff = 6.0),          # force constants
+    Sector(spin = (nbody = 2:4, lmax = 2), cutoff = 8.0),  # pure-spin SCE
+    Sector(spin = [1, 1], disp = (degree = 1,), soc = false, cutoff = 5.0)])  # dJ/dr
+basis = SLCEBasis(crystal, spec)
+```
+
+The admitted labels are the union of the rows, intersected with the global
+per-species `lmax`/`pmax` caps (a ligand species is `lmax = 0, pmax > 0`) and
+the per-body `lsum`; `nbody` and the per-body cutoff envelope are derived from
+the table. `soc = false` keeps only the total-spin-scalar (`L_S = 0`) blocks of
+that sector's labels — the exact SOC-free selection rule (for a pure-spin
+sector this is the old `Lf = 0` "isotropy" filter, which is why the dense form's
+keyword is now spelled `soc`). Overlapping sectors are safe: each label enters
+the basis exactly once (key-union invariant), with SOC granted if *any*
+admitting sector grants it. A sector-expressed pure-spin spec builds the same
+basis, bit for bit, as the dense form.
+
+Spin configurations alone cannot train a displacement-decorated basis — the
+spin-configuration `SLCEDataset` path refuses such a basis (the joint data
+layer with displacements and forces is scheduled work).
+
 ## Periodic resolvability: which pairs are physical
 
 A plain-PBC supercell can only resolve interactions whose displacement lies in its

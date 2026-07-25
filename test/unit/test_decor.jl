@@ -5,7 +5,7 @@ using Test
 using SLCE
 using SLCE: Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor,
             has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin,
-            spin_decors, spin_ls, SALCKey
+            spin_decors, spin_ls, SALCKey, rep_scale
 
 @testset "decoration labels" begin
     @testset "Channel order is SPIN < DISP < OCC" begin
@@ -75,5 +75,23 @@ using SLCE: Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor,
         @test ka < kb
         @test SALCKey(2, 3, spin_decors([1, 1]), 0, 0, 1) == ka
         @test hash(ka) == hash(SALCKey(2, 3, spin_decors([1, 1]), 0, 0, 1))
+    end
+
+    @testset "rep_scale channel trait" begin
+        # SPIN is axial: det(R)^l — the inversion representation is +I for every l
+        @test rep_scale(SPIN, -1.0, 1) == -1.0     # axial l=1 under a mirror-free det
+        @test rep_scale(SPIN, -1.0, 2) == 1.0
+        @test rep_scale(SPIN, 1.0, 3) == 1.0
+        # DISP is polar: the Wigner matrix itself carries the parity
+        @test rep_scale(DISP, -1.0, 1) == 1.0
+        @test rep_scale(DISP, -1.0, 2) == 1.0
+        # the reserved channel has no declared representation
+        @test_throws ArgumentError rep_scale(OCC, -1.0, 1)
+        # the production-correctness identity: over an even-Σl_spin label the
+        # spin factors' product is +1 for every op — the polar Wigner cache is
+        # exact for both channels (design record §4)
+        for ls in ([1, 1], [1, 3], [2, 2], [1, 1, 2])
+            @test prod(rep_scale(SPIN, -1.0, l) for l in ls) == 1.0
+        end
     end
 end

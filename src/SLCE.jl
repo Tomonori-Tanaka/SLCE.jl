@@ -49,6 +49,7 @@ include("basis/salcbasis.jl")
 include("fitting/estimators.jl")
 include("slce/truncation.jl")     # BasisSpec sugar → dense canonical resolution
 include("slce/model.jl")          # pipeline types + constructors + config validation
+include("basis/sectorbasis.jl")   # sector-table → decor-engine basis construction
 include("fitting/design.jl")     # design-matrix assembly (X_E / X_T)
 include("fitting/fit.jl")        # fit / refit / predict
 include("fitting/diagnostics.jl")  # coef / intercept / residuals / R² / RMSE
@@ -130,7 +131,7 @@ public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
 public Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor                # decoration labels
 public SectorRule                                                     # resolved sector row
 public has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin
-public spin_decors, spin_ls
+public spin_decors, spin_ls, rep_scale
 public islinear, solve_coefficients
 public salc_groups, group_costs, cost_weights                        # MC-cost grouping
 public save, load                                                    # TOML persistence
