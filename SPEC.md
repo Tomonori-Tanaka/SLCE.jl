@@ -266,6 +266,25 @@ capability consumed by both the introspection and the Sunny interop.
   - gate (i) full (`test_sectorbasis.jl`): the pure-spin subset of a mixed
     build IS the dense spin basis, `u = 0` joint evaluation `===` the dense
     evaluation, displacement-decorated SALCs exactly zero.
+- **Synthetic recovery, plan A** (`test_recovery.jl`; engine level, zero core
+  changes): Cartesian ground-truth spin–lattice models → sampled energies →
+  OLS on the SALC design → held-out energies exact (< 1e-9 relative) AND the
+  Cartesian input constants recovered through probe configurations. These are
+  function-space gates — they pin the span, the selection rules, the
+  projection, and the atom/component indexing, but NOT the per-SALC
+  normalization (invariant under column re-mixing; the `(4π)^(n_spin/2)` /
+  Racah scales stay pinned by the oracle and gates (e)/(g)). Four models: (A1) exchange striction `[J + a_s(u₁−u₂)_x + a_y(u₁+u₂)_y +
+  a_O u_{O,y}]·(ê₁·ê₂)` on the bent Fe–O–Fe unit, with the DMI negative
+  (planting `D(ê₁×ê₂)_z` makes the soc = false fit fail loudly, and the
+  soc = true refit of the same data recovers `D` exactly); (A2) the B₁/B₂
+  shell constants on Fe(O)₆ (per-bond C4v pair transported over the O_h
+  shell); (A3) the chirality twist `K(ê₁×ê₂)·(u₁×u₂)` — all fitted weight on
+  the `(L_S = 1, Lf = 0)` column (others < 1e-8 relative), `K` recovered via
+  the twist ratio, and the `L_S = 0` basis demonstrably cannot express it;
+  (A4) spin-dependent force constants `u_r·Φ⁰·u_r + (ê₁·ê₂)(u_r·Φ¹·u_r)` at
+  `p = 2` with aligned/antialigned probes separating `Φ⁰` from `Φ¹`. Plan B
+  (forces/torques-only recovery) lands with M3; plan C (bcc Fe literature
+  parameters) is demo material.
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled

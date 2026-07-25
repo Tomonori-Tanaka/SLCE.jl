@@ -6,6 +6,24 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — synthetic recovery tests, plan A (test-only)
+
+- `test/unit/test_recovery.jl`: Cartesian ground-truth spin–lattice models →
+  sampled energies → OLS on the SALC design → held-out energies exact and the
+  Cartesian input constants recovered through probe configurations (in-span
+  recovery is a theoretical guarantee, so drift = a conventions bug). These
+  are function-space gates: they pin span, selection rules, projection, and
+  `u` indexing — not the per-SALC normalization, which stays pinned by the
+  oracle and gates (e)/(g). Models:
+  (A1) exchange striction + ligand path on the bent Fe–O–Fe unit incl. the
+  DMI negative/positive pair (soc = false irrecoverable, soc = true recovers
+  `D` exactly); (A2) the B₁/B₂ shell constants on Fe(O)₆; (A3) the chirality
+  twist with full coefficient discrimination (only the `(L_S = 1, Lf = 0)`
+  column carries weight) and the `L_S = 0` negative; (A4) spin-dependent
+  force constants `Φ⁰ + (ê₁·ê₂)Φ¹` at `p = 2`. Plan B (recovery from forces
+  and torques) lands with the M3 data layer; plan C (bcc Fe literature
+  parameters) is demo material.
+
 ### Added — M2d verification gates (test-only; closes the §12 M2 battery)
 
 - **Gate (o)** — representation pins + mutation teeth for `rep_scale`:
