@@ -6,6 +6,25 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — joint gradient kernel (M3 slice 1)
+
+- `accumulate_grad!(Ge, Gu, salc, e, u, weight[, scratch])`: the joint
+  (spin + displacement) gradient of a SALC. Spin axes accumulate the
+  tangent-projected direction gradient into `Ge` (the torque convention,
+  bit-identical to the single-buffer spin-only path on pure-spin SALCs);
+  displacement axes accumulate the plain Euclidean `∂(|u|^{2k}R_{lm})/∂u`
+  into `Gu` with no projection — the force convention is `f_a = −∂E/∂u_a`
+  (design record §6), so model forces are `−Σ_ϕ jϕ·Gu_ϕ`. Shares the joint
+  evaluator's channel-dispatched value tables and `(4π)^(n_spin/2)` scale;
+  passing one array as both buffers is refused (the conventions differ).
+  The spin-only `accumulate_grad!` still refuses displacement-decorated
+  SALCs, now naming the joint form. Gate (j) runs at engine level in
+  `test/unit/test_jointgrad.jl` (finite differences incl. a degree-4-exact
+  stencil over `(k, l) = (1, 2)/(2, 0)` factors and an AllImages self-bond
+  repeated-column case, the `Ge ⊥ e` tangency invariant, bit-identity,
+  `u = 0` exactness, error surface); the model-level force design block
+  `X_F` arrives with the M3 data layer.
+
 ### Added — synthetic recovery tests, plan A (test-only)
 
 - `test/unit/test_recovery.jl`: Cartesian ground-truth spin–lattice models →

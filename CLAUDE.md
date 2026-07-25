@@ -81,9 +81,14 @@ Easy to break silently — confirm before touching the algorithm.
   The gate is the finite-difference self-consistency `predict_torque ≈ −e × ∇E_FD`
   (`test/unit/test_torque.jl`, `test_nbody.jl`): the torque must be the exact (negative
   rotation-) derivative of the energy surface. Change one kernel, re-check the other.
-  Both spin-only forms REFUSE displacement-decorated SALCs (the joint energy form is
-  `evaluate_salc(salc, e, u)`; the joint gradient — forces + torque — is not
-  implemented until M3, and the refusal is the guard against silent mis-scaling).
+  Both spin-only forms REFUSE displacement-decorated SALCs (the refusal is the guard
+  against silent mis-scaling); the joint forms are `evaluate_salc(salc, e, u)` and the
+  two-buffer `accumulate_grad!(Ge, Gu, salc, e, u, weight)` (M3 slice 1 — spin axes
+  tangent-projected into `Ge`, disp axes Euclidean into `Gu`, force sign `f = −∂E/∂u`
+  applied by the caller). The joint pair shares `_fill_ztables_mixed!` and the
+  `(4π)^(n_spin/2)` scale, and its gate is the engine-level finite-difference suite
+  (`test/unit/test_jointgrad.jl`) plus bitwise identity with the spin-only gradient on
+  pure-spin SALCs. The model-level force design block `X_F` is still M3-pending.
 - **Image selection ↔ neighbor list ↔ cluster edges** (`geometry/neighborlist.jl`,
   `clusters/enumerate.jl`, `slce/model.jl`): `SLCEBasis` threads one `images` value to
   **both** `build_neighbor_list` and `candidate_clusters`/`build_clusters`; they must

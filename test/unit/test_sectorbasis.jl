@@ -21,23 +21,6 @@ isdefined(@__MODULE__, :same_members) || include("testutils.jl")
 
 _sb_cfg(rng) = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:2])
 
-# All 48 signed permutation matrices = O_h in Cartesian (local copy for the
-# gate-(e2) fixture; = fractional for a cubic box).
-function _sb_oh48()
-    mats = SMatrix{3,3,Float64,9}[]
-    for p in [[1, 2, 3], [1, 3, 2], [2, 1, 3], [2, 3, 1], [3, 1, 2], [3, 2, 1]]
-        for sx in (-1, 1), sy in (-1, 1), sz in (-1, 1)
-            M = zeros(3, 3)
-            signs = (sx, sy, sz)
-            for i = 1:3
-                M[i, p[i]] = signs[i]
-            end
-            push!(mats, SMatrix{3,3,Float64,9}(M))
-        end
-    end
-    return mats
-end
-
 # Deep bit-exact equality of two bases' SALC content (keys + members).
 function _sector_basis_identical(a, b)
     ka = [s.key for s in salcs(a)]
@@ -346,7 +329,7 @@ end
         frac = reduce(hcat, [c + o / L for o in offs])
         cr = Crystal(Lattice(Matrix(L * I(3))), frac, [1, 2, 2, 2, 2, 2, 2],
                      ["Fe", "O"])
-        rots = _sb_oh48()
+        rots = oh48_matrices()
         trans = [(SMatrix{3,3,Float64}(I) - R) * c for R in rots]
         sg = _assemble_spacegroup(cr, rots, trans, "Pm-3m", 0; tol = 1e-6)
         nl = build_neighbor_list(cr, 2.1)                # center–shell bonds only

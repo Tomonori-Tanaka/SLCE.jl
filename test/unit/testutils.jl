@@ -13,6 +13,24 @@ using Random: AbstractRNG
 rand_unit(rng::AbstractRNG) =
     (v = SVector{3,Float64}(randn(rng), randn(rng), randn(rng)); v / norm(v))
 
+# All 48 signed permutation matrices = the O_h point group in Cartesian axes
+# (= fractional for a cubic cell). Shared by the mixed/sector/recovery/jointgrad
+# fixtures; the CountingOracle tests keep their own plain-Matrix variant.
+function oh48_matrices()
+    mats = SMatrix{3,3,Float64,9}[]
+    for p in [[1, 2, 3], [1, 3, 2], [2, 1, 3], [2, 3, 1], [3, 1, 2], [3, 2, 1]]
+        for sx in (-1, 1), sy in (-1, 1), sz in (-1, 1)
+            M = zeros(3, 3)
+            signs = (sx, sy, sz)
+            for i = 1:3
+                M[i, p[i]] = signs[i]
+            end
+            push!(mats, SMatrix{3,3,Float64,9}(M))
+        end
+    end
+    return mats
+end
+
 # Proper rotation from a random axis-angle (Rodrigues).
 function rand_rotation(rng::AbstractRNG)
     a = SVector{3,Float64}(randn(rng), randn(rng), randn(rng))

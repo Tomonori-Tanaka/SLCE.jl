@@ -120,22 +120,6 @@ function _ls_block_stats(crystal, sg, O, label, wcache)
     return maxoff, ranktotal
 end
 
-# All 48 signed permutation matrices = O_h in Cartesian (= fractional for sc).
-function _oh48()
-    mats = SMatrix{3,3,Float64,9}[]
-    for p in [[1, 2, 3], [1, 3, 2], [2, 1, 3], [2, 3, 1], [3, 1, 2], [3, 2, 1]]
-        for sx in (-1, 1), sy in (-1, 1), sz in (-1, 1)
-            M = zeros(3, 3)
-            signs = (sx, sy, sz)
-            for i = 1:3
-                M[i, p[i]] = signs[i]
-            end
-            push!(mats, SMatrix{3,3,Float64,9}(M))
-        end
-    end
-    return mats
-end
-
 @testset "mixed-channel SALC engine (M2b-2)" begin
     rng = MersenneTwister(0x51ce)
 
@@ -144,7 +128,7 @@ end
     # this crystal serves the single-site gates only)
     lat = Lattice(Matrix(2.0 * I(3)))
     xtal = Crystal(lat, zeros(3, 1), [1], ["Fe"])
-    rots = _oh48()
+    rots = oh48_matrices()
     trs = [SVector{3,Float64}(0, 0, 0) for _ in rots]
     sg = _assemble_spacegroup(xtal, rots, trs, "Pm-3m", 221; tol = 1e-5)
     wc = _build_wig_cache(sg, 4)
@@ -156,7 +140,7 @@ end
     # the bond stabilizer is the full 16-op d4h of the CountingOracle bond gates.
     latB = Lattice(Matrix(3.0 * I(3)))
     xtalB = Crystal(latB, [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    rotsB = [R for R in _oh48() if abs(R[1, 1]) == 1.0]     # D4h about x
+    rotsB = [R for R in oh48_matrices() if abs(R[1, 1]) == 1.0]     # D4h about x
     @test length(rotsB) == 16
     trsB = [SVector{3,Float64}(0, 0, 0) for _ in rotsB]
     sgB = _assemble_spacegroup(xtalB, rotsB, trsB, "P4/mmm", 123; tol = 1e-5)
@@ -308,7 +292,7 @@ end
             u1 = randn(rng, 3, 1) * 0.4
             for s in s1
                 v0 = evaluate_salc(s, e1, u1)
-                for R in _oh48()
+                for R in oh48_matrices()
                     @test evaluate_salc(s, Matrix(det(R) * R * e1),
                                         Matrix(R * u1)) ≈ v0 atol = 1e-10
                 end

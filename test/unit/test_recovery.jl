@@ -17,6 +17,8 @@ using LinearAlgebra
 using Random
 using StaticArrays
 
+isdefined(@__MODULE__, :same_members) || include("testutils.jl")
+
 # Design matrix with intercept: X[i, 1] = 1, X[i, k+1] = Φ_k(e_i, u_i).
 function _rc_design(svec, cfgs)
     X = Matrix{Float64}(undef, length(cfgs), length(svec) + 1)
@@ -45,22 +47,6 @@ function _rc_fit(svec, cfgs, E, nfit)
 end
 
 _rc_unit(rng) = normalize(randn(rng, 3))
-
-# All 48 signed permutation matrices = O_h in Cartesian (local copy).
-function _sb_oh48_rc()
-    mats = SMatrix{3,3,Float64,9}[]
-    for p in [[1, 2, 3], [1, 3, 2], [2, 1, 3], [2, 3, 1], [3, 1, 2], [3, 2, 1]]
-        for sx in (-1, 1), sy in (-1, 1), sz in (-1, 1)
-            M = zeros(3, 3)
-            signs = (sx, sy, sz)
-            for i = 1:3
-                M[i, p[i]] = signs[i]
-            end
-            push!(mats, SMatrix{3,3,Float64,9}(M))
-        end
-    end
-    return mats
-end
 
 @testset "synthetic recovery (plan A)" begin
     @testset "A1: exchange striction + DMI on the bent Fe–O–Fe unit" begin
@@ -167,7 +153,7 @@ end
         frac = reduce(hcat, [c + o / L for o in offs])
         cr = Crystal(Lattice(Matrix(L * I(3))), frac, [1, 2, 2, 2, 2, 2, 2],
                      ["Fe", "O"])
-        rots = _sb_oh48_rc()
+        rots = oh48_matrices()
         trans = [(SMatrix{3,3,Float64}(I) - R) * c for R in rots]
         sg = _assemble_spacegroup(cr, rots, trans, "Pm-3m", 0; tol = 1e-6)
         nl = build_neighbor_list(cr, 2.1)
@@ -227,7 +213,7 @@ end
         # eight columns of the doubly-decorated family.
         latB = Lattice(Matrix(3.0 * I(3)))
         xtalB = Crystal(latB, [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-        rotsB = [R for R in _sb_oh48_rc() if abs(R[1, 1]) == 1.0]
+        rotsB = [R for R in oh48_matrices() if abs(R[1, 1]) == 1.0]
         trsB = [SVector{3,Float64}(0, 0, 0) for _ in rotsB]
         sgB = _assemble_spacegroup(xtalB, rotsB, trsB, "P4/mmm", 123; tol = 1e-5)
         nlB = build_neighbor_list(xtalB, 1.1)
@@ -285,7 +271,7 @@ end
         # per-column coefficients.
         latB = Lattice(Matrix(3.0 * I(3)))
         xtalB = Crystal(latB, [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-        rotsB = [R for R in _sb_oh48_rc() if abs(R[1, 1]) == 1.0]
+        rotsB = [R for R in oh48_matrices() if abs(R[1, 1]) == 1.0]
         trsB = [SVector{3,Float64}(0, 0, 0) for _ in rotsB]
         sgB = _assemble_spacegroup(xtalB, rotsB, trsB, "P4/mmm", 123; tol = 1e-5)
         nlB = build_neighbor_list(xtalB, 1.1)

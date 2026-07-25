@@ -219,15 +219,17 @@ Base.length(b::SALCBasis) = length(b.salcs)
 struct SALCScratch
     dnpl::Vector{Float64}                  # Zlm_unsafe recursion workspace
     z::Vector{Vector{Float64}}             # z[i][μ+lᵢ+1] = per-axis factor table
-    g::Vector{Vector{SVector{3,Float64}}}  # g[i][μ+lᵢ+1] = ∇Z_{lᵢμ}(u_i)
+    g::Vector{Vector{SVector{3,Float64}}}  # g[i][μ+lᵢ+1] = per-axis factor gradient
     rl::Vector{Float64}                    # SolidHarmonics batch buffer (disp axes)
+    rlg::Vector{Float64}                   # SolidHarmonics gradient pool (3 × n, flat)
 end
 SALCScratch() = SALCScratch(Vector{Float64}(undef, 4), Vector{Float64}[],
-                            Vector{SVector{3,Float64}}[], Vector{Float64}(undef, 4))
+                            Vector{SVector{3,Float64}}[], Vector{Float64}(undef, 4),
+                            Vector{Float64}(undef, 12))
 # wrap a caller-supplied dnPl vector (the pre-scratch `cache` compatibility surface)
 _wrap_scratch(cache::Vector{Float64}) =
     SALCScratch(cache, Vector{Float64}[], Vector{SVector{3,Float64}}[],
-                Vector{Float64}(undef, 4))
+                Vector{Float64}(undef, 4), Vector{Float64}(undef, 12))
 
 """
     evaluate_salc(salc, e[, cache]) -> Float64
@@ -338,8 +340,8 @@ function accumulate_grad!(G::AbstractMatrix{Float64}, salc::SALC,
                           e::AbstractMatrix{<:Real}, weight::Real,
                           scratch::SALCScratch)
     all(is_pure_spin, salc.decors) || throw(ArgumentError(
-        "displacement-decorated SALC: the joint gradient (forces + torque) " *
-        "is not implemented yet (M3)"))
+        "displacement-decorated SALC: use the joint two-buffer form " *
+        "accumulate_grad!(Ge, Gu, salc, e, u, weight)"))
     weight == 0.0 && return G
     scale = weight * (4π)^(salc.body / 2)
     @inbounds for m in salc.members
@@ -459,6 +461,156 @@ end
         acc += w
     end
     return acc
+end
+
+"""
+    accumulate_grad!(Ge, Gu, salc, e, u, weight[, scratch]) -> (Ge, Gu)
+
+Joint gradient of a (possibly displacement-decorated) SALC: accumulate
+`weight · ∂Φ/∂e_a` into column `a` of `Ge` and `weight · ∂Φ/∂u_a` into column
+`a` of `Gu` (both `3 × n_atoms` buffers, same column convention as `e`/`u`).
+
+Channel conventions (design record §6):
+
+- **spin axes** contribute the tangent-projected direction gradient `∇Z_{lm}`
+  (the radial part they drop would cancel in the torque cross product
+  `τ_a = ∂E/∂e_a × e_a` — identical to the single-buffer spin-only
+  [`accumulate_grad!`](@ref), and bit-identical to it on a pure-spin SALC);
+- **displacement axes** contribute the plain Euclidean gradient
+  `∂(|u|^{2k} R_{lm}(u))/∂u` with NO projection — the force convention is
+  `f_a = −∂E/∂u_a`, so a model's forces are `−Σ_ϕ jϕ · Gu_ϕ`. Displacement
+  factors are polynomials, hence smooth at `u = 0` (a degree-1 factor has a
+  constant gradient there; higher degrees vanish).
+
+The scale is `(4π)^(n_spin/2)` over the SALC's spin slots, exactly matching
+the joint `evaluate_salc(salc, e, u)`; the gradient kernel shares that
+evaluator's value tables (`_fill_ztables_mixed!`), and the scale expression —
+written in both kernels — is fenced by the gate (j) finite-difference suite.
+"""
+accumulate_grad!(Ge::AbstractMatrix{Float64}, Gu::AbstractMatrix{Float64},
+                 salc::SALC, e::AbstractMatrix{<:Real}, u::AbstractMatrix{<:Real},
+                 weight::Real) =
+    accumulate_grad!(Ge, Gu, salc, e, u, weight, SALCScratch())
+function accumulate_grad!(Ge::AbstractMatrix{Float64}, Gu::AbstractMatrix{Float64},
+                          salc::SALC, e::AbstractMatrix{<:Real},
+                          u::AbstractMatrix{<:Real}, weight::Real,
+                          scratch::SALCScratch)
+    size(u) == size(e) || throw(ArgumentError(
+        "displacement field u has size $(size(u)); expected $(size(e)) " *
+        "(same 3 × n_atoms column convention as the spin configuration)"))
+    size(Ge) == size(e) || throw(ArgumentError(
+        "spin-gradient buffer Ge has size $(size(Ge)); expected $(size(e))"))
+    size(Gu) == size(e) || throw(ArgumentError(
+        "displacement-gradient buffer Gu has size $(size(Gu)); expected $(size(e))"))
+    Ge === Gu && throw(ArgumentError(
+        "Ge and Gu are the same array: the two buffers carry different " *
+        "conventions (tangent-projected direction gradient vs Euclidean " *
+        "force gradient) and must not be summed"))
+    weight == 0.0 && return (Ge, Gu)
+    n_spin = count(has_spin, salc.decors)
+    scale = weight * (4π)^(n_spin / 2)
+    @inbounds for m in salc.members
+        atoms = m.atoms
+        for t in m.terms
+            _accum_grad_term_mixed!(Ge, Gu, t.folded, t.slots, atoms, e, u, scale,
+                                    scratch)
+        end
+    end
+    return (Ge, Gu)
+end
+
+# Joint sibling of `_accum_grad_term!`: identical product-rule expansion and
+# loop order (bit-identity with the spin-only path on pure-spin content), with
+# the per-axis value/gradient tables channel-dispatched at fill time.
+@inline function _accum_grad_term_mixed!(Ge::AbstractMatrix{Float64},
+                                         Gu::AbstractMatrix{Float64},
+                                         folded::Array{Float64,D},
+                                         slots::Vector{SlotRef}, atoms,
+                                         e::AbstractMatrix{<:Real},
+                                         u::AbstractMatrix{<:Real}, scale::Float64,
+                                         s::SALCScratch) where {D}
+    _fill_ztables_mixed!(s, Val(D), slots, atoms, e, u)
+    _fill_gtables_mixed!(s, Val(D), slots, atoms, e, u)
+    ztab = s.z
+    gtab = s.g
+    @inbounds for idx in CartesianIndices(folded)
+        w = scale * folded[idx]
+        w == 0.0 && continue
+        for i = 1:D
+            # leave-one-out product of the other axes' factors
+            p = 1.0
+            for k = 1:D
+                k == i && continue
+                p *= ztab[k][idx[k]]
+            end
+            p == 0.0 && continue
+            gi = gtab[i][idx[i]]
+            c = w * p
+            a = atoms[slots[i].site]
+            if slots[i].factor.channel == SPIN
+                Ge[1, a] += c * gi[1]
+                Ge[2, a] += c * gi[2]
+                Ge[3, a] += c * gi[3]
+            else
+                Gu[1, a] += c * gi[1]
+                Gu[2, a] += c * gi[2]
+                Gu[3, a] += c * gi[3]
+            end
+        end
+    end
+    return nothing
+end
+
+# Joint sibling of `_fill_gtables!`: per-axis factor gradients, channel-
+# dispatched. Spin axes reuse the tangent-projected `∇Z_{lm}` kernel; a
+# displacement axis `|u|^{2k} R_{lm}(u)` gets the product rule
+# `|u|^{2k} ∇R_{lm} + 2k |u|^{2(k−1)} R_{lm} · u` (Euclidean, polynomial-exact;
+# the radial term is skipped at k = 0 and vanishes with `u` otherwise). The
+# call overwrites `s.rl` with the same values `_fill_ztables_mixed!` produced
+# (one shared implementation). Fill the z-tables first as a rule — not a live
+# dependency today (both fills recompute `s.rl` per axis before reading it),
+# but the rule keeps a future partial-reuse refactor from aliasing.
+@inline function _fill_gtables_mixed!(s::SALCScratch, ::Val{D},
+                                      slots::Vector{SlotRef}, atoms,
+                                      e::AbstractMatrix{<:Real},
+                                      u::AbstractMatrix{<:Real}) where {D}
+    while length(s.g) < D
+        push!(s.g, SVector{3,Float64}[])
+    end
+    @inbounds for i = 1:D
+        sl = slots[i]
+        a = atoms[sl.site]
+        li = sl.factor.l
+        t = s.g[i]
+        length(t) < 2 * li + 1 && resize!(t, 2 * li + 1)
+        if sl.factor.channel == SPIN
+            ev = SVector{3,Float64}(e[1, a], e[2, a], e[3, a])
+            length(s.dnpl) < li + 1 && resize!(s.dnpl, li + 1)
+            for μ = -li:li
+                t[μ + li + 1] = Harmonics.grad_Zlm_unsafe(li, μ, ev, s.dnpl)
+            end
+        else
+            uv = SVector{3,Float64}(u[1, a], u[2, a], u[3, a])
+            nsh = SolidHarmonics.num_solid_harmonics(li)
+            length(s.rl) < nsh && resize!(s.rl, nsh)
+            length(s.rlg) < 3 * nsh && resize!(s.rlg, 3 * nsh)
+            Gm = reshape(view(s.rlg, 1:(3 * nsh)), 3, nsh)
+            SolidHarmonics.solid_harmonics_grad!(s.rl, Gm, li, uv)
+            k = sl.factor.k
+            r2 = uv[1] * uv[1] + uv[2] * uv[2] + uv[3] * uv[3]
+            r2k = r2^k
+            for μ = -li:li
+                j = SolidHarmonics.solid_harmonic_index(li, μ)
+                g = SVector{3,Float64}(r2k * Gm[1, j], r2k * Gm[2, j],
+                                       r2k * Gm[3, j])
+                if k >= 1
+                    g += (2 * k * r2^(k - 1) * s.rl[j]) .* uv
+                end
+                t[μ + li + 1] = g
+            end
+        end
+    end
+    return nothing
 end
 
 @inline function _fill_ztables_mixed!(s::SALCScratch, ::Val{D},

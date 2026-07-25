@@ -285,6 +285,31 @@ capability consumed by both the introspection and the Sunny interop.
   `p = 2` with aligned/antialigned probes separating `Φ⁰` from `Φ¹`. Plan B
   (forces/torques-only recovery) lands with M3; plan C (bcc Fe literature
   parameters) is demo material.
+- **Joint gradient kernel (M3 slice 1)**: the two-buffer
+  `accumulate_grad!(Ge, Gu, salc, e, u, weight[, scratch])` accumulates
+  `weight·∂Φ/∂e_a` (spin axes, tangent-projected — the torque convention) and
+  `weight·∂Φ/∂u_a` (displacement axes, plain Euclidean — the force convention
+  `f_a = −∂E/∂u_a`, design record §6) with the `(4π)^(n_spin/2)` scale of the
+  joint `evaluate_salc`, sharing its channel-dispatched value tables (the
+  scale expression, written in both kernels, is fenced by gate (j)). A
+  displacement axis `|u|^{2k} R_{lm}` gets
+  `|u|^{2k}∇R_{lm} + 2k|u|^{2(k−1)} R_{lm} u` (polynomial-exact, smooth at
+  `u = 0`). On a pure-spin SALC `Ge` is bit-identical to the single-buffer
+  spin-only path and `Gu` stays untouched; the spin-only path still refuses
+  decorated SALCs, naming the joint form; passing one array as both buffers
+  is refused. Gate (j) at engine level (`test_jointgrad.jl`):
+  central-difference `∂Φ/∂u` (3-point where per-column degree ≤ 2, a
+  degree-4-exact 5-point stencil for the quartic fixture that makes BOTH
+  halves of the displacement product rule live — `(k, l) = (1, 2)/(2, 0)`
+  factors) and tangent-directional on-sphere `∂Φ/∂e` FD, over the mixed
+  9-SALC bond family, the `|u|²` trace channel, the 6-member Fe(O)₆ orbit
+  (member transport), and an AllImages self-bond (both slots of each channel
+  on ONE atom column — the repeated-column chain rule); the explicit tangency
+  invariant `Ge[:, a] ⊥ e[:, a]`; pure-spin bit-identity; exact `u = 0`
+  behavior (all-degree-1-pairs ⇒ both gradients ≡ 0; single degree-1 factor ⇒
+  constant nonzero `Gu`); weight-0 fast path, accumulation additivity, shared
+  scratch bit-identity, and the full error surface. Model-level force rows
+  (`X_F`) land with the M3 data layer.
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled
