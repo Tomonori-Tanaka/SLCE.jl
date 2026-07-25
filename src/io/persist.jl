@@ -50,7 +50,8 @@ _key_doc(k::SALCKey) = Dict{String,Any}(
     "L_S" => k.L_S, "Lf" => k.Lf, "block" => k.block)
 
 _term_doc(t::SALCTerm) = Dict{String,Any}(
-    "ls" => collect(Int, t.ls),
+    "slots" => [Int[s.site, Int(s.factor.channel), s.factor.k, s.factor.l]
+                for s in t.slots],
     "shape" => collect(Int, size(t.folded)),
     "folded" => Float64[_jnum(v) for v in vec(t.folded)])   # column-major flat
 
@@ -161,14 +162,19 @@ function _key_from(d)::SALCKey
 end
 
 function _term_from(d)::SALCTerm
-    ls = _intvec(d["ls"])
+    # v5 terms carry explicit slots; v2-v4 terms carry the per-site "ls", which
+    # maps to the identity pure-spin slot list.
+    slots = haskey(d, "slots") ?
+        SlotRef[SlotRef(Int(t[1]), SiteFactor(Channel(UInt8(t[2])), Int(t[3]), Int(t[4])))
+                for t in d["slots"]] :
+        spin_slots(_intvec(d["ls"]))
     shape = _intvec(d["shape"])
     flat = _floatvec(d["folded"])
     n = prod(shape; init = 1)
     length(flat) == n ||
         throw(ArgumentError("SALC term: $(length(flat)) coefficients for shape $shape (expected $n)"))
     folded = copy(reshape(flat, Tuple(shape)))   # owned dense Array{Float64,N}
-    return SALCTerm(ls, folded)
+    return SALCTerm(slots, folded)
 end
 
 function _member_from(d)::SALCMember

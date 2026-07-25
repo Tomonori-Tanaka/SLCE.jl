@@ -148,7 +148,7 @@ end
                     for idx in CartesianIndices(t.folded)
                         t.folded[idx] == 0.0 && continue
                         key = (Tuple(mem.atoms), Tuple(Tuple.(mem.shifts)),
-                               Tuple(t.ls), Tuple(idx))
+                               Tuple(SLCE._term_spin_ls(t)), Tuple(idx))
                         push!(bysets[labels[j]], key)
                     end
                 end

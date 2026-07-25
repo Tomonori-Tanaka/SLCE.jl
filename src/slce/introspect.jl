@@ -43,9 +43,19 @@ and `l`-ordering of every SALC with a nonzero coefficient. This is the stable pu
 contract a downstream consumer (a mean-field sampler, an energy evaluator, …) reads
 *instead of* the SALC-basis internals; the per-N scale `(4π)^(body/2)` is left for the
 consumer to apply once, so the returned `coef` is exactly the fitted `jϕ`.
+
+`multipole_terms` is the **pure-spin** surface: a model whose basis carries any
+displacement-decorated sector throws (a `MultipoleTerm` has no displacement
+factors, and downstream consumers derive the `(4π)^(body/2)` scale from the
+term shape — silently dropping or mis-scaling mixed terms is worse than
+refusing).
 """
 function multipole_terms(model::SLCEModel)::Vector{MultipoleTerm}
     salcs = model.basis.salc_basis.salcs
+    all(is_pure_spin(k) for k in model.basis.salc_basis.keys) ||
+        throw(ArgumentError(
+            "the model's basis carries displacement-decorated sectors; " *
+            "multipole_terms is the pure-spin introspection surface"))
     out = MultipoleTerm[]
     @inbounds for k in eachindex(model.jphi)
         j = model.jphi[k]
@@ -53,7 +63,8 @@ function multipole_terms(model::SLCEModel)::Vector{MultipoleTerm}
         salc = salcs[k]
         for mem in salc.members
             for t in mem.terms
-                push!(out, MultipoleTerm(j, salc.body, mem.atoms, mem.shifts, t.ls, t.folded))
+                push!(out, MultipoleTerm(j, salc.body, mem.atoms, mem.shifts,
+                                         _term_spin_ls(t), t.folded))
             end
         end
     end

@@ -47,7 +47,7 @@ function check_canonical_members(salc)
         @test m.shifts[1] == SVector(0, 0, 0)
         @test (m.atoms, m.shifts) ∉ seen
         push!(seen, (m.atoms, m.shifts))
-        lss = [Tuple(t.ls) for t in m.terms]
+        lss = [map(SLCE._slotkey, t.slots) for t in m.terms]
         @test issorted(lss)
         @test allunique(lss)
         @test all(t -> any(!=(0.0), t.folded), m.terms)
@@ -58,7 +58,7 @@ same_members(a, b) =
     length(a) == length(b) &&
     all(ma.atoms == mb.atoms && ma.shifts == mb.shifts &&
         length(ma.terms) == length(mb.terms) &&
-        all(ta.ls == tb.ls && ta.folded == tb.folded
+        all(ta.slots == tb.slots && ta.folded == tb.folded
             for (ta, tb) in zip(ma.terms, mb.terms))
         for (ma, mb) in zip(a, b))
 
@@ -75,7 +75,8 @@ function split_roundtrip_exact(salc, perms_by_body::Dict{Int,NTuple{2,Vector{Int
         for (p, deanchor) in ((pa, false), (pb, true))
             sh = [deanchor ? m.shifts[i] + R0 : m.shifts[i] for i in p]
             terms = SLCE.SALCTerm[
-                SLCE.SALCTerm(t.ls[p], 0.5 .* permutedims(t.folded, p))
+                SLCE.SALCTerm(SLCE.spin_slots(SLCE._term_spin_ls(t)[p]),
+                              0.5 .* permutedims(t.folded, p))
                 for t in m.terms]
             push!(red, SLCE.SALCMember(m.atoms[p], sh, terms))
         end

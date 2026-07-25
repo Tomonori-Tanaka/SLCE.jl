@@ -95,7 +95,9 @@ function group_costs(basis::SLCEBasis,
     for j in eachindex(sl)
         set = sets[labels[j]]
         for m in sl[j].members, t in m.terms
-            _push_entries!(set, m.atoms, m.shifts, t.ls, t.folded)
+            # Pure-spin entry key (the M4 MC-contract migration moves this to
+            # slots); identical values to the v4 per-site ls on today's bases.
+            _push_entries!(set, m.atoms, m.shifts, _term_spin_ls(t), t.folded)
         end
     end
     return length.(sets)

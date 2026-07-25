@@ -331,7 +331,7 @@ function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id
                     mterms = SALCTerm[]
                     for (o, F) in terms_rep
                         mls, G = _transport_term(o, F, g, perm, wcache)
-                        push!(mterms, SALCTerm(mls, G))
+                        push!(mterms, SALCTerm(spin_slots(mls), G))
                     end
                     push!(members, SALCMember(m.atoms, m.shifts, mterms))
                 end

@@ -149,7 +149,10 @@ capability consumed by both the introspection and the Sunny interop.
   `SPIN < DISP < OCC` with `OCC` reserved; `basis/decor.jl`) plus the total spin
   rank `L_S` (spin-first coupling; a good quantum number of the projection).
   The pure-spin construction emits `decors = spin_decors(ls)` with `L_S = Lf`
-  (the v4 shape); `spin_ls(key)` reads the `ls` label back.
+  (the v4 shape); `spin_ls(key)` reads the `ls` label back. `SALCTerm` axes are
+  `SlotRef`s (member-site index + `SiteFactor`, canonical order SPIN axes before
+  DISP axes each by site) — the slot → site map that admits several axes on one
+  site; pure-spin terms are the identity list `spin_slots(ls)`.
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled

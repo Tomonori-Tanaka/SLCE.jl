@@ -26,6 +26,15 @@ release, so everything lives under *Unreleased*.
   comma string, displacement factors as `u(k,l)`), new `L_S` column.
 - `salc_groups` now groups on `(body, orbit_id, decors)` (same granularity;
   pure-spin bases produce identical groups).
+- **Slot-based term layout (M2b-1)**: `SALCTerm` stores per-axis `SlotRef`s
+  (member-site index + `SiteFactor`) instead of the per-site `ls` — the slot →
+  site map that lets mixed-channel terms carry several axes on one site.
+  Pure-spin terms are the identity slot list `spin_slots(ls)`; construction,
+  canonical fold, evaluation/gradient kernels, persistence (v5 terms store
+  "slots"; v2–v4 "ls" terms map on read), and `group_costs` all moved and are
+  **bit-identical** on pure-spin bases (cross-checked against a basis built and
+  serialized by the pre-refactor commit). `multipole_terms` now throws on a
+  displacement-decorated basis (it is the pure-spin introspection surface).
 
 ### Added — displacement kernel + counting oracle (joint spin–lattice M1)
 

@@ -45,18 +45,48 @@ Whether every decor of the key is a bare spin factor (the v4 decoration shape).
 is_pure_spin(k::SALCKey)::Bool = all(is_pure_spin, k.decors)
 
 """
+    SlotRef
+
+One tensor axis ("slot") of a [`SALCTerm`](@ref): the member-site index it
+contracts against plus its decoration factor. Mixed-channel SALCs may carry
+several slots on one site (a spin factor and a displacement factor); the slot →
+site map is what generalizes the v4 axis-`i` ↔ site-`i` identity.
+"""
+struct SlotRef
+    site::Int
+    factor::SiteFactor
+end
+
+_slotkey(s::SlotRef) = (s.factor.channel, s.site, s.factor.k, s.factor.l)
+
+"""
+    spin_slots(ls) -> Vector{SlotRef}
+
+The identity pure-spin slot list of a per-site `l` assignment: axis `i` is
+`SiteFactor(SPIN, 0, ls[i])` on site `i` (the v4 term shape).
+"""
+spin_slots(ls::AbstractVector{<:Integer})::Vector{SlotRef} =
+    SlotRef[SlotRef(i, SiteFactor(SPIN, 0, ls[i])) for i in eachindex(ls)]
+
+"""
     SALCTerm
 
-One `l`-assignment contributing to a (member of a) SALC: per-site angular momenta
-`ls` and the real coefficient tensor `folded` (rank `N`, `Mf` axis already
-contracted against the SALC coefficient). A SALC built from an `l`-multiset with
-unequal `l`'s on symmetry-equivalent sites carries one term per site→`l`
-assignment; the common case (1/2-body, or equal `l`'s) is a single term.
+One factor assignment contributing to a (member of a) SALC: the per-axis
+[`SlotRef`](@ref)s (canonical order: `SPIN` axes before `DISP` axes, each by
+member-site order) and the real coefficient tensor `folded` (one axis per slot,
+`Mf` axis already contracted against the SALC coefficient). A SALC built from a
+decoration multiset with unequal factors on symmetry-equivalent sites carries
+one term per site→factor assignment; the common case (1/2-body, or equal
+factors) is a single term. Pure-spin terms have the identity slot list
+`spin_slots(ls)`.
 """
 struct SALCTerm
-    ls::Vector{Int}
+    slots::Vector{SlotRef}
     folded::Array{Float64}
 end
+
+# The per-axis spin ranks of a pure-spin term (the v4 `ls` view).
+_term_spin_ls(t::SALCTerm)::Vector{Int} = Int[s.factor.l for s in t.slots]
 
 """
     SALCMember
@@ -89,8 +119,9 @@ copies fold *exactly* into one member per physical instance:
 - sites sorted by `(atom, shift)`; shifts re-anchored to the first sorted site
   (restoring the `shifts[1] = 0` home-cell convention — under periodic
   evaluation and supercell tiling a re-anchored member is the same instance);
-- each term's `ls` and `folded` axes carried through the same permutation
-  (`permutedims`) and summed per resulting site→`l` assignment.
+- each term's slot sites remapped to the sorted order and its `folded` axes
+  brought to the canonical slot order (`permutedims`), then summed per
+  resulting site→factor assignment.
 
 Terms whose merged tensor is exactly zero are dropped (they contribute
 nothing), and members left with no terms are dropped. Accumulation follows the
@@ -101,20 +132,29 @@ summed after contraction).
 """
 function _canonicalize_members(members::Vector{SALCMember})::Vector{SALCMember}
     Key = Tuple{Vector{Int},Vector{NTuple{3,Int}}}
-    acc = Dict{Key,Vector{Pair{Vector{Int},Array{Float64}}}}()
+    acc = Dict{Key,Vector{Pair{Vector{SlotRef},Array{Float64}}}}()
     for m in members
         N = length(m.atoms)
         perm = sortperm(1:N; by = i -> (m.atoms[i], Tuple(m.shifts[i])))
+        pos = invperm(perm)                  # old site index -> sorted position
         catoms = m.atoms[perm]
         s0 = m.shifts[perm[1]]
         cshifts = NTuple{3,Int}[Tuple(m.shifts[perm[i]] - s0) for i = 1:N]
-        terms = get!(() -> Pair{Vector{Int},Array{Float64}}[], acc, (catoms, cshifts))
+        terms = get!(() -> Pair{Vector{SlotRef},Array{Float64}}[], acc,
+                     (catoms, cshifts))
         for t in m.terms
-            cls = t.ls[perm]
-            pf = perm == 1:N ? copy(t.folded) : permutedims(t.folded, perm)
-            slot = findfirst(p -> first(p) == cls, terms)
+            # Remap slot sites to the sorted order, then bring the axes to the
+            # canonical slot order (SPIN before DISP, each by site — for a
+            # pure-spin identity term this is exactly the old axes-follow-sites
+            # `permutedims(folded, perm)`, so the fold is bit-identical to v4).
+            remapped = SlotRef[SlotRef(pos[s.site], s.factor) for s in t.slots]
+            q = sortperm(remapped; by = _slotkey)
+            cslots = remapped[q]
+            n = length(q)
+            pf = q == 1:n ? copy(t.folded) : permutedims(t.folded, q)
+            slot = findfirst(p -> first(p) == cslots, terms)
             if slot === nothing
-                push!(terms, cls => pf)
+                push!(terms, cslots => pf)
             else
                 terms[slot].second .+= pf
             end
@@ -123,9 +163,9 @@ function _canonicalize_members(members::Vector{SALCMember})::Vector{SALCMember}
     out = SALCMember[]
     for k in sort!(collect(keys(acc)))
         tl = SALCTerm[]
-        for (ls, F) in sort(acc[k]; by = p -> Tuple(first(p)))
+        for (slots, F) in sort(acc[k]; by = p -> map(_slotkey, first(p)))
             any(!=(0.0), F) || continue
-            push!(tl, SALCTerm(ls, F))
+            push!(tl, SALCTerm(slots, F))
         end
         isempty(tl) && continue
         shifts = SVector{3,Int}[SVector{3,Int}(s) for s in k[2]]
@@ -207,7 +247,7 @@ function evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real},
     @inbounds for m in salc.members
         atoms = m.atoms
         for t in m.terms
-            total += _eval_term(t.folded, t.ls, atoms, e, scratch)
+            total += _eval_term(t.folded, t.slots, atoms, e, scratch)
         end
     end
     return scale * total
@@ -218,7 +258,7 @@ end
 # type-unstable when written inline. Dispatching here specializes on the concrete
 # rank `D` (== body order) — same values and the same multiply/accumulate order, so
 # the result is bit-identical to the inlined loop.
-@inline function _eval_term(folded::Array{Float64,D}, ls, atoms,
+@inline function _eval_term(folded::Array{Float64,D}, slots::Vector{SlotRef}, atoms,
                             e::AbstractMatrix{<:Real}, s::SALCScratch) where {D}
     # Per-site harmonic tables. The site direction `u_i` is fixed for this term, so
     # `Z_{lsᵢ,μ}` depends only on `(i, μ)`; tabulate it once over `μ ∈ -lsᵢ:lsᵢ` (the
@@ -226,7 +266,7 @@ end
     # nonzero multi-index loop, where each call hit `dnPl` and dominated the design-
     # matrix cost. Same values, same multiply order ⇒ bit-identical. `u_i` is a unit
     # column by the config contract, so the unchecked harmonic is safe.
-    _fill_ztables!(s, Val(D), ls, atoms, e)
+    _fill_ztables!(s, Val(D), slots, atoms, e)
     z = s.z
     acc = 0.0
     @inbounds for idx in CartesianIndices(folded)
@@ -245,15 +285,15 @@ end
 # longer than 2lsᵢ+1 from an earlier term; only 1:2lsᵢ+1 is written/read). Same
 # evaluation order as the former per-call comprehensions ⇒ identical values, zero
 # allocation once the pools are grown.
-@inline function _fill_ztables!(s::SALCScratch, ::Val{D}, ls, atoms,
+@inline function _fill_ztables!(s::SALCScratch, ::Val{D}, slots::Vector{SlotRef}, atoms,
                                 e::AbstractMatrix{<:Real}) where {D}
     while length(s.z) < D
         push!(s.z, Float64[])
     end
     @inbounds for i = 1:D
-        a = atoms[i]
+        a = atoms[slots[i].site]
         u = SVector{3,Float64}(e[1, a], e[2, a], e[3, a])
-        li = ls[i]
+        li = slots[i].factor.l
         length(s.dnpl) < li + 1 && resize!(s.dnpl, li + 1)
         t = s.z[i]
         length(t) < 2 * li + 1 && resize!(t, 2 * li + 1)
@@ -293,7 +333,7 @@ function accumulate_grad!(G::AbstractMatrix{Float64}, salc::SALC,
     @inbounds for m in salc.members
         atoms = m.atoms
         for t in m.terms
-            _accum_grad_term!(G, t.folded, t.ls, atoms, e, scale, scratch)
+            _accum_grad_term!(G, t.folded, t.slots, atoms, e, scale, scratch)
         end
     end
     return G
@@ -305,10 +345,11 @@ end
 # depends only on `(i, μ)`), then the product-rule expansion reads them back. Same
 # expansion, same evaluation order ⇒ the accumulated gradient is bit-identical.
 @inline function _accum_grad_term!(G::AbstractMatrix{Float64}, folded::Array{Float64,D},
-                                   ls, atoms, e::AbstractMatrix{<:Real}, scale::Float64,
+                                   slots::Vector{SlotRef}, atoms,
+                                   e::AbstractMatrix{<:Real}, scale::Float64,
                                    s::SALCScratch) where {D}
-    _fill_ztables!(s, Val(D), ls, atoms, e)
-    _fill_gtables!(s, Val(D), ls, atoms, e)
+    _fill_ztables!(s, Val(D), slots, atoms, e)
+    _fill_gtables!(s, Val(D), slots, atoms, e)
     ztab = s.z
     gtab = s.g
     @inbounds for idx in CartesianIndices(folded)
@@ -324,7 +365,7 @@ end
             p == 0.0 && continue
             gi = gtab[i][idx[i]]
             c = w * p
-            a = atoms[i]
+            a = atoms[slots[i].site]
             G[1, a] += c * gi[1]
             G[2, a] += c * gi[2]
             G[3, a] += c * gi[3]
@@ -334,15 +375,15 @@ end
 end
 
 # Gradient sibling of `_fill_ztables!`: `s.g[i][μ+lsᵢ+1] = ∇Z_{lsᵢ,μ}(u_i)`.
-@inline function _fill_gtables!(s::SALCScratch, ::Val{D}, ls, atoms,
+@inline function _fill_gtables!(s::SALCScratch, ::Val{D}, slots::Vector{SlotRef}, atoms,
                                 e::AbstractMatrix{<:Real}) where {D}
     while length(s.g) < D
         push!(s.g, SVector{3,Float64}[])
     end
     @inbounds for i = 1:D
-        a = atoms[i]
+        a = atoms[slots[i].site]
         u = SVector{3,Float64}(e[1, a], e[2, a], e[3, a])
-        li = ls[i]
+        li = slots[i].factor.l
         length(s.dnpl) < li + 1 && resize!(s.dnpl, li + 1)
         t = s.g[i]
         length(t) < 2 * li + 1 && resize!(t, 2 * li + 1)

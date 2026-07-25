@@ -97,7 +97,7 @@ end
             @test length(s1.members) == length(s2.members)
             for (m1, m2) in zip(s1.members, s2.members)
                 for (t1, t2) in zip(m1.terms, m2.terms)
-                    @test t1.ls == t2.ls
+                    @test t1.slots == t2.slots
                     @test t1.folded == t2.folded     # exact equality, not isapprox
                 end
             end
