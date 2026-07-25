@@ -1,8 +1,10 @@
-# Mixed-channel (decor) SALC engine — joint M2b-2. Gates at engine level:
+# Mixed-channel (decor) SALC engine — joint M2b-2/M2d. Gates at engine level:
 # pure-spin agreement with the production path (anti-drift), the cubic
 # single-site count (gate e), production ≡ CountingOracle counts on a decorated
 # bond (gate g flavor, incl. the chirality-twist L_S = 1 sector, gate g2), the
-# u = 0 degeneracy (gate i core), and mixed-config space-group invariance.
+# u = 0 degeneracy (gate i core), mixed-config space-group invariance, the
+# production-side channel-inversion pin (gate o), and L_S block-diagonality of
+# the full grey projector (gate p).
 
 using Test
 using SLCE
@@ -45,6 +47,77 @@ function _mx_triangle_c3v(; L = 6.0, r = 1.2)
             cz(4π / 3) * M1]
     trans = [(SMatrix{3,3,Float64}(I) - R) * c for R in rots]
     return crystal, _assemble_spacegroup(crystal, rots, trans, "C3v", 0; tol = 1e-6)
+end
+
+# Gate (p) helper: assemble the FULL grey-projector matrix over EVERY
+# (L_S, Lf) coupled-path block of one decoration label — the same loop as
+# `_project_and_fold_decors`, but without the per-block filter and without the
+# small-entry drop — and return `(maxoff, ranktotal)` summed over the
+# permutation orbits of the site assignments: `maxoff` is the largest
+# cross-L_S matrix element over every per-op representation matrix D(g) AND
+# the Reynolds average, `ranktotal` the summed projector rank.
+function _ls_block_stats(crystal, sg, O, label, wcache)
+    stab = SLCE._stabilizer(crystal, sg, O.representative)
+    perms = unique([perm for (_, perm) in stab])
+    maxoff = 0.0
+    ranktotal = 0
+    seen = Set{Vector{SLCE.SiteDecor}}()
+    for tarr in SLCE._multiset_arrangements(label)
+        tarr in seen && continue
+        orbit = unique([tarr[p] for p in perms])
+        foreach(o -> push!(seen, o), orbit)
+        t = minimum(orbit)
+        assignments = unique([t[p] for p in perms])
+        slotlists = [SLCE._assignment_slots(a) for a in assignments]
+        cbs = [SLCE._decor_coupled_bases(sl) for sl in slotlists]
+        cols = Tuple{Int,Int,Int}[]              # (assignment, path, Mf)
+        tags = Int[]                             # the path's L_S per column
+        for ai in eachindex(assignments), ci in eachindex(cbs[ai])
+            (LS, Lf, _) = cbs[ai][ci]
+            for Mf = 1:(2 * Lf + 1)
+                push!(cols, (ai, ci, Mf))
+                push!(tags, LS)
+            end
+        end
+        D = length(cols)
+        colidx = Dict(cols[k] => k for k = 1:D)
+        P = zeros(D, D)
+        for (g, perm) in stab
+            Dg = zeros(D, D)
+            for k = 1:D
+                (ai, ci, Mf) = cols[k]
+                slots = slotlists[ai]
+                v = SLCE._mfslice(cbs[ai][ci][3], Mf)
+                for j in eachindex(slots)
+                    slots[j].factor.l == 0 && continue
+                    v = SLCE.AngularMomentum.nmode_mul(
+                        v, SLCE._wig(wcache, slots[j].factor.l, g), j)
+                end
+                a2 = SLCE._assignment_image(assignments[ai], perm)
+                ai2 = findfirst(==(a2), assignments)
+                σ = SLCE._slot_sigma(slots, slotlists[ai2], perm)
+                v = permutedims(v, invperm(σ))
+                for ci2 in eachindex(cbs[ai2])
+                    Lf2 = cbs[ai2][ci2][2]
+                    for Mf2 = 1:(2 * Lf2 + 1)
+                        Dg[colidx[(ai2, ci2, Mf2)], k] =
+                            SLCE._frob(SLCE._mfslice(cbs[ai2][ci2][3], Mf2), v)
+                    end
+                end
+            end
+            for k1 = 1:D, k2 = 1:D
+                tags[k1] == tags[k2] ||
+                    (maxoff = max(maxoff, abs(Dg[k1, k2])))
+            end
+            P .+= Dg
+        end
+        P ./= length(stab)
+        for k1 = 1:D, k2 = 1:D
+            tags[k1] == tags[k2] || (maxoff = max(maxoff, abs(P[k1, k2])))
+        end
+        ranktotal += rank(P; atol = 1e-6)
+    end
+    return maxoff, ranktotal
 end
 
 # All 48 signed permutation matrices = O_h in Cartesian (= fractional for sc).
@@ -242,6 +315,57 @@ end
                 @test evaluate_salc(s, -e1, u1) ≈ v0 atol = 1e-12
             end
         end
+    end
+
+    @testset "gate (o): channel-inversion pin on the production Wigner" begin
+        # Production's single polar cache gives D_polar(l, −I) = (−1)^l I; the
+        # channel actions follow from `rep_scale`: SPIN +I for every l (axial),
+        # DISP (−1)^l I (polar). Production never applies rep_scale — the
+        # even-Σl_spin screen makes det^{Σl_spin} ≡ +1 (design record §4), so
+        # the polar cache alone is exact for both channels; this pin guards the
+        # CLAIM the screen rests on, against the production Wigner kernel. The
+        # oracle-side identity + mutation teeth live in test_countingoracle.jl.
+        inv3 = SMatrix{3,3,Float64}(-1.0 * I)
+        for l = 1:4
+            n = 2 * l + 1
+            W = SLCE.AngularMomentum.wignerD_real(l, inv3)
+            @test W ≈ (-1)^l .* Matrix(1.0I, n, n) atol = 1e-12
+            @test SLCE.rep_scale(SLCE.SPIN, -1.0, l) .* W ≈
+                  Matrix(1.0I, n, n) atol = 1e-12
+            @test SLCE.rep_scale(SLCE.DISP, -1.0, l) .* W ≈
+                  (-1)^l .* Matrix(1.0I, n, n) atol = 1e-12
+        end
+    end
+
+    @testset "gate (p): L_S block-diagonality of the grey projector" begin
+        # Every per-op representation matrix — hence the Reynolds average — is
+        # block-diagonal in the coupled-path label L_S: rotations act within a
+        # path (the coupled basis carries them irrep-wise), and stabilizer site
+        # permutations map spin slots to spin slots, preserving the total spin
+        # rank. Production projects per (L_S, Lf) block and would silently MISS
+        # cross-block weight if this broke — gate (p) is the fence under every
+        # L_S claim (per-sector soc, sector masks, hierarchy).
+        lab = [SiteDecor(; spin = 1, disp = (0, 1)),
+               SiteDecor(; spin = 1, disp = (0, 1))]
+        off, r = _ls_block_stats(xtalB, sgB, O2, lab, wcB)
+        @test off < 1e-9
+        # the full-space rank equals the engine's emitted SALC count
+        @test r == 9
+        @test r == length(_orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true,
+                                              wcB))
+        # 3-body mixed label on the Cs triangle: two assignment orbits, a
+        # nontrivial site permutation, and L_S ∈ {0, 1, 2} paths
+        xt, st = _mx_triangle_cs()
+        wc3 = SLCE._build_wig_cache(st, 2)
+        cs3 = build_clusters(xt, build_neighbor_list(xt, 2.2), st; nbody = 3)
+        O3 = cs3.by_body[3][1]
+        lab3 = sort([SiteDecor(; spin = 1), SiteDecor(; spin = 1),
+                     SiteDecor(; disp = (0, 1))])
+        off3, r3 = _ls_block_stats(xt, st, O3, lab3, wc3)
+        @test off3 < 1e-9
+        @test r3 == length(_orbit_salcs_decors(xt, st, 3, 1, O3, [lab3], true,
+                                               wc3))
+        @test r3 > 0
     end
 
     @testset "sector-driven build reproduces the engine (M2b-3b)" begin

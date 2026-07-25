@@ -471,8 +471,13 @@ also on a mixed spec; (o) per-channel inversion pin — spin: +I ∀l; disp:
 (−1)^l I — as a test of the trait function `rep_scale` (the production
 projector never applies det factors; it is correct via §4's parity theorem —
 state this in the gate or it reads as contradicting §4), plus TWO mutation
-teeth: reinstating a global det^{Σl_all} rule must fail (f)/(g), AND treating
-disp slots as axial (det^l on DISP) must fail (g)/(f); (p) **L_S
+teeth, stated as effective reps on the polar Wigner product (precision
+2026-07-26: det^{Σl_spin}·det^{Σl_disp} ≡ det^{Σl_all}, so "reinstate a
+global det^{Σl_all} factor" and "keep spin axial but treat disp slots as
+axial" are the SAME wrong rule — one tooth fences both prose mistakes):
+det^{Σl_all}·⊗D_polar (every slot axial) must fail (f) AND the (g)
+kill-shot, and det^{Σl_disp}·⊗D_polar (spin polar × disp axial) must fail
+(f), both (g) fixtures being blind to it; (p) **L_S
 block-diagonality**: `‖P[block_i, block_j]‖ < tol` for L_S_i ≠ L_S_j — cheap,
 and the silent-failure fence under every L_S claim (soc, sector_mask,
 hierarchy).
@@ -534,7 +539,10 @@ translation folding, a strain slot, and spin-side Sym^p.
   interface; SALCKey with L_S; sector-table spec + per-sector soc + key-union
   invariant; `_enumerate_ls` → Σl over spin slots only; `_project_and_fold`
   generalized to mixed channels; persist v5 + v4 back-read. Gates
-  (a)/(d)/(e)/(f)/(g)/(h)/(i)/(n)/(o)/(p).
+  (a)/(d)/(e)/(f)/(g)/(h)/(i)/(n)/(o)/(p). **Status 2026-07-26: complete —
+  every M2 gate (incl. (e2)/(g2) and the M2d batch (d)/(f)/(n)/(o)/(p) +
+  spec-level (a)/(i)) runs in the unit suite; see SPEC.md "M2d verification
+  gates" for the per-gate homes.**
 - **M3 — data + fit.** TrainingDatum/DatumProvenance/dataset pinning (force
   sign pinned per §6); force design block + three-block co-fit; ASR null-space
   (common-monomial-basis collection + rank-revealing QR); hierarchical

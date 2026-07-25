@@ -6,6 +6,65 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — M2d verification gates (test-only; closes the §12 M2 battery)
+
+- **Gate (o)** — representation pins + mutation teeth for `rep_scale`:
+  op-by-op identity `D_spin(l, R) = rep_scale(SPIN, det R, l) · D_polar(l, R)`
+  against the CountingOracle's independently derived (polynomial-composition)
+  slot matrices over all of O_h, the inversion specialization (spin `+I` ∀l,
+  disp `(−1)^l I`) on both the oracle matrices and the production Wigner
+  kernel, and TWO mutation teeth built from `rep_scale` itself, stated as
+  effective reps on the polar product: `det^{Σl_all}·⊗D_polar` (every slot
+  axial — identically the "global `det^{Σl_all}`" AND the "disp-as-axial"
+  prose rules, since `det^{Σl_spin}·det^{Σl_disp} ≡ det^{Σl_all}`) and
+  `det^{Σl_disp}·⊗D_polar` (spin polar × disp axial). Both collapse the bent
+  pair+ligand count 7 → 5; the all-axial rule also resurrects the kill-shot
+  (0 → 1) while the other is blind there; the 9-count bond (`Σl_spin` and
+  `Σl_disp` both even) is blind to both. The production-relevant parity is
+  the even-`Σl_spin` screen (`det^{Σl_spin} ≡ +1` — the theorem the no-det
+  polar cache rests on), which is also why the two teeth coincide on every
+  production-reachable label (`test_countingoracle.jl`, `test_mixedsalc.jl`).
+- **Gate (e2)** — THE B₁/B₂ magnetoelastic gate: on an octahedral Fe(O)₆ unit
+  under the full 48-op O_h group, the `l = 2` spin × neighbor-shell `p = 1`
+  sector emits exactly 2 SALCs (`L_S = 2`, `Lf ∈ {1, 3}`); substituting the
+  affine shell displacement `u_j = ε·d_j` lands them exactly in the span of
+  the two-constant cubic magnetoelastic forms (`Σ_i ε_ii (n_i² − 1/3)` and
+  `Σ_{i≠j} ε_ij n_i n_j`, both invariant directions realized independently —
+  the B₁/B₂ normalization itself is a fit gauge, not pinned), while
+  uniform shell translations and rigid rotations vanish identically — the
+  ε-linear B₁/B₂ statement of the 2026-07-25 design-record correction
+  (`test_sectorbasis.jl`).
+- **Gate (p)** — `L_S` block-diagonality: the FULL grey projector (every
+  `(L_S, Lf)` coupled path, no block filter) and every per-op representation
+  matrix are numerically block-diagonal in `L_S` (< 1e-9 cross-block), and the
+  full-space rank equals the engine's emitted SALC count — the fence under
+  every `L_S` claim (per-sector `soc`, masks, hierarchy)
+  (`test_mixedsalc.jl`).
+- **Gate (f)** — SOC-less pair + ligand `p = 1` on a MIXED spec (soc-false
+  ligand and bond-stretch sectors coexisting with a soc-true doubly-decorated
+  pair sector): the ligand sector emits exactly the 1 superexchange-path
+  invariant `(ê₁·ê₂)(u_O)_y` (oracle-pinned L_S-resolved counts 1/2/4), the
+  dJ/dr bond-stretch sector exactly the oracle-pinned 2 SALCs spanning
+  `(ê₁·ê₂)(u₁−u₂)_x` / `(ê₁·ê₂)(u₁+u₂)_y`, every `L_S = 0` SALC is invariant
+  under global spin rotations at fixed lattice while every `L_S ≥ 1` SALC
+  violates it (the operational no-DMI statement), and flipping the ligand
+  sector to `soc = true` adds exactly the DMI-like `L_S ≥ 1` blocks leaving
+  `L_S = 0` bitwise unchanged (`test_sectorbasis.jl`).
+- **Gate (n)** — sector-mask ≡ soc-false-basis on a mixed multi-sector spec:
+  masking the all-`soc = true` build to `L_S = 0` equals the all-`soc = false`
+  rebuild bitwise (`test_sectorbasis.jl`).
+- **Gates (d)/(a)** — dense ≡ `p = 0`-restricted sector build down to the fit
+  and MC surfaces: bitwise basis identity plus `==` on the energy AND torque
+  design matrices (span carriers), and field-for-field identical
+  `multipole_terms` under identical coefficients (the unmigrated
+  SLCEMonteCarlo consumption path re-exercised at spec level)
+  (`test_sectorbasis.jl`).
+- **Gate (i) full** — `u = 0` bitwise degeneracy at spec level: the pure-spin
+  subset of a mixed build IS the dense spin basis (keys + members), joint
+  evaluation at `u = 0` returns `===`-identical floats to the dense
+  evaluation, and every displacement-decorated SALC is exactly zero
+  (`test_sectorbasis.jl`).
+
 ### Changed — sector-table BasisSpec + `soc` (joint spin–lattice M2b-3a, BREAKING)
 
 - **`BasisSpec` gains the sector-table (joint spin–lattice) form**: the new

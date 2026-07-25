@@ -218,6 +218,54 @@ capability consumed by both the introspection and the Sunny interop.
   it (the even-`Σl_spin` screen ⇒ `det(R)^{Σl_spin} ≡ +1`; design record §4);
   it seats the gate (o) representation pins and mutation teeth (M2d) and the
   oracle's independent derivation.
+- **M2d verification gates** (test-only; closes the design record's §12 M2
+  battery — every M2 gate (a)/(d)/(e)/(e2)/(f)/(g)/(g2)/(h)/(i)/(n)/(o)/(p)
+  now runs in the suite):
+  - gate (o) (`test_countingoracle.jl` + `test_mixedsalc.jl`): the op-by-op
+    identity `D_spin(l, R) = rep_scale(SPIN, det R, l)·D_polar(l, R)` against
+    the oracle's polynomial-derived matrices over O_h, the inversion pins
+    (spin `+I` ∀l, disp `(−1)^l I`) on both the oracle and the production
+    Wigner kernel, and two `rep_scale`-built mutation teeth, stated as
+    effective reps on the polar product: `det^{Σl_all}·⊗D_polar` (every slot
+    axial — identically the "global `det^{Σl_all}`" AND the "disp-as-axial"
+    prose rules, since `det^{Σl_spin}·det^{Σl_disp} ≡ det^{Σl_all}`) and
+    `det^{Σl_disp}·⊗D_polar` (spin polar × disp axial). Both shift the bent
+    pair+ligand count 7 → 5; the all-axial rule also resurrects the
+    kill-shot (0 → 1) while the other is blind there; the 9-bond
+    (`Σl_spin` and `Σl_disp` both even) is blind to both. The
+    production-relevant parity is the even-`Σl_spin` screen
+    (`det^{Σl_spin} ≡ +1`), which is also why the two teeth coincide on every
+    production-reachable label;
+  - gate (p) (`test_mixedsalc.jl`): the full grey projector over every
+    `(L_S, Lf)` path and every per-op `D(g)` are `L_S`-block-diagonal
+    (< 1e-9), with full-space rank ≡ engine SALC count;
+  - gate (e2) (`test_sectorbasis.jl`): THE B₁/B₂ gate — on an octahedral
+    Fe(O)₆ unit under the full 48-op O_h group, the `l = 2` spin ×
+    neighbor-shell `p = 1` sector emits exactly 2 SALCs (both `L_S = 2`,
+    `Lf ∈ {1, 3}`, 6 physical bonds each); the affine substitution
+    `u_j = ε·d_j` lands them EXACTLY (rel. residual < 1e-10) in the span of
+    the two-constant cubic magnetoelastic forms
+    `Σ_i ε_ii (n_i² − 1/3)` / `Σ_{i≠j} ε_ij n_i n_j` with both invariant
+    directions realized independently (the B₁/B₂ normalization itself is a
+    fit gauge, not pinned), and uniform shell translations and rigid
+    rotations (the antisymmetric substitution) vanish identically;
+  - gate (f) (`test_sectorbasis.jl`): on a mixed spec (soc-false ligand +
+    bond-stretch sectors, soc-true doubly-decorated pair sector) the ligand
+    sector emits exactly the one superexchange-path invariant
+    `(ê₁·ê₂)(u_O)_y` (oracle-pinned 1/2/4 L_S-resolved), the dJ/dr
+    bond-stretch sector exactly the oracle-pinned 2 SALCs spanning
+    `(ê₁·ê₂)(u₁−u₂)_x` / `(ê₁·ê₂)(u₁+u₂)_y`, every `L_S = 0` SALC is
+    global-spin-rotation invariant, every `L_S ≥ 1` SALC violates it (no
+    DMI, operationally), and the `soc = true` flip adds exactly the
+    `L_S ≥ 1` blocks bitwise-preserving `L_S = 0`;
+  - gate (n) (`test_sectorbasis.jl`): masking the all-soc-true mixed build to
+    `L_S = 0` ≡ the all-soc-false rebuild, bitwise;
+  - gates (d)/(a) (`test_sectorbasis.jl`): dense ≡ `p = 0`-restricted sector
+    build bitwise, down to `==` energy/torque design matrices and
+    field-identical `multipole_terms` (the MC consumption surface);
+  - gate (i) full (`test_sectorbasis.jl`): the pure-spin subset of a mixed
+    build IS the dense spin basis, `u = 0` joint evaluation `===` the dense
+    evaluation, displacement-decorated SALCs exactly zero.
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled

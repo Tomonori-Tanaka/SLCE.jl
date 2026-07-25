@@ -1,11 +1,13 @@
 # The independent counting oracle: slot validation, the cycle-wise character
 # formula vs explicit projector ranks (the gate-(g) infrastructure), the
-# permuting-pair swap-sign regression, and the axial-vs-polar kill-shot.
+# permuting-pair swap-sign regression, the axial-vs-polar kill-shot, and the
+# gate-(o) representation pins + mutation teeth against `rep_scale`.
 
 include("../support/countingoracle.jl")
 
 using .CountingOracle
-using SLCE: SolidHarmonics
+using SLCE
+using SLCE: SolidHarmonics, rep_scale
 using LinearAlgebra: norm, rank, I, cross, dot, normalize, det
 using Random: MersenneTwister
 using StaticArrays
@@ -269,6 +271,123 @@ _rz(θ) = [cos(θ) -sin(θ) 0.0; sin(θ) cos(θ) 0.0; 0.0 0.0 1.0]
                                              DispSlot(3, 0, 1)]
         @test count_invariants(slots2, stab2) == 0
         @test rank(invariant_projector(slots2, stab2), atol = 1e-6) == 0
+        # Free spin slots on the bent shape (production's enumeration; Σl_spin
+        # even): L_S-resolved counts 1 (the superexchange path) / 2 (DMI-like)
+        # / 4, total 7. Pinned here per pair-coupled sector AND as the free
+        # total; the production gate (f) (test_sectorbasis.jl) consumes both.
+        for (LS, nLS) in ((0, 1), (1, 2), (2, 4))
+            slotsL = CountingOracle.AbstractSlot[SpinPairSlot(1, 2, 1, 1, LS),
+                                                 DispSlot(3, 0, 1)]
+            @test count_invariants(slotsL, stab) == nLS
+            @test rank(invariant_projector(slotsL, stab), atol = 1e-6) == nLS
+        end
+        slots_f = CountingOracle.AbstractSlot[SpinSlot(1, 1), SpinSlot(2, 1),
+                                              DispSlot(3, 0, 1)]
+        @test count_invariants(slots_f, stab) == 7
+        @test rank(invariant_projector(slots_f, stab), atol = 1e-6) == 7
+        # dJ/dr half of gate (f): the L_S = 0 pair with the displacement on ONE
+        # magnetic site (the bond-stretch decoration; disp on Fe breaks the Fe
+        # swap, so the decorated stabilizer is {E, σz} and Frobenius gives the
+        # orbit count). Exactly 2 invariants: (ê₁·ê₂)(u₂)_x (stretch) and
+        # (ê₁·ê₂)(u₂)_y (sway) — production realizes them as the symmetrized
+        # (u₁ − u₂)_x / (u₁ + u₂)_y combinations (test_sectorbasis.jl).
+        slots_dj = CountingOracle.AbstractSlot[SpinPairSlot(1, 2, 1, 1, 0),
+                                               DispSlot(2, 0, 1)]
+        stab_dj = stabilizer_ops(slots_dj, stab)
+        @test length(stab_dj) == 2
+        @test count_invariants(slots_dj, stab_dj) == 2
+        @test rank(invariant_projector(slots_dj, stab_dj), atol = 1e-6) == 2
+    end
+
+    # Gate (o): the trait function `rep_scale` (basis/decor.jl) declares the
+    # per-channel O(3) action relative to the polar real Wigner matrix,
+    # D_channel(l, R) = rep_scale(channel, det R, l) · D_polar(l, R). The oracle
+    # derives both channel matrices independently by polynomial composition
+    # (`_slot_matrix`; spin slots see the axial `det(R)·R` via `cluster_op`), so
+    # the identity is an op-by-op cross-check of the declaration — production
+    # itself never applies `rep_scale` (the even-Σl_spin screen makes
+    # det^{Σl_spin} ≡ +1; design record §4), which is exactly what the teeth
+    # below probe.
+    @testset "gate (o): rep_scale ≡ the derived channel action + mutation teeth" begin
+        oh = [cluster_op(M, origin) for M in _oh_matrices()]
+        for op in oh
+            d = det(op.rotation)
+            for l = 1:3
+                Dp = CountingOracle._slot_matrix(DispSlot(1, 0, l), op)
+                Ds = CountingOracle._slot_matrix(SpinSlot(1, l), op)
+                @test Ds ≈ rep_scale(SLCE.SPIN, d, l) .* Dp atol = 1e-9
+                @test rep_scale(SLCE.DISP, d, l) == 1.0
+            end
+        end
+        # Inversion specialization (the pin as stated in §12 o): axial spin
+        # +I for every l, polar displacement (−1)^l I.
+        inv_op = only(op for op in oh if norm(op.rotation + I) < 1e-12)
+        for l = 1:4
+            n = 2 * l + 1
+            @test CountingOracle._slot_matrix(SpinSlot(1, l), inv_op) ≈
+                  Matrix(1.0I, n, n) atol = 1e-12
+            @test CountingOracle._slot_matrix(DispSlot(1, 0, l), inv_op) ≈
+                  (-1)^l .* Matrix(1.0I, n, n) atol = 1e-12
+        end
+
+        # -- mutation teeth. Each multiplies the oracle's TRUE representation
+        # (= det^{Σl_spin}·⊗D_polar) by a ±1 character built from rep_scale
+        # with wrong channel arguments; the Reynolds average then counts a
+        # different isotypic component, so a changed rank is the tooth firing.
+        # Because the base is the true rep, the EFFECTIVE mutated rule relative
+        # to the polar product carries an extra det^{Σl_spin}:
+        #   fac_all  (character det^{Σl_all})  ⇒ effective det^{Σl_disp}·⊗D_polar
+        #     — spin treated POLAR, disp treated AXIAL;
+        #   fac_disp (character det^{Σl_disp}) ⇒ effective det^{Σl_all}·⊗D_polar
+        #     — every slot axial. Since det^{Σl_spin}·det^{Σl_disp} ≡
+        #     det^{Σl_all}, "reinstate a global det^{Σl_all} factor on the
+        #     polar cache" and "keep spin axial but treat disp as axial" are
+        #     the SAME wrong rule — this one tooth fences both prose mistakes.
+        # On even-Σl_spin content the two effective rules coincide with each
+        # other (det^{Σl_spin} ≡ +1 — the screen theorem that makes
+        # production's no-det polar cache exact) and differ from production by
+        # det^{Σl_disp}: odd-Σl_disp content carries the teeth.
+        slotl(s) = s isa SpinSlot ? s.l : s.L
+        mut_rank(slots, ops, factor) = rank(
+            sum(factor(op) .* representation_matrix(slots, op) for op in ops) ./
+            length(ops); atol = 1e-6)
+        fac_all(slots) =
+            op -> prod(rep_scale(SLCE.SPIN, det(op.rotation), slotl(s))
+                       for s in slots)
+        fac_disp(slots) =
+            op -> prod(rep_scale(SLCE.SPIN, det(op.rotation), s.L)
+                       for s in slots if s isa DispSlot; init = 1.0)
+
+        # Gate-(f) shape (bent pair + ligand, Σl_all = 3 odd): both teeth fire —
+        # the correct count 7 collapses to 5 — and they agree with each other
+        # (Σl_spin = 2 even).
+        bent = [SVector(1.0, 0.0, 0.0), SVector(-1.0, 0.0, 0.0),
+                SVector(0.0, 1.0, 0.0)]
+        stabb = _site_ops(bent)
+        slots_f = CountingOracle.AbstractSlot[SpinSlot(1, 1), SpinSlot(2, 1),
+                                              DispSlot(3, 0, 1)]
+        @test count_invariants(slots_f, stabb) == 7
+        @test mut_rank(slots_f, stabb, fac_all(slots_f)) == 5
+        @test mut_rank(slots_f, stabb, fac_disp(slots_f)) == 5
+        # Kill-shot cluster (Σl_spin odd — an oracle-only input): the all-axial
+        # rule (fac_disp; ≡ the global det^{Σl_all} rule ≡ disp-as-axial)
+        # RESURRECTS ê·u under inversion (0 → 1), while the spin-polar ×
+        # disp-axial rule (fac_all) stays blind (its twist over the true rep is
+        # det^{Σl_all} = det², even here). This is why the two teeth are
+        # distinct mutations even though they coincide on production-reachable
+        # content.
+        ks = CountingOracle.AbstractSlot[SpinSlot(1, 1), DispSlot(1, 0, 1)]
+        @test mut_rank(ks, oh, fac_disp(ks)) == 1
+        @test mut_rank(ks, oh, fac_all(ks)) == 0
+        # The gate-(g) 9-count bond (Σl_spin AND Σl_disp both even) is blind to
+        # BOTH teeth — the reason gates (f) and the kill-shot, not the 9-count,
+        # carry them.
+        sites2 = [SVector(1.0, 0.0, 0.0), SVector(-1.0, 0.0, 0.0)]
+        d4h2 = _site_ops(sites2)
+        slots9 = CountingOracle.AbstractSlot[SpinSlot(1, 1), SpinSlot(2, 1),
+                                             DispSlot(1, 0, 1), DispSlot(2, 0, 1)]
+        @test mut_rank(slots9, d4h2, fac_all(slots9)) == 9
+        @test mut_rank(slots9, d4h2, fac_disp(slots9)) == 9
     end
 
     # Mixed-channel permuting cluster: the chirality-twist decoration
