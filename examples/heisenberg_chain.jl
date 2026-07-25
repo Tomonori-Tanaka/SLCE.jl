@@ -26,10 +26,11 @@ println("space group : ", basis.spacegroup.symbol, " (#", basis.spacegroup.numbe
 println("# SALCs     : ", n_salcs(basis))
 
 # Synthetic Heisenberg training data. (`salcs` is public but unexported — qualify it.)
+# Canonical members list each physical bond once, so Σ over members is Σ_{⟨ij⟩}.
 heis = SLCE.salcs(basis)[1]            # the nearest-neighbor Heisenberg SALC
 J_true = 0.0137
 configs = [randcfg(4) for _ = 1:40]
-E = [J_true * 0.5 * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
+E = [J_true * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
      for c in configs]
 
 # Fit and recover J (the SALC normalization gives J = 2√3 · jphi).
@@ -45,14 +46,14 @@ println("✓ recovered the Heisenberg coupling")
 # --- energy + torque co-fit ---------------------------------------------------
 # The same coupling fixes the per-atom torque τ_a = −e_a × ∂E/∂e_a (the physical /
 # Landau–Lifshitz torque). For the Heisenberg energy above,
-# ∂E/∂e_a = J Σ_{members} (δ_{a,i} e_j + δ_{a,j} e_i)·0.5.
+# ∂E/∂e_a = J Σ_{members} (δ_{a,i} e_j + δ_{a,j} e_i).
 function heisenberg_torque(c, J)
     nat = size(c, 2)
     G = zeros(3, nat)
     for m in heis.members
         i, j = m.atoms[1], m.atoms[2]
-        G[:, i] .+= (J * 0.5) .* c[:, j]
-        G[:, j] .+= (J * 0.5) .* c[:, i]
+        G[:, i] .+= J .* c[:, j]
+        G[:, j] .+= J .* c[:, i]
     end
     return reduce(hcat, cross(G[:, a], c[:, a]) for a = 1:nat)   # τ = ∇E × e = −e × ∇E
 end
