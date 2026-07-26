@@ -117,6 +117,9 @@ export to_sunny
 # fitted SCE, the stable contract downstream packages (e.g. the SLCETools.jl mean-field
 # samplers) read instead of the SALC-basis internals.
 export MultipoleTerm, multipole_terms, bilinear_terms
+# The general (channel-decorated) successor of the multipole view, plus the bridge that
+# turns a joint model into one the frozen pure-spin surfaces accept.
+export DecoratedTerm, decorated_terms, restrict
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters live in
 # downstream packages as namespaced submodules (e.g. `SLCETools.VASP.read_poscar`), so
 # adding a code touches neither the core nor this export list. The one in-core format
@@ -137,6 +140,7 @@ public analyze_symmetry, n_ops, SymOp, SpaceGroup
 public build_clusters, ClusterMember, ClusterOrbit, ClusterSet
 public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
 public Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor                # decoration labels
+public SlotRef                                       # a DecoratedTerm's axis label
 public SectorRule                                                     # resolved sector row
 public has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin, is_soc_free
 public spin_decors, spin_ls, rep_scale

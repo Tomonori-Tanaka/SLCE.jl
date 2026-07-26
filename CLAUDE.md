@@ -345,6 +345,25 @@ Easy to break silently — confirm before touching the algorithm.
   representable — every other channel must be **reported as skipped**, never silently
   dropped. Change a harmonic normalization or the `(4π)^(N/2)` scale → both the matrix
   formulas and the energy gate move together.
+- **Introspection surfaces ↔ the consumer scale rule ↔ `restrict`**
+  (`slce/introspect.jl`, `test/unit/test_introspect.jl`): the scale a consumer applies
+  is `(4π)^{n_spin_slots/2}` — one `√(4π)` per SPIN slot, defined ONCE in
+  `_slot_scale` and shipped as `DecoratedTerm.scale`. It is NOT `(4π)^{body/2}`: the
+  two agree only when every site carries exactly one spin factor and nothing else, so
+  a force-constant term (sites with no spin factor at all) is where the pure-spin-era
+  shortcut invents a factor out of nothing — that is the case the gate must contain, and
+  a fixture whose sites all happen to carry spin makes the whole check vacuous (the
+  first docs fixture did exactly that). `decorated_terms` is the general surface;
+  `multipole_terms` is its frozen p = 0 predecessor and REFUSES any displacement model,
+  triggered on `_basis_has_disp` (the spec, not the surviving coefficients — a
+  displacement sector whose couplings all fitted to zero is still a p ≥ 1 model), with
+  the message naming both hatches. `restrict(model, :spin)` filters the pure-spin SALCs
+  and rebuilds the spec through `_spin_spec` (pmax zeroed, sectors reduced to their
+  degree-0 row): the spec has to be honest or `_basis_has_disp` re-refuses the very
+  model `restrict` exists to produce, and persistence writes a spec that will not
+  reload. Its gate is bitwise equality with the joint model at `u = 0`, and the
+  `restrict ≠ refit` warning (docstring + `guide/introspection.md`, design record §13
+  risk 5) is mandatory documentation, not a nicety.
 - **Fitted-model introspection ↔ the per-term scale convention** (`slce/introspect.jl`,
   `test/unit/test_introspect.jl`): `multipole_terms` is the **public, stable** view downstream
   packages (the `SLCETools.jl` mean-field samplers) read instead of `model.basis.salc_basis.salcs` /

@@ -63,10 +63,12 @@ is_soc_free(k::SALCKey)::Bool = is_soc_free(k.L_S)
 """
     SlotRef
 
-One tensor axis ("slot") of a [`SALCTerm`](@ref): the member-site index it
-contracts against plus its decoration factor. Mixed-channel SALCs may carry
-several slots on one site (a spin factor and a displacement factor); the slot →
-site map is what generalizes the v4 axis-`i` ↔ site-`i` identity.
+One tensor axis ("slot") of a SALC term: the member-site index it contracts
+against (an index into the member's `atoms`, not an atom number) plus its
+decoration factor. Mixed-channel SALCs may carry several slots on one site (a
+spin factor and a displacement factor); the slot → site map is what generalizes
+the v4 axis-`i` ↔ site-`i` identity, and it is what a
+[`DecoratedTerm`](@ref) publishes.
 """
 struct SlotRef
     site::Int

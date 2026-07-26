@@ -49,6 +49,35 @@ function _energy_from_terms(terms, e)
     return tot
 end
 
+# Energy from the general decorated terms, evaluated slot by slot from the PUBLISHED
+# fields only (channel, site, k, l, folded, scale) — the independent reconstruction a
+# downstream consumer would write. Note `slots[i].site` indexes the term's `atoms`, and
+# the scale comes from the field, never from `body`.
+function _energy_from_decorated(terms, e, u)
+    tot = 0.0
+    for t in terms
+        s = 0.0
+        for idx in CartesianIndices(t.folded)
+            w = t.folded[idx]
+            w == 0.0 && continue
+            for (i, sl) in enumerate(t.slots)
+                l = sl.factor.l
+                μ = idx[i] - l - 1
+                a = t.atoms[sl.site]
+                if sl.factor.channel === SLCE.SPIN
+                    w *= Zlm(l, μ, SVector{3,Float64}(e[1, a], e[2, a], e[3, a]))
+                else
+                    uv = SVector{3,Float64}(u[1, a], u[2, a], u[3, a])
+                    w *= dot(uv, uv)^sl.factor.k * SLCE.SolidHarmonics.Rlm(l, μ, uv)
+                end
+            end
+            s += w
+        end
+        tot += t.coef * t.scale * s
+    end
+    return tot
+end
+
 # Energy from the bilinear / single-ion 3×3 matrices: Σ eₐ'·M·e_b + Σ eₐ'·A·eₐ.
 function _energy_from_bilinear(bt, e)
     tot = 0.0
@@ -128,5 +157,150 @@ end
         model = SLCEModel(b, 0.0, ones(K), keys)
         bt = bilinear_terms(model)
         @test !isempty(bt.skipped)                  # the [1,2] / [2,2] biquadratic channels
+    end
+
+    # --- the general (channel-decorated) surface, M4 slice 1 ---------------------
+    @testset "decorated_terms and the (4π)^{n_spin_slots/2} scale rule" begin
+        crj = Crystal(Lattice(Matrix(3.0 * I(3))),
+                      [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        bj = SLCEBasis(crj, BasisSpec(crj; lmax = 1, pmax = 2, sectors = [
+            Sector(spin = (nbody = 1:2,), cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
+            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)]))
+        kj = bj.salc_basis.keys
+        Kj = length(kj)
+        j0 = 0.19
+        mj = SLCEModel(bj, j0, 0.1 .* randn(rng, Kj), kj)
+        terms = decorated_terms(mj)
+        @test !isempty(terms) && terms isa Vector{DecoratedTerm}
+
+        # The reconstruction gate: an INDEPENDENT slot-by-slot evaluation of the
+        # published fields must reproduce the model's own joint energy.
+        for _ = 1:8
+            e = _rand_config(rng, 2)
+            u = 0.07 .* randn(rng, 3, 2)
+            @test _energy_from_decorated(terms, e, u) ≈
+                  predict_energy(mj, e, u) - j0 atol = 1e-10
+        end
+
+        # Teeth for the scale rule: the fixture must contain terms where the general
+        # rule and the pure-spin-era `(4π)^(body/2)` shortcut DISAGREE, and using the
+        # shortcut must visibly break the reconstruction. Otherwise the gate above
+        # would pass for a consumer that derives the scale from the cluster shape.
+        @test any(t -> t.scale != (4π)^(t.body / 2), terms)
+        shortcut = [DecoratedTerm(t.coef, (4π)^(t.body / 2), t.body, t.atoms,
+                                  t.shifts, t.slots, t.folded) for t in terms]
+        e = _rand_config(rng, 2)
+        u = 0.07 .* randn(rng, 3, 2)
+        @test !isapprox(_energy_from_decorated(shortcut, e, u),
+                        predict_energy(mj, e, u) - j0; atol = 1e-6)
+
+        # Slot bookkeeping: canonical axis order (all SPIN, then all DISP), one axis
+        # per slot, and a site may carry two slots — that is the whole point of the
+        # slot → site map replacing the v4 axis ≡ site identity.
+        for t in terms
+            @test length(t.slots) == ndims(t.folded)
+            @test length(t.atoms) == length(t.shifts) == t.body
+            @test all(1 <= s.site <= t.body for s in t.slots)
+            chans = [s.factor.channel for s in t.slots]
+            @test issorted(chans; by = c -> c === SLCE.SPIN ? 0 : 1)
+            @test t.scale ≈ (4π)^(count(==(SLCE.SPIN), chans) / 2)
+        end
+        @test any(t -> length(t.slots) > t.body, terms)   # a site with two slots
+        @test fieldnames(DecoratedTerm) ==
+              (:coef, :scale, :body, :atoms, :shifts, :slots, :folded)
+    end
+
+    @testset "decorated_terms ≡ multipole_terms on a pure-spin model" begin
+        model = SLCEModel(b, 0.0, 0.1 .* randn(rng, K), keys)
+        mt = multipole_terms(model)
+        dt = decorated_terms(model)
+        @test length(dt) == length(mt)
+        for (d, m) in zip(dt, mt)
+            @test d.coef == m.coef && d.body == m.body
+            @test d.atoms == m.atoms && d.shifts == m.shifts && d.folded === m.folded
+            @test [s.factor.l for s in d.slots] == m.ls          # the v4 `ls` view
+            @test all(s -> s.factor.channel === SLCE.SPIN, d.slots)
+            @test d.scale == (4π)^(d.body / 2)                   # the rules agree here
+        end
+        @test decorated_terms(SLCEModel(b, 0.0, zeros(K), keys)) == DecoratedTerm[]
+    end
+
+    @testset "multipole_terms refuses a displacement model and names both hatches" begin
+        crj = Crystal(Lattice(Matrix(3.0 * I(3))),
+                      [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        specj = BasisSpec(crj; lmax = 1, pmax = 2, sectors = [
+            Sector(spin = (nbody = 1:2,), cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
+            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)])
+        bj = SLCEBasis(crj, specj)
+        mj = SLCEModel(bj, 0.5, randn(rng, n_salcs(bj)))
+        err = try
+            multipole_terms(mj)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("decorated_terms", err.msg)
+        @test occursin("restrict(model, :spin)", err.msg)
+        # the trigger is the SPEC: a model whose displacement couplings all vanish is
+        # still a p ≥ 1 model and must still be refused (fail loud, never open)
+        zeroed = SLCEModel(bj, 0.5, [any(SLCE.has_disp, k.decors) ? 0.0 : 1.0
+                                     for k in bj.salc_basis.keys])
+        @test_throws ArgumentError multipole_terms(zeroed)
+    end
+
+    @testset "restrict(model, :spin) is the exact clamped-ion sub-model" begin
+        crj = Crystal(Lattice(Matrix(3.0 * I(3))),
+                      [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        bj = SLCEBasis(crj, BasisSpec(crj; lmax = 1, pmax = 2, sectors = [
+            Sector(spin = (nbody = 1:2,), cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
+            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)]))
+        kj = bj.salc_basis.keys
+        mj = SLCEModel(bj, 0.42, randn(rng, length(kj)))
+        ms = restrict(mj, :spin)
+
+        pure = findall(SLCE.is_pure_spin, kj)
+        @test 0 < length(pure) < length(kj)            # the fixture has both kinds
+        @test ms.keys == kj[pure]
+        @test ms.jphi == mj.jphi[pure]                 # coefficients untouched
+        @test ms.j0 === mj.j0
+        # THE gate: the restricted model IS the joint model at u = 0, bitwise
+        z = zeros(3, 2)
+        for _ = 1:8
+            e = _rand_config(rng, 2)
+            @test predict_energy(ms, e) == predict_energy(mj, e, z)
+            @test predict_torque(ms, e) == predict_torque(mj, e, z)
+        end
+        # and the restricted spec is honest, so the pure-spin surfaces accept it
+        @test !SLCE._basis_has_disp(ms.basis)
+        @test all(iszero, ms.basis.spec.pmax)
+        @test !isempty(multipole_terms(ms))
+        @test length(decorated_terms(ms)) == length(multipole_terms(ms))
+        # a LATTICE-ONLY model has no spin content to keep: the clamped-ion sub-model
+        # is the empty one, whose energy is j0 alone — which is still exactly the joint
+        # model at u = 0, so the contract holds rather than degenerating
+        blat = SLCEBasis(crj, BasisSpec(crj; lmax = 1, pmax = 2, sectors = [
+            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)]))
+        mlat = SLCEModel(blat, 0.7, randn(rng, n_salcs(blat)))
+        rlat = restrict(mlat, :spin)
+        @test n_salcs(rlat.basis) == 0 && isempty(rlat.basis.spec.sectors)
+        @test predict_energy(rlat, _rand_config(rng, 2)) == 0.7 ==
+              predict_energy(mlat, _rand_config(rng, 2), z)
+        @test multipole_terms(rlat) == MultipoleTerm[]
+        # idempotent; a pure-spin model is returned untouched; only :spin is a channel
+        @test restrict(ms, :spin) === ms
+        @test restrict(SLCEModel(b, 0.0, ones(K), keys), :spin) isa SLCEModel
+        @test_throws ArgumentError restrict(mj, :disp)
+        # the restricted basis survives a persistence round-trip (its spec must be a
+        # legal, disp-free BasisSpec, not a doctored one)
+        path = tempname() * ".toml"
+        SLCE.save(path, ms)
+        back = SLCE.load(SLCEModel, path)
+        @test back.jphi == ms.jphi && back.keys == ms.keys
+        @test predict_energy(back, _rand_config(rng, 2)) isa Float64
+        rm(path)
     end
 end

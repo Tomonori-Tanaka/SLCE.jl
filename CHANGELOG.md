@@ -6,6 +6,40 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the downstream term contract (M4 slice 1)
+
+- **`decorated_terms(model)` → `Vector{DecoratedTerm}`** — the general successor of
+  [`multipole_terms`](@ref). One term per cluster member and slot layout, of any
+  channel content: each tensor axis is labelled with its own `SLCE.SlotRef`
+  (which member site, and the `(channel, k, l)` factor on it), so a site carrying
+  both a spin and a displacement factor is two axes. On a pure-spin model it
+  reports exactly the terms `multipole_terms` does.
+- **The consumer scale rule is now carried, not derived.** `DecoratedTerm.scale` is
+  `(4π)^(n_spin_slots / 2)` — one `√(4π)` per SPIN slot, because the 4π is an
+  artifact of the spin-sphere measure and the displacement kernel is normalized
+  4π-free. The pure-spin-era shortcut `(4π)^(body/2)` (one factor per *site*) agrees
+  only when every site carries exactly one spin factor and nothing else; on a
+  force-constant term, whose sites carry no spin factor at all, it invents a factor
+  per site. Both existing consumers derive it from `length(atoms)`, which is why:
+- **`multipole_terms` refuses a displacement-decorated model**, and the message now
+  names both hatches — `decorated_terms(model)` and
+  `multipole_terms(restrict(model, :spin))`. The trigger is the **spec**
+  (`_basis_has_disp`), not the surviving coefficients: a displacement sector whose
+  couplings all fitted to zero was still built and fitted in a `p ≥ 1` setting, and
+  reporting it as pure spin would fail open on the invariant the refusal exists for.
+- **`restrict(model, :spin)`** — the exact clamped-ion sub-model: the pure-spin SALCs
+  with their coefficients untouched, and a spec reduced honestly (`pmax` zeroed,
+  sectors cut to their displacement-degree-0 row) so the pure-spin surfaces and
+  persistence both accept the result. Gated on bitwise equality with the joint model
+  at `u = 0`, for energy and torque.
+
+  **`restrict` is not a refit**, and the new `guide/introspection.md` says so in a
+  boxed warning plus a measured comparison: the clamped-ion couplings are the
+  reference-geometry values, while a spin-only fit to the same data has no
+  displacement coordinate to attribute anything to and absorbs the lattice's
+  contribution into `J`. The gap is the physics the joint model exists to separate.
+
+
 ### Changed — test-suite audit: gates that could not fail
 
 A review of the *tests* (not the code) for verification gaps. Nothing was found

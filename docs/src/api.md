@@ -253,16 +253,27 @@ A code-neutral view of a fitted [`SLCEModel`](@ref)'s multipole terms, the stabl
 contract downstream packages (e.g. the mean-field samplers in
 [`SLCETools.jl`](https://github.com/Tomonori-Tanaka/SLCETools.jl)) read instead of the
 SALC-basis internals.
-`multipole_terms` is the general per-term dump; `bilinear_terms` is the bilinear (`ls=[1,1]`)
-and single-ion (`ls=[2]`) extraction as Cartesian `3×3` matrices (the same validated
-extraction the Sunny export consumes). The tesseral spherical-harmonic kernel
+`decorated_terms` is the general per-term dump and the surface new consumers should
+read: it accepts joint (spin + displacement) models, labels every tensor axis with its
+own `(channel, k, l)`, and carries the `(4π)^{n_spin_slots/2}` scale as a field — take
+it from there, never from the cluster shape. `multipole_terms` is its frozen pure-spin
+predecessor, kept bit-identical for the consumers written against it and refusing any
+displacement-decorated model; `restrict(model, :spin)` is the bridge that turns a joint
+model into one it accepts (the clamped-ion sub-model — read its warning, it is not a
+refit). `bilinear_terms` is the bilinear (`ls=[1,1]`) and single-ion (`ls=[2]`)
+extraction as Cartesian `3×3` matrices (the same validated extraction the Sunny export
+consumes). The tesseral spherical-harmonic kernel
 [`SLCE.Harmonics`](@ref Harmonics) is the stable submodule those consumers pair it
 with — see the next section.
 
 ```@docs
+DecoratedTerm
+decorated_terms
+restrict
 MultipoleTerm
 multipole_terms
 bilinear_terms
+SLCE.SlotRef
 ```
 
 ## Harmonics kernel

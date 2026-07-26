@@ -28,6 +28,7 @@ makedocs(;
             "guide/basis.md",
             "guide/fitting.md",
             "guide/io.md",
+            "guide/introspection.md",
             "guide/sunny.md",
         ],
         "Tutorials" => [

@@ -365,6 +365,22 @@ capability consumed by both the introspection and the Sunny interop.
   self-image refusal, and the same rank / invariance / `Σf = 0` battery at
   **3-body**, where one constraint row couples three site blocks (the
   third-order force-constant case; every other fixture is a 2-body bond).
+- **Downstream term contract — M4 slice 1**: `DecoratedTerm` / `decorated_terms(model)`
+  (`slce/introspect.jl`) — one term per member and slot layout, each tensor axis
+  labelled by a `SLCE.SlotRef` (member-site index + `(channel, k, l)` factor), with
+  the consumer scale `(4π)^{n_spin_slots/2}` carried as a field (single definition
+  `_slot_scale`; NOT `(4π)^{body/2}`, which agrees only when every site holds exactly
+  one spin factor). `multipole_terms` stays the frozen p = 0 view and refuses any
+  displacement model on the SPEC trigger `_basis_has_disp`, naming both hatches.
+  `restrict(model, :spin)` = the clamped-ion sub-model (pure-spin SALCs + `_spin_spec`:
+  `pmax` zeroed, sectors cut to their degree-0 row). Gates
+  (`test/unit/test_introspect.jl`): independent slot-by-slot reconstruction of
+  `predict_energy(model, e, u) − j0`, the shortcut-scale reconstruction FAILING on the
+  same fixture (teeth), pure-spin agreement with `multipole_terms`, the refusal surface
+  incl. the all-zero-displacement-coefficient case, and bitwise `restrict` ≡ joint at
+  `u = 0` plus a persistence round-trip. Docs: `guide/introspection.md` (scale table +
+  the mandatory `restrict ≠ refit` box with a measured comparison, design record §13
+  risk 5).
 - **Staged (hierarchical) fitting — M3 slice 6 (closes M3)**: `fit(...; frozen,
   sector_mask)` (`fitting/staged.jl`). `SLCE.sector_columns(basis, selector)` —
   `:all` / `:spin` / `:lattice` / `:coupled` (channel partition) and `:soc_free` /
