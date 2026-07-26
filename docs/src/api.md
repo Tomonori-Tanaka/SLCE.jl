@@ -150,15 +150,17 @@ solve_coefficients
 ```@docs
 predict_energy
 predict_torque
+predict_force
 has_torque
+has_force
 ```
 
 ## Diagnostics
 
-The `*_energy` / `*_torque` accessors are the full, per-observable surface. The generic
-names `coef` / `nobs` / `dof` / `predict` / `residuals` / `r2` **extend StatsAPI**
-(imported, not shadowed) and default to the energy block, so they compose with the
-StatsBase / GLM ecosystem.
+The `*_energy` / `*_torque` / `*_force` accessors are the full, per-observable
+surface. The generic names `coef` / `nobs` / `dof` / `predict` / `residuals` / `r2`
+**extend StatsAPI** (imported, not shadowed) and default to the energy block, so they
+compose with the StatsBase / GLM ecosystem.
 
 ```@docs
 coef
@@ -172,10 +174,14 @@ r2_energy
 rmse_energy
 r2_torque
 rmse_torque
+r2_force
+rmse_force
 rss_energy
 rss_torque
+rss_force
 residuals_energy
 residuals_torque
+residuals_force
 ```
 
 ## Model selection

@@ -89,6 +89,30 @@ f = fit(SLCEFit, SLCEDataset(basis, configs, energies, torques), OLS(); torque_w
 The [Getting started](../getting_started.md#Add-the-torque) page runs a full co-fit
 end-to-end.
 
+## Forces: the three-block co-fit
+
+Against a displacement-decorated (joint) basis a third observable enters: the
+per-atom force ``\boldsymbol f_a = -\partial E/\partial \boldsymbol u_a``
+([`predict_force`](@ref), again the analytic derivative of the same surface). A
+dataset built from `TrainingDatum` vectors with force channels carries the compact
+force design block (see [`SLCEDataset`](@ref)), and
+
+```julia
+f = fit(SLCEFit, dataset, OLS(); torque_weight = 0.2, force_weight = 0.5)
+(r2_energy(f), r2_torque(f), r2_force(f))
+```
+
+minimizes ``L = (1 - w_T - w_F)\,\mathrm{MSE}_E + w_T\,\mathrm{MSE}_T +
+w_F\,\mathrm{MSE}_F`` (each weight in ``[0, 1]``, ``w_T + w_F \le 1``; the force
+block is whitened by ``\sqrt{w_F/n_F}``). Note the three blocks carry different
+units (eV², eV², (eV/Å)²), so the weights are **not** scale-free — a force RMS much
+larger than the energy spread makes even a modest ``w_F`` dominate the fit; compare
+`rmse_energy`/`rmse_force` at a trial weight before committing to one. Force rows
+exist only for force-bearing configurations and displacement-referenced atoms —
+never zero-padded — and the selection layer ([`select_fit`](@ref) /
+[`cross_validate`](@ref) / [`select_support`](@ref)) does not take a `force_weight`
+yet: it scores the energy(+torque) objective only.
+
 ## Estimators
 
 The estimator is the regression strategy, dispatched on [`AbstractEstimator`](@ref). Four

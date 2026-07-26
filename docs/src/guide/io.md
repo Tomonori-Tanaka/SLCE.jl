@@ -145,6 +145,15 @@ dataset, and `reference_id`/`reference_fingerprint` (see
 A dataset may freely **mix** torque-bearing and energy-only configurations from one
 setup — the torque design keeps rows exactly for the qualified ones.
 
+Against a **displacement-decorated basis** the same `TrainingDatum` path is the
+joint entry point: designs are evaluated at each configuration's ``(e, u)`` (a datum
+without displacements contributes ``u = 0`` exactly — atoms at the pinned
+reference), and with `use_force = true` (the default, mirroring `use_torque`) the
+per-atom forces ``\boldsymbol f_a = -\partial E/\partial \boldsymbol u_a`` of every
+force-carrying configuration enter the force design block for a three-block co-fit
+(`fit(...; torque_weight, force_weight)` — see the
+[fitting guide](fitting.md#Forces:-the-three-block-co-fit)).
+
 The torque target from a constrained calculation is
 ``\boldsymbol\tau_a = \boldsymbol m_a \times \boldsymbol B_a`` (the physical /
 Landau–Lifshitz torque), the *same* physical quantity, sign, and layout as the model's

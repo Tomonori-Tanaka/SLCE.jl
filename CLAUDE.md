@@ -88,7 +88,13 @@ Easy to break silently — confirm before touching the algorithm.
   applied by the caller). The joint pair shares `_fill_ztables_mixed!` and the
   `(4π)^(n_spin/2)` scale, and its gate is the engine-level finite-difference suite
   (`test/unit/test_jointgrad.jl`) plus bitwise identity with the spin-only gradient on
-  pure-spin SALCs. The model-level force design block `X_F` is still M3-pending.
+  pure-spin SALCs. The model level rides these two kernels: the joint designs
+  (`_design_energy`/`_design_torque` with `disps` and the compact `_design_force`,
+  `fitting/design.jl`) and the joint predicts (`predict_energy`/`predict_torque`/
+  `predict_force(model, e, u)`, `fitting/fit.jl`). The force sign `f = −∂E/∂u` is
+  applied in exactly two places — `_design_force` and `predict_force` — and gate (j)
+  at model level (`test/unit/test_jointdata.jl`) fences both against the energy
+  surface by finite differences; change either sign site and re-check it.
 - **Image selection ↔ neighbor list ↔ cluster edges** (`geometry/neighborlist.jl`,
   `clusters/enumerate.jl`, `slce/model.jl`): `SLCEBasis` threads one `images` value to
   **both** `build_neighbor_list` and `candidate_clusters`/`build_clusters`; they must
@@ -240,7 +246,7 @@ Easy to break silently — confirm before touching the algorithm.
   all-zero field (computed, vanishes) are different objects, and `torque_qualified` is
   derived from the latter — fabricated zeros re-open exactly the false-`τ = 0` hazard the
   optional channel exists to close.
-- **Torque-row bookkeeping is stored, never re-derived** (`slce/model.jl` `SLCEDataset` ↔
+- **Derivative-row bookkeeping is stored, never re-derived** (`slce/model.jl` `SLCEDataset` ↔
   `fitting/fit.jl` `_assemble_problem` ↔ `fitting/selection.jl` `cross_validate` /
   `_grouped_folds` ↔ `fitting/design.jl`): a mixed dataset's torque design `X_T` is ragged
   (rows exist only for torque-qualified configs — excluded, never zero-padded, or the
@@ -252,9 +258,24 @@ Easy to break silently — confirm before touching the algorithm.
   `w > 0` fold cap keep every training split torque-bearing; a torque-free holdout fold
   scores energy-only, never `0 · NaN`), and `select_fit`'s `:cv` branch stratifies its
   per-unit fold deal the same way (both call `_grouped_folds(...; strata)`). Change the
-  row layout in one place and all of them (plus the ragged tests in `test_dataset.jl`)
-  move together; the future force block `X_F` reuses this contract with its own
-  per-row index.
+  row layout in one place and all of them (plus the ragged tests in `test_dataset.jl` /
+  `test_jointdata.jl`) move together. The force block follows the same contract with its
+  own per-row `force_config` (sliced/re-offset by `dataset[idx]`/`vcat`, grouped by
+  `_assemble_problem`) **plus two force-only twists**: `X_F` is stored COMPACT — columns
+  are only `dataset.force_cols` (displacement-active SALCs; `_assemble_problem` scatters
+  into full width at fit time, `residuals_force` indexes `jphi[force_cols]`) — and rows
+  exist only for `_disp_referenced_atoms` (structurally zero rows excluded at build, with
+  a warning if their DFT forces are nonzero). On the joint (`TrainingDatum`) path the
+  torque block applies the same structural-zero exclusion via `_referenced_atoms`
+  (spin-slot sites) — a disp-only ligand has exactly-zero `X_T` AND `y_T` rows; the
+  pure-spin constructors deliberately keep the historical all-atom torque layout
+  (oracle fit-parity: Nd2Fe14B B atoms are unreferenced), so per-config torque row
+  counts differ between the two paths and consumers must read them off
+  `torque_config` (`_assemble_problem` does, via its `tblock`/`fblock` searchsorted
+  counts), never off `3·n_atoms`. The selection layer has NO `force_weight`
+  yet: `cross_validate`/`select_fit` score energy(+torque) only (documented), and
+  `select_support` rejects a force co-fit outright — extending any of them means adding
+  force-presence strata AND the channel-split `group_costs` (design record §6).
 - **Sunny export conversion ↔ the energy reconstruction** (`slce/bilinear.jl` — matrices /
   extraction / gate — plus `interop/sunny.jl` — primitive unfold — and
   `ext/SLCESunnyExt.jl`): `_l1_pair_matrix` / `_l2_onsite_matrix` must satisfy

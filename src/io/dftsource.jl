@@ -38,6 +38,9 @@ distinct from an observed zero):
   Euclidean gradient, no projection). Independent of `displacements`: forces at
   `u = 0` (clamped-ion reference forces) are real, fittable physics, so
   `forces !== nothing` with `displacements === nothing` is a legitimate datum.
+  Forces are assumed to be the gradient of the **same** energy surface `energy`
+  belongs to — for a constrained run, quarantining any penalty-term contribution
+  is the adapter's responsibility (the `E_p` precedent).
 - `field` — `3 × n_atoms` constraining field `B_a` (eV/μ_B); `nothing` means the
   transverse field was **not computed** (collinear runs, codes without constrained
   noncollinear magnetism). A present all-zero field is different: it asserts the
@@ -55,9 +58,9 @@ distinct from an observed zero):
   pass an explicit provenance to override.
 
 All present channels must agree on `n_atoms` and be finite; `directions` columns must
-be unit vectors. Displacement-specific validation beyond finiteness (minimum-image
-consistency with the reference, the displacement-radius guard) lives at the design
-boundary and lands with the joint design matrices (M3).
+be unit vectors. The displacement-radius guard (amplitudes vs half the shortest
+reference interatomic distance — the classic un-minimum-imaged-adapter symptom)
+lives at the design boundary: [`SLCEDataset`](@ref) warns when it is exceeded.
 
 Build spin-only data from raw DFT moments with the [`SpinDatum`](@ref) convenience
 constructors.
@@ -407,12 +410,8 @@ function _check_setup_uniformity(data::AbstractVector{TrainingDatum})
     return nothing
 end
 
-# Keyed off the SPEC as well as the surviving SALCs: a displacement-decorated spec
-# whose SALCs all happen to be annihilated by symmetry must still pin the reference
-# (the data were generated in a p ≥ 1 setting) — surviving-SALC inspection alone
-# would fail OPEN on an invariant that exists to fail loud.
-_basis_has_disp(basis::SLCEBasis)::Bool =
-    any(>(0), basis.spec.pmax) || any(s -> any(has_disp, s.key.decors), salcs(basis))
+# (`_basis_has_disp` — the spec-keyed displacement trigger — lives in slce/model.jl
+# next to the other basis predicates; it is shared with the predict-layer guards.)
 
 # The double-counting protocol as an invariant (theory paper, protocol rule 1): all
 # data must come from ONE clamped-ion reference structure. The trigger is the BASIS,
@@ -462,7 +461,7 @@ end
 
 """
     SLCEDataset(basis, data::AbstractVector{TrainingDatum}; use_torque = true,
-               zero_moment_atol = 1e-10) -> SLCEDataset
+               use_force = true, zero_moment_atol = 1e-10) -> SLCEDataset
     SLCEDataset(basis, src::AbstractDFTSource; use_torque = true) -> SLCEDataset
 
 Build a fit-ready [`SLCEDataset`](@ref) from training data (or directly from a DFT
@@ -474,7 +473,24 @@ torque targets of every **qualified** configuration — `torques !== nothing` an
 only, so a mixed dataset (e.g. constrained-noncollinear configs plus
 unconstrained/collinear energy-only configs **from the same computational setup**)
 is a first-class object: its torque design has rows exactly for the qualified
-configurations. Pass `use_torque = false` to force an energy-only dataset.
+configurations. Pass `use_torque = false` to force a dataset without torque targets.
+
+Against a **displacement-decorated basis** the designs are evaluated jointly at each
+configuration's `(e, u)`: a datum's `displacements` become its `u` field (a datum
+without displacements contributes `u = 0` exactly — atoms at the pinned clamped-ion
+reference), and with `use_force = true` (the default) the per-atom forces
+(`f_a = −∂E/∂u_a`, the sign convention pinned in [`TrainingDatum`](@ref)) of every
+force-carrying configuration enter the compact force design block `X_F` for a
+three-block co-fit. Force rows follow the same ragged bookkeeping as torque rows
+(rows only for force-bearing configs, per-row `force_config`), and only atoms some
+SALC displacement slot actually reads get rows — forces the model is structurally
+blind to are excluded (with a warning when nonzero), never zero-padded. Torque rows
+on this path are likewise restricted to spin-referenced atoms (a
+displacement-only ligand contributes exactly-zero rows on both sides). The
+displacement-radius guard warns when an amplitude exceeds half the shortest
+reference interatomic distance (outside the fixed-topology regime, or
+un-minimum-imaged input). Pass `use_force = false` for a dataset without force
+targets.
 
 Boundary invariants checked here (all fail loudly rather than bias silently):
 
@@ -492,7 +508,7 @@ Boundary invariants checked here (all fail loudly rather than bias silently):
   `zero_moment_atol`, pass the same value here (both default to `1e-10`).
 """
 function SLCEDataset(basis::SLCEBasis, data::AbstractVector{TrainingDatum};
-                    use_torque::Bool = true,
+                    use_torque::Bool = true, use_force::Bool = true,
                     zero_moment_atol::Real = 1e-10)::SLCEDataset
     isempty(data) && throw(ArgumentError("no training data"))
     _check_setup_uniformity(data)
@@ -506,14 +522,29 @@ function SLCEDataset(basis::SLCEBasis, data::AbstractVector{TrainingDatum};
     ident = DatumProvenance(; reference_id = p1.reference_id,
                             reference_fingerprint = p1.reference_fingerprint,
                             setup_id = p1.setup_id, soc = p1.soc)
-    use_torque ||
-        return SLCEDataset(basis, configs, energies; provenance = ident)
+    if !_basis_has_disp(basis)
+        # Pure-spin basis: the established spin-configuration path (`use_force` is
+        # moot — `_check_reference` already warned if forces are present).
+        use_torque ||
+            return SLCEDataset(basis, configs, energies; provenance = ident)
+        sel = _qualified_torque_sel(data)
+        torques = Matrix{Float64}[data[i].torques::Matrix{Float64} for i in sel]
+        return SLCEDataset(basis, configs, energies, torques, sel; provenance = ident)
+    end
+    return _joint_dataset(basis, data, configs, energies, ident;
+                          use_torque = use_torque, use_force = use_force)
+end
+
+# Torque-qualified configuration indices (presence AND provenance qualification),
+# with the loud no-torque error and the all-zero-target warning shared by the
+# pure-spin and joint branches.
+function _qualified_torque_sel(data::AbstractVector{TrainingDatum})::Vector{Int}
     qual = [d.torques !== nothing && d.provenance.torque_qualified for d in data]
     if !any(qual)
         throw(ArgumentError("use_torque = true but no configuration carries " *
                             "qualified torque data (torques present and " *
                             "provenance.torque_qualified) — pass use_torque = false " *
-                            "for an energy-only dataset"))
+                            "for a dataset without torque targets"))
     end
     sel = findall(qual)
     # `qual` guarantees presence; the assertion narrows the Union{Matrix,Nothing}
@@ -523,8 +554,153 @@ function SLCEDataset(basis::SLCEBasis, data::AbstractVector{TrainingDatum};
         @warn "every qualified torque target is exactly zero — the torque block " *
               "carries no signal beyond stationarity; check that the constraining " *
               "fields were read correctly" configs = length(sel)
-    return SLCEDataset(basis, configs, energies, torques, sel; provenance = ident)
+    return sel
 end
 
-SLCEDataset(basis::SLCEBasis, src::AbstractDFTSource; use_torque::Bool = true)::SLCEDataset =
-    SLCEDataset(basis, read_configs(src); use_torque = use_torque)
+# Joint (displacement-decorated) branch: energy / torque designs evaluated at each
+# configuration's (e, u), plus the compact force design block. A datum without
+# displacements contributes u = 0 exactly (atoms at the pinned reference — data,
+# not absence; `_check_reference` has already pinned the reference identity).
+function _joint_dataset(basis::SLCEBasis, data::AbstractVector{TrainingDatum},
+                        configs::Vector{Matrix{Float64}}, energies::Vector{Float64},
+                        ident::DatumProvenance;
+                        use_torque::Bool, use_force::Bool)::SLCEDataset
+    nat = n_atoms(basis.crystal)
+    configs = Matrix{Float64}[copy(c) for c in configs]   # never alias datum fields
+    _validate_configs(basis, configs)
+    disps = Matrix{Float64}[d.displacements === nothing ? zeros(3, nat) :
+                            copy(d.displacements) for d in data]
+    for (i, u) in enumerate(disps)
+        size(u) == (3, nat) ||
+            throw(DimensionMismatch("config $i displacement field is $(size(u, 1)) × " *
+                                    "$(size(u, 2)), basis expects 3 × $nat"))
+    end
+    _check_displacement_radius(basis.crystal, disps)
+    X_E = _design_energy(basis, configs, disps)
+    m = size(X_E, 2)
+    X_T = Matrix{Float64}(undef, 0, m)
+    y_T = Float64[]
+    tc = Int[]
+    if use_torque
+        sel = _qualified_torque_sel(data)
+        torques = Matrix{Float64}[data[i].torques::Matrix{Float64} for i in sel]
+        # Torque rows restricted to spin-referenced atoms — a displacement-only
+        # site has no SPIN slot, so its rows are exactly zero in X_T and (m = 0)
+        # in y_T; keeping them would only dilute the √(w_T/n_T) whitening. The
+        # pure-spin path keeps its historical all-atom layout (oracle parity).
+        tref = _referenced_atoms(basis)
+        tatoms = findall(tref)
+        texcl = findall(.!tref)
+        if !isempty(texcl) &&
+           any(T -> any(!iszero, @view T[:, texcl]), torques)
+            @warn "nonzero torque targets on atoms no SALC spin slot reads — " *
+                  "those rows are structurally zero in the model and are excluded " *
+                  "from the torque block (check the per-species lmax if these " *
+                  "atoms should respond)" atoms = texcl maxlog = 1
+        end
+        X_T = _design_torque(basis, configs[sel], disps[sel], tatoms)
+        y_T = _flatten_atom_rows(torques, tatoms, nat, "torque")
+        tc = repeat(sel; inner = 3 * length(tatoms))
+    end
+    X_F = Matrix{Float64}(undef, 0, 0)
+    y_F = Float64[]
+    fc = Int[]
+    fcols = Int[]
+    if use_force
+        fsel = findall(d -> d.forces !== nothing, data)
+        isempty(fsel) &&
+            throw(ArgumentError("use_force = true but no configuration carries " *
+                                "force data — pass use_force = false for a dataset " *
+                                "without force targets"))
+        fcols = _disp_active_cols(basis)
+        if isempty(fcols)
+            @warn "force data present but the displacement sectors admitted no " *
+                  "SALCs — forces are ignored (there are no force design columns)"
+            fcols = Int[]
+        else
+            forces = Matrix{Float64}[data[i].forces::Matrix{Float64} for i in fsel]
+            fref = _disp_referenced_atoms(basis)
+            fatoms = findall(fref)
+            excl = findall(.!fref)
+            if !isempty(excl) &&
+               any(F -> any(!iszero, @view F[:, excl]), forces)
+                @warn "nonzero forces on atoms no SALC displacement slot reads — " *
+                      "those rows are structurally zero in the model and are " *
+                      "excluded from the force block (check the per-species pmax " *
+                      "if these atoms should respond)" atoms = excl maxlog = 1
+            end
+            all(F -> all(iszero, F), forces) &&
+                @warn "every force target is exactly zero — the force block " *
+                      "carries no signal; check that the forces were read " *
+                      "correctly" configs = length(fsel)
+            X_F = _design_force(basis, configs[fsel], disps[fsel], fcols, fatoms)
+            # All-zero design ≠ all-zero targets: e.g. every displacement factor of
+            # degree ≥ 2 evaluated at u = 0 has zero gradient. The block would then
+            # spend its whole weight w_F on 0 = y rows — no information, silently
+            # rescaling the energy block.
+            all(iszero, X_F) &&
+                @warn "the force design block is identically zero at these " *
+                      "displacements — no displacement-active SALC responds " *
+                      "(e.g. all displacement factors of degree ≥ 2 at u = 0); " *
+                      "the force block carries no information at force_weight > 0"
+            y_F = _flatten_forces(forces, fatoms, nat)
+            fc = repeat(fsel; inner = 3 * length(fatoms))
+        end
+    end
+    return SLCEDataset(basis, configs, X_E, energies, X_T, y_T, tc, ident;
+                      disps = disps, X_F = X_F, y_F = y_F, force_config = fc,
+                      force_cols = fcols)
+end
+
+# Shortest interatomic distance of the reference crystal under periodic images
+# (shifts in [-1, 1]³ — adequate for the mildly skewed cells the guard serves;
+# includes the self-image case, i.e. the shortest lattice translation).
+function _min_reference_distance(crystal::Crystal)::Float64
+    A = crystal.lattice.vectors
+    nat = n_atoms(crystal)
+    dmin = Inf
+    for a = 1:nat, b = a:nat
+        df = crystal.frac_positions[:, b] .- crystal.frac_positions[:, a]
+        for s1 = -1:1, s2 = -1:1, s3 = -1:1
+            (a == b && s1 == 0 && s2 == 0 && s3 == 0) && continue
+            d = norm(A * (df .+ SVector{3,Float64}(s1, s2, s3)))
+            d < dmin && (dmin = d)
+        end
+    end
+    return dmin
+end
+
+# Displacement-radius guard (design record §8): the expansion's cluster topology is
+# frozen at the reference, so displacements approaching half the shortest reference
+# interatomic distance leave the regime where the fixed-topology polynomial model is
+# meaningful (and a displacement of order a lattice vector is the classic
+# un-minimum-imaged adapter bug). A warning, not an error — the user may knowingly
+# probe large amplitudes.
+function _check_displacement_radius(crystal::Crystal,
+                                    disps::Vector{Matrix{Float64}})
+    thr = 0.5 * _min_reference_distance(crystal)       # finite: self-images always counted
+    umax = 0.0
+    iworst = 0
+    for (i, u) in enumerate(disps)
+        for a in axes(u, 2)
+            na = norm(@view u[:, a])
+            if na > umax
+                umax = na
+                iworst = i
+            end
+        end
+    end
+    if umax > thr
+        @warn "displacement amplitude exceeds half the shortest reference " *
+              "interatomic distance — the fixed-topology expansion is outside its " *
+              "regime (or the displacements were not minimum-imaged against the " *
+              "reference)" max_norm = round(umax; sigdigits = 4) threshold =
+            round(thr; sigdigits = 4) config = iworst maxlog = 1
+    end
+    return nothing
+end
+
+SLCEDataset(basis::SLCEBasis, src::AbstractDFTSource; use_torque::Bool = true,
+           use_force::Bool = true, zero_moment_atol::Real = 1e-10)::SLCEDataset =
+    SLCEDataset(basis, read_configs(src); use_torque = use_torque,
+               use_force = use_force, zero_moment_atol = zero_moment_atol)

@@ -6,6 +6,67 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — force design block and three-block co-fit (M3 slice 3)
+
+- **Joint designs**: against a displacement-decorated basis,
+  `SLCEDataset(basis, data::Vector{TrainingDatum})` now builds `X_E`/`X_T` at each
+  configuration's `(e, u)` through the joint kernels (a spin-only datum contributes
+  `u = 0` exactly; pure-spin columns stay bit-identical to the spin-only design
+  path) and, with `use_force = true` (default, mirroring `use_torque`), the force
+  design block `X_F` with targets `f = −∂E/∂u` (sign pinned per design record §6).
+  `X_F` is stored **compact**: columns are only the displacement-active SALCs
+  (`SLCEDataset.force_cols` — a pure-spin SALC has `∂Φ/∂u ≡ 0`; the zero columns
+  exist only in the assembled fit), and rows only for atoms some SALC displacement
+  slot reads (`_disp_referenced_atoms` — structurally zero rows are excluded, never
+  padded, with a warning when their DFT forces are nonzero, e.g. a forgotten
+  per-species `pmax`). Force rows follow the stored ragged-bookkeeping contract of
+  the torque block with their own `force_config`; slicing and `vcat` re-label and
+  re-offset it, and `vcat` refuses to mix displacement-bearing and
+  displacement-free parts.
+- **Three-block co-fit**: `fit(SLCEFit, dataset, est; torque_weight, force_weight)`
+  minimizes `(1 − w_T − w_F)·MSE_E + w_T·MSE_T + w_F·MSE_F` (each weight in
+  `[0, 1]`, `w_T + w_F ≤ 1`; force block whitened by `√(w_F/n_F)` and scattered to
+  full width in `_assemble_problem`). `SLCEFit` gains a `force_weight` field;
+  `refit`, `gcv`, and `effective_dof` assemble with both weights. `w_F = 0`
+  reproduces the previous energy(+torque) fit bitwise.
+- **Joint prediction**: `predict_energy(model, e, u)`,
+  `predict_torque(model, e, u)`, and the new exported `predict_force(model, e, u)`
+  (`f = −∂E/∂u`, zero on pure-spin models and displacement-unreferenced atoms).
+  The two-argument predict forms now **refuse** a displacement-decorated model
+  instead of erroring deep in the spin-only kernel — silently assuming `u = 0`
+  would hide forgotten displacement data.
+- **Force diagnostics**: `has_force`, `residuals_force`, `rss_force`, `r2_force`,
+  `rmse_force` (uncentered baselines, mirroring the torque block).
+- **Selection layer**: unchanged and force-unaware by design (the group cost model
+  is not channel-split yet — design record §6): `cross_validate`/`select_fit`
+  score energy(+torque) only (documented), `select_support` rejects a force
+  co-fit.
+- Gate (j) at model level plus the synthetic recovery plan A land in
+  `test/unit/test_jointdata.jl`: `predict_force ≡ −FD(predict_energy)`, joint
+  torque tangent FD, `X_F` columns ≡ the raw gradient kernel, exact OLS recovery
+  of a synthetic joint model through energy/torque/force channels at several
+  `(w_T, w_F)`, ragged force bookkeeping, and the structural-zero exclusion.
+- Fix: `_referenced_atoms` (the zero-moment guard's notion of "spin-referenced")
+  is now channel-aware — in a mixed SALC a displacement-only site (spin-inactive
+  ligand) no longer counts as spin-referenced, so legitimate `lmax = 0` ligand
+  configurations pass; pure-spin bases are unaffected (every member atom is a spin
+  site).
+- Review-round hardening (numerical + code review): joint-path **torque rows are
+  restricted to spin-referenced atoms** (a displacement-only ligand contributes
+  exactly-zero `X_T` and `y_T` rows, which would only dilute the `√(w_T/n_T)`
+  whitening; the pure-spin constructors keep their historical all-atom layout for
+  oracle parity, and `_assemble_problem` reads per-config row counts off the stored
+  `torque_config`/`force_config`, never off `3·n_atoms`); the **displacement-radius
+  guard** landed at the dataset boundary (warn when an amplitude exceeds half the
+  shortest reference interatomic distance — the un-minimum-imaged-adapter symptom;
+  `_min_reference_distance`); degenerate force blocks warn (all-zero targets, and
+  an identically zero `X_F`, e.g. all degree-≥2 displacement factors at `u = 0`);
+  `vcat` takes `force_cols` from any part that carries them (slicing away all force
+  rows no longer drops the column set); the `AbstractDFTSource` convenience
+  constructor forwards `use_force`/`zero_moment_atol`; the `1 − w_T − w_F`
+  complement is clamped at 0 against boundary-sum rounding; both coverage warnings
+  report a `coverage` value.
+
 ### Changed — joint data layer: `TrainingDatum` (M3 slice 2, BREAKING)
 
 - **`SpinDatum` the type is gone**; the name survives as convenience constructors

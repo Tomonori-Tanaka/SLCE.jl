@@ -320,16 +320,16 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         pin2 = DatumProvenance(; reference_id = "other", reference_fingerprint = fp)
         @test_throws ArgumentError SLCE._check_reference(
             bdisp, [pinned[1], SpinDatum(0.1, mk(); provenance = pin2)])
-        # correctly pinned data pass the reference gate (the dataset then still
-        # refuses the p ≥ 1 design build — that path lands with X_F)
+        # correctly pinned data pass the reference gate, and the joint path (M3
+        # slice 3) builds an energy-only joint dataset: u = 0 materialized, joint
+        # X_E (every displacement-active column vanishes exactly at u = 0)
         @test SLCE._check_reference(bdisp, pinned) === nothing
-        err3 = try
-            SLCEDataset(bdisp, pinned; use_torque = false)
-            nothing
-        catch e
-            e
-        end
-        @test err3 isa ArgumentError && occursin("pure-spin", err3.msg)
+        dsj = SLCEDataset(bdisp, pinned; use_torque = false, use_force = false)
+        @test length(dsj.disps) == length(pinned)
+        @test all(u -> all(iszero, u), dsj.disps)
+        @test all(iszero, dsj.X_E[:, SLCE._disp_active_cols(bdisp)])
+        # forces are demanded by the default use_force = true (mirror of torque)
+        @test_throws ArgumentError SLCEDataset(bdisp, pinned; use_torque = false)
         # pure-spin basis: displaced data rejected, u-free data need no pin
         disp = TrainingDatum(; energy = 0.0, directions = [0.0 0.0; 0.0 0.0; 1.0 1.0],
                              magmoms = [2.0, 2.0], displacements = 0.01 .* ones(3, 2))

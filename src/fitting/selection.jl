@@ -241,7 +241,7 @@ function effective_dof(f::SLCEFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "effective_dof requires a linear estimator (`islinear`); " *
         "got $(typeof(f.estimator))"))
-    X, _, _, _, _ = _assemble_problem(f.dataset, f.torque_weight)
+    X, _, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight)
     lambda, w = _penalty_diagonal(f.estimator, f.jphi)
     df = w === nothing ? _rank_df(X) : _edof(X, lambda, w)
     return df + 1.0
@@ -285,7 +285,7 @@ Linear estimators only ([`islinear`](@ref)).
 function gcv(f::SLCEFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "gcv requires a linear estimator (`islinear`); got $(typeof(f.estimator))"))
-    X, y, _, _, _ = _assemble_problem(f.dataset, f.torque_weight)
+    X, y, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight)
     lambda, w = _penalty_diagonal(f.estimator, f.jphi)
     return first(_gcv_score(X, y, f.jphi, lambda, w))
 end
@@ -458,6 +458,11 @@ realize exactly the reported support. The predicted Monte-Carlo cost of a fit is
 dataset's basis under `est`'s column partition). `delta` sets the accuracy tolerance
 of the cost–error trade; sweep the `theta` of `SLCE.cost_weights` to tilt the
 penalty itself and trace a Pareto front over both knobs.
+
+!!! note "Force channel"
+    Selection optimizes the energy(+torque) objective only: there is no
+    `force_weight` here yet (the group cost model is not channel-split for joint
+    models), so a force-carrying dataset is selected on its energy/torque blocks.
 """
 function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
                     lambdas::AbstractVector{<:Real}, torque_weight::Real = 0.0,
@@ -745,6 +750,14 @@ function select_support(f::SLCEFit;
         throw(ArgumentError("f is a torque co-fit (torque_weight = $w) but evalset " *
                             "has no torque data"))
     end
+    # The cost model (salc_groups / group_costs) is the spin-MC contraction cost and
+    # is not yet channel-split for joint models (design record §6); reject a force
+    # co-fit rather than score its objective without the force block.
+    f.force_weight > 0 &&
+        throw(ArgumentError("f is a force co-fit (force_weight = " *
+                            "$(f.force_weight)) — cost-weighted support selection " *
+                            "for the force channel is not implemented yet; select " *
+                            "on a fit with force_weight = 0"))
 
     # per-group max scaled magnitude on the assembled training design (refit's rule)
     X, _, _, _, _ = _assemble_problem(f.dataset, w)
@@ -879,6 +892,11 @@ generalization-error estimate.
 A `PrecomputedPilot` (or an `AdaptiveLasso` carrying one) is rejected: its fixed,
 full-data coefficient vector does not depend on the training fold, so the holdout
 score would leak the held-out data.
+
+!!! note "Force channel"
+    There is no `force_weight` here yet: a force-carrying dataset is fit and scored
+    on its energy(+torque) blocks only (fold stratification likewise tracks torque
+    presence, not force presence).
 """
 function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
                         torque_weight::Real = 0.0, nfolds::Integer = 5,

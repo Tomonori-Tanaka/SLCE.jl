@@ -203,7 +203,8 @@ capability consumed by both the introspection and the Sunny interop.
   union is asserted (the key-union invariant). `SLCEBasis` routes: empty
   sectors → the pure-spin engine (bit-identical to before), else the sector
   path. The spin-configuration `SLCEDataset` path refuses a
-  displacement-decorated basis at the boundary (joint data layer = M3). Gates
+  displacement-decorated basis at the boundary (the joint path goes through
+  `TrainingDatum` vectors — M3 slice 3). Gates
   (`test/unit/test_sectorbasis.jl` + the build testset in
   `test_mixedsalc.jl`): sector-expressed pure spin ≡ legacy dense bitwise
   (incl. fingerprint, `lsum` global and sector-local, `soc` both ways), the
@@ -308,8 +309,30 @@ capability consumed by both the introspection and the Sunny interop.
   invariant `Ge[:, a] ⊥ e[:, a]`; pure-spin bit-identity; exact `u = 0`
   behavior (all-degree-1-pairs ⇒ both gradients ≡ 0; single degree-1 factor ⇒
   constant nonzero `Gu`); weight-0 fast path, accumulation additivity, shared
-  scratch bit-identity, and the full error surface. Model-level force rows
-  (`X_F`) land with the M3 data layer.
+  scratch bit-identity, and the full error surface.
+- **Force design block + three-block co-fit (M3 slice 3)**: against a
+  displacement-decorated basis, the `TrainingDatum` dataset path evaluates
+  `X_E`/`X_T` jointly at each config's `(e, u)` (spin-only datum ⇒ `u = 0`
+  exactly, stored in `SLCEDataset.disps`; pure-spin columns bit-identical to
+  the spin-only design) and builds the **compact** force block `X_F`: columns
+  only the displacement-active SALCs (`force_cols`; `∂Φ/∂u ≡ 0` on pure-spin
+  columns — the zeros are scattered in at assembly, never stored), rows only
+  for force-bearing configs (`force_config`, the torque-block ragged
+  contract) and displacement-referenced atoms (`_disp_referenced_atoms`;
+  structurally zero rows excluded with a warning when their targets are
+  nonzero). Entries are `−∂Φ/∂u` (the pinned force sign, applied only there
+  and in `predict_force`). `fit(...; torque_weight, force_weight)` minimizes
+  `(1−w_T−w_F)·MSE_E + w_T·MSE_T + w_F·MSE_F` (`√(w_F/n_F)` whitening; `j0`
+  energy-only; `w_F = 0` bitwise-identical to before); `refit`/`gcv`/
+  `effective_dof` assemble with both weights; force diagnostics
+  (`has_force`, `residuals_force`, `rss_force`, `r2_force`, `rmse_force`)
+  mirror the torque block with uncentered baselines. Joint predicts
+  `predict_energy/torque/force(model, e, u)`; the 2-arg forms refuse a joint
+  model (no silent `u = 0`). The selection layer stays force-unaware by
+  design (channel-split `group_costs` is future work): `cross_validate` /
+  `select_fit` score energy(+torque) only, `select_support` rejects force
+  co-fits. Gate (j) at model level + synthetic recovery plan A:
+  `test/unit/test_jointdata.jl`.
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled
@@ -327,17 +350,23 @@ capability consumed by both the introspection and the Sunny interop.
   [mixed: `torque_sel` names the torque-bearing configs, rows for the rest are
   **excluded**, never zero-padded] forms; the per-row config index `torque_config`
   is stored and read by every consumer — slicing, `vcat`, `_assemble_problem`'s
-  grouped-CV labels — instead of a uniform-block assumption; supports `length`,
+  grouped-CV labels — instead of a uniform-block assumption; the force block
+  `X_F`/`y_F`/`force_config`/`force_cols` follows the same stored contract in
+  compact column form (M3 slice 3 bullet above); supports `length`,
   configuration slicing `dataset[idx]` — integer/`Bool`/`:` — and `vcat` of
-  same-fingerprint parts including mixed torque presence, all without recomputing
-  design rows; the
-  `TrainingDatum`/source path rejects a zero moment on a basis-referenced atom),
+  same-fingerprint parts including mixed torque/force presence, all without
+  recomputing design rows; the
+  `TrainingDatum`/source path rejects a zero moment on a basis-referenced atom —
+  spin-referenced in the channel-aware sense: a displacement-only ligand site is
+  exempt),
   `SLCEModel`/`SLCEFit`
   (plus the public constructor `SLCEModel(basis, j0, jphi)` for synthetic models —
   keys filled in from the basis),
-  `fit(SLCEFit, dataset, estimator; torque_weight)`, `refit(f, estimator; threshold)`
+  `fit(SLCEFit, dataset, estimator; torque_weight, force_weight)`,
+  `refit(f, estimator; threshold)`
   (re-solve on the scaled-magnitude support of `f` — the de-biasing step after a sparse
-  fit; shares `_assemble_problem` with `fit`), `predict_energy`/`predict_torque`,
+  fit; shares `_assemble_problem` with `fit`),
+  `predict_energy`/`predict_torque`/`predict_force`,
   `coef`/`intercept`/`nobs`/`dof`/`r2_energy`/`rmse_energy`/`r2_torque`/`rmse_torque`/
   `rss_energy`/`rss_torque`/`residuals_energy`/`residuals_torque`/`has_torque` (energy and
   torque blocks reported separately; `SLCEFit.residuals` stores the energy residual).
@@ -395,7 +424,9 @@ capability consumed by both the introspection and the Sunny interop.
   `SpinDatum(energy, moments[, field])` survives as the spin-only convenience
   constructor (the 2-arg form covers collinear/Ising and torque-less codes), and
   `read_configs(src::AbstractDFTSource) -> Vector{TrainingDatum}`, with `SLCEDataset(basis, src)`
-  going source → dataset. The **concrete per-code adapters live in the `SLCETools.jl`
+  going source → dataset. Against a displacement-decorated basis the
+  `TrainingDatum` path is the joint entry point (`use_torque`/`use_force`
+  channel switches; M3 slice 3 bullet above). The **concrete per-code adapters live in the `SLCETools.jl`
   package** (`SLCETools.VASP`: `read_poscar`/`write_poscar`, `Oszicar` with SAXIS rotation,
   and the INCAR writer), not in the core. Adding a DFT code is one sibling adapter there —
   neither the core nor its export list changes; the VASP parsers are cross-checked bit-for-bit

@@ -352,21 +352,52 @@ row `r` — which every consumer (slicing, `vcat`, `_assemble_problem`'s grouped
 labels) reads instead of re-deriving row offsets from a uniform-block assumption.
 Torque-free datasets leave `X_T`/`y_T`/`torque_config` empty.
 
+Against a **displacement-decorated basis** a dataset additionally carries the
+per-config displacement fields `disps` (u = 0 exactly for a spin-only datum — atoms
+at the pinned clamped-ion reference) and, when force data enter, the force design
+block: `X_F` stored **compact** over the displacement-active SALC columns
+`force_cols` (a pure-spin SALC has `∂Φ/∂u ≡ 0`; the zero columns exist only in the
+assembled fit, never here), with `y_F`/`force_config` following the same
+ragged-row contract as the torque block, restricted to atoms some SALC displacement
+slot actually reads. Torque rows on this path are likewise restricted to
+spin-referenced atoms (a displacement-only ligand site contributes exactly-zero
+`X_T` and `y_T` rows, which would only dilute the `√(w_T/n_T)` whitening); the
+pure-spin constructors below keep their historical all-atom torque layout. These
+joint blocks enter only through the `TrainingDatum` construction path — the
+spin-configuration constructors below are pure-spin-only.
+
 Datasets support `length` (number of configs), configuration slicing
 `dataset[idx]` (integer vector/range, `Bool` mask, or `:`), and `vcat` of parts
 built on the same basis — see those methods for train/test splitting and
 incremental data addition. The recommended construction path from DFT data is
 `SLCEDataset(basis, data::AbstractVector{TrainingDatum})` (see the io layer), which
-derives `torque_sel` from each datum's channels and provenance.
+derives the torque/force row sets from each datum's channels and provenance.
 """
 struct SLCEDataset
     basis::SLCEBasis
     configs::Vector{Matrix{Float64}}
+    # Per-config displacement fields (3 × n_atoms, Å, measured from the pinned
+    # clamped-ion reference). Empty for pure-spin datasets; length == length(configs)
+    # whenever displacement data enter (a spin-only datum against a joint basis
+    # stores an explicit zero field — "u = 0 at the reference" is data, not absence).
+    disps::Vector{Matrix{Float64}}
     X_E::Matrix{Float64}
     y_E::Vector{Float64}
     X_T::Matrix{Float64}
     y_T::Vector{Float64}
     torque_config::Vector{Int}   # config index of each torque row (nondecreasing)
+    # Force block (ragged, same stored-bookkeeping contract as the torque block).
+    # `X_F` is COMPACT: its columns are only the displacement-active SALCs listed in
+    # `force_cols` (a pure-spin SALC has an identically zero force derivative — the
+    # zero columns are never materialized; `_assemble_problem` scatters the block
+    # into the full design width). Rows exist only for force-bearing configs
+    # (`force_config[r]` is row r's config index) and only for atoms some SALC's
+    # displacement slot actually reads — structurally zero rows are excluded, never
+    # padded, or the `√(w_F/n_F)` whitening silently dilutes the real forces.
+    X_F::Matrix{Float64}
+    y_F::Vector{Float64}
+    force_config::Vector{Int}    # config index of each force row (nondecreasing)
+    force_cols::Vector{Int}      # SALC columns with displacement content (increasing)
     # Dataset-level identity summary (setup_id / soc / reference_id /
     # reference_fingerprint; the per-datum booleans stay false here). The
     # one-setup / one-reference invariants are checked at construction from
@@ -378,7 +409,12 @@ struct SLCEDataset
                         X_E::Matrix{Float64}, y_E::Vector{Float64},
                         X_T::Matrix{Float64}, y_T::Vector{Float64},
                         torque_config::Vector{Int},
-                        provenance::DatumProvenance = DatumProvenance())
+                        provenance::DatumProvenance = DatumProvenance();
+                        disps::Vector{Matrix{Float64}} = Matrix{Float64}[],
+                        X_F::Matrix{Float64} = Matrix{Float64}(undef, 0, 0),
+                        y_F::Vector{Float64} = Float64[],
+                        force_config::Vector{Int} = Int[],
+                        force_cols::Vector{Int} = Int[])
         nc = length(configs)
         (size(X_E, 1) == nc && length(y_E) == nc) ||
             throw(DimensionMismatch("X_E/y_E rows ($(size(X_E, 1))/$(length(y_E))) " *
@@ -394,7 +430,38 @@ struct SLCEDataset
             (torque_config[1] >= 1 && torque_config[end] <= nc) ||
                 throw(ArgumentError("torque_config entries must index configs 1:$nc"))
         end
-        return new(basis, configs, X_E, y_E, X_T, y_T, torque_config, provenance)
+        isempty(disps) || length(disps) == nc ||
+            throw(DimensionMismatch("disps has $(length(disps)) displacement fields " *
+                                    "for $nc configs (empty = no displacement data)"))
+        (size(X_F, 1) == length(y_F) == length(force_config)) ||
+            throw(DimensionMismatch("X_F rows $(size(X_F, 1)), y_F length " *
+                                    "$(length(y_F)), force_config length " *
+                                    "$(length(force_config)) must agree"))
+        isempty(y_F) || size(X_F, 2) == length(force_cols) ||
+            throw(DimensionMismatch("X_F has $(size(X_F, 2)) columns but force_cols " *
+                                    "lists $(length(force_cols)) displacement-active " *
+                                    "SALCs (X_F is stored compact)"))
+        issorted(force_cols; lt = <=) ||               # strictly increasing
+            throw(ArgumentError("force_cols must be strictly increasing SALC column " *
+                                "indices"))
+        if !isempty(force_cols)
+            (force_cols[1] >= 1 && force_cols[end] <= n_salcs(basis)) ||
+                throw(ArgumentError("force_cols entries must index SALC columns " *
+                                    "1:$(n_salcs(basis))"))
+        end
+        issorted(force_config) ||
+            throw(ArgumentError("force_config must be nondecreasing (config-major " *
+                                "force row order)"))
+        if !isempty(force_config)
+            (force_config[1] >= 1 && force_config[end] <= nc) ||
+                throw(ArgumentError("force_config entries must index configs 1:$nc"))
+            isempty(disps) &&
+                throw(ArgumentError("force rows present but disps is empty — force " *
+                                    "targets are meaningless without the displacement " *
+                                    "fields they were computed at"))
+        end
+        return new(basis, configs, disps, X_E, y_E, X_T, y_T, torque_config,
+                   X_F, y_F, force_config, force_cols, provenance)
     end
 end
 
@@ -406,13 +473,27 @@ possible).
 """
 has_torque(d::SLCEDataset) = !isempty(d.y_T)
 
-# Atoms that appear in some SALC member of `basis` — the sites whose spin the model
-# actually reads. A species removed by `lmax = 0` (or a site that never enters an
-# admitted cluster) is unreferenced, and its training moments are never consulted.
+"""
+    has_force(dataset) -> Bool
+
+Whether `dataset` carries force training data (so an energy+force co-fit is
+possible).
+"""
+has_force(d::SLCEDataset) = !isempty(d.y_F)
+
+# Atoms whose spin some SALC actually reads (a SPIN slot site). A species removed by
+# `lmax = 0` (or a site that never enters an admitted cluster) is unreferenced, and
+# its training moments are never consulted. Channel-aware on purpose: in a mixed SALC
+# a displacement-only site (e.g. a spin-inactive ligand) appears among the member
+# atoms but must NOT count as spin-referenced — the zero-moment guard would otherwise
+# reject legitimate ligand configurations. On a pure-spin basis every member atom is
+# a spin site, so this reduces to the plain member-atom scan.
 function _referenced_atoms(basis::SLCEBasis)::BitVector
     ref = falses(n_atoms(basis.crystal))
-    for s in salcs(basis), mem in s.members, a in mem.atoms
-        ref[a] = true
+    for s in salcs(basis), mem in s.members, t in mem.terms, sl in t.slots
+        if sl.factor.channel == SPIN
+            ref[mem.atoms[sl.site]] = true
+        end
     end
     return ref
 end
@@ -429,6 +510,26 @@ Base.length(d::SLCEDataset) = length(d.configs)
 Base.firstindex(d::SLCEDataset) = 1
 Base.lastindex(d::SLCEDataset) = length(d)
 
+# Locate the derivative-channel rows of the selected configs through the stored
+# per-row config index (ragged layout: a config without data in the channel has no
+# rows), never through a uniform 3·n_atoms block assumption. The index is
+# nondecreasing, so each config's rows are one `searchsorted` range; duplicate
+# indices (bootstrap resampling) duplicate the rows. Returns the sliced
+# `(X, y, config_index)` triple.
+function _slice_channel_rows(X::Matrix{Float64}, y::Vector{Float64},
+                             cfg::Vector{Int}, idx::AbstractVector{<:Integer})
+    isempty(cfg) && return X[1:0, :], Float64[], Int[]
+    rows = Int[]
+    rc = Int[]
+    for (k, i) in enumerate(idx)
+        r = searchsorted(cfg, i)
+        isempty(r) && continue
+        append!(rows, r)
+        append!(rc, fill(k, length(r)))
+    end
+    return X[rows, :], y[rows], rc
+end
+
 """
     dataset[idx] -> SLCEDataset
 
@@ -441,26 +542,14 @@ never recomputed, so train/test splits and filters are cheap:
 function Base.getindex(d::SLCEDataset, idx::AbstractVector{<:Integer})::SLCEDataset
     isempty(idx) && throw(ArgumentError("empty configuration selection"))
     cfgs = d.configs[idx]                       # BoundsError on an out-of-range index
+    dsp = isempty(d.disps) ? d.disps : d.disps[idx]
     X_E = d.X_E[idx, :]
     y_E = d.y_E[idx]
-    has_torque(d) ||
-        return SLCEDataset(d.basis, cfgs, X_E, y_E, d.X_T, d.y_T, Int[],
-                          d.provenance)
-    # Torque rows are located through the stored per-row config index (ragged
-    # layout: a config without torque data has no rows), never through a uniform
-    # 3·n_atoms block assumption. `torque_config` is nondecreasing, so each
-    # config's rows are one `searchsorted` range; duplicate indices (bootstrap
-    # resampling) duplicate the rows.
-    rows = Int[]
-    tc = Int[]
-    for (k, i) in enumerate(idx)
-        r = searchsorted(d.torque_config, i)
-        isempty(r) && continue
-        append!(rows, r)
-        append!(tc, fill(k, length(r)))
-    end
-    return SLCEDataset(d.basis, cfgs, X_E, y_E, d.X_T[rows, :], d.y_T[rows], tc,
-                      d.provenance)
+    X_T, y_T, tc = _slice_channel_rows(d.X_T, d.y_T, d.torque_config, idx)
+    X_F, y_F, fc = _slice_channel_rows(d.X_F, d.y_F, d.force_config, idx)
+    return SLCEDataset(d.basis, cfgs, X_E, y_E, X_T, y_T, tc, d.provenance;
+                      disps = dsp, X_F = X_F, y_F = y_F, force_config = fc,
+                      force_cols = d.force_cols)
 end
 
 function Base.getindex(d::SLCEDataset, mask::AbstractVector{Bool})::SLCEDataset
@@ -508,19 +597,53 @@ function Base.vcat(a::SLCEDataset, rest::SLCEDataset...)::SLCEDataset
                                 "must come from one computational setup and one " *
                                 "clamped-ion reference"))
     end
+    # Displacement fields: parts must agree on whether they carry them — a part
+    # without disps has no recorded geometry, and concatenating it into a
+    # displacement-bearing dataset would silently fabricate one.
+    anydisp = any(p -> !isempty(p.disps), parts)
+    if anydisp && !all(p -> !isempty(p.disps), parts)
+        throw(ArgumentError("cannot vcat displacement-bearing and displacement-free " *
+                            "datasets: a part without stored displacement fields has " *
+                            "no recorded geometry (a spin-only part built against a " *
+                            "joint basis stores explicit zeros)"))
+    end
+    # Force columns are a property of the shared (fingerprint-checked) basis, not of
+    # the rows: take them from ANY part that carries them — including a part whose
+    # force rows were sliced away — so slicing and re-concatenating never silently
+    # drops the column set. Force-bearing parts must agree on them.
+    fcols = Int[]
+    for p in parts
+        isempty(p.force_cols) && continue
+        if isempty(fcols)
+            fcols = p.force_cols
+        elseif p.force_cols != fcols
+            throw(ArgumentError("parts disagree on force_cols — the compact X_F " *
+                                "blocks are not column-compatible"))
+        end
+    end
     tc = Int[]
+    fc = Int[]
     off = 0
     for p in parts
         append!(tc, p.torque_config .+ off)
+        append!(fc, p.force_config .+ off)
         off += length(p)
     end
+    fparts = [p.X_F for p in parts if !isempty(p.y_F)]
+    X_F = isempty(fparts) ? Matrix{Float64}(undef, 0, 0) : reduce(vcat, fparts)
     return SLCEDataset(a.basis,
                       reduce(vcat, [p.configs for p in parts]),
                       reduce(vcat, [p.X_E for p in parts]),
                       reduce(vcat, [p.y_E for p in parts]),
                       reduce(vcat, [p.X_T for p in parts]),
                       reduce(vcat, [p.y_T for p in parts]),
-                      tc, a.provenance)
+                      tc, a.provenance;
+                      disps = anydisp ? reduce(vcat, [p.disps for p in parts]) :
+                              Matrix{Float64}[],
+                      X_F = X_F,
+                      y_F = reduce(vcat, [p.y_F for p in parts]),
+                      force_config = fc,
+                      force_cols = fcols)
 end
 
 # Spin configurations must be `3 × n_atoms` with finite, unit-norm columns — the
@@ -553,15 +676,42 @@ function _validate_configs(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}}; atol
 end
 
 # The spin-configuration dataset path evaluates spin-only SALCs; refuse a
-# displacement-decorated basis at the boundary (the joint data layer — energies
-# with displacements, forces — is M3) instead of erroring inside the threaded
-# design assembly.
+# displacement-decorated basis at the boundary instead of erroring inside the
+# threaded design assembly.
 function _require_pure_spin_basis(basis::SLCEBasis)
     all(s -> all(is_pure_spin, s.key.decors), salcs(basis)) ||
         throw(ArgumentError("the basis carries displacement-decorated SALCs — " *
                             "the spin-configuration SLCEDataset path is pure-spin " *
-                            "only (the joint data layer lands in M3)"))
+                            "only; build the joint dataset from TrainingDatum " *
+                            "vectors (SLCEDataset(basis, data))"))
     return nothing
+end
+
+# Keyed off the SPEC as well as the surviving SALCs: a displacement-decorated spec
+# whose SALCs all happen to be annihilated by symmetry must still pin the reference
+# (the data were generated in a p ≥ 1 setting) — surviving-SALC inspection alone
+# would fail OPEN on an invariant that exists to fail loud.
+_basis_has_disp(basis::SLCEBasis)::Bool =
+    any(>(0), basis.spec.pmax) || any(s -> any(has_disp, s.key.decors), salcs(basis))
+
+# SALC columns with displacement content — the only columns with a nonzero force
+# derivative (`∂Φ/∂u ≡ 0` for a pure-spin SALC), i.e. the compact column set of the
+# stored force design block `X_F`.
+_disp_active_cols(basis::SLCEBasis)::Vector{Int} =
+    findall(s -> any(has_disp, s.key.decors), salcs(basis))
+
+# Atoms some SALC displacement slot actually reads — the sites with a structurally
+# nonzero force prediction. Read off the evaluator's own slot→site maps (member
+# atom order and key decor order need not align after canonicalization), so this is
+# exactly the set of atoms `accumulate_grad!` can write a nonzero `Gu` column for.
+function _disp_referenced_atoms(basis::SLCEBasis)::BitVector
+    ref = falses(n_atoms(basis.crystal))
+    for s in salcs(basis), m in s.members, t in m.terms, sl in t.slots
+        if sl.factor.channel == DISP
+            ref[m.atoms[sl.site]] = true
+        end
+    end
+    return ref
 end
 
 function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::AbstractVector;
@@ -650,11 +800,11 @@ end
     SLCEFit
 
 The **full result of [`fit`](@ref)**: the [`SLCEDataset`](@ref) (with its design
-matrices), the fitted `j0`/`jphi`, the `estimator`, the `torque_weight` used, and the
-(energy) residuals. This is the heavyweight, data-bearing object you query for
-diagnostics ([`r2_energy`](@ref), [`rmse_energy`](@ref), [`residuals_energy`](@ref), …).
-For prediction and storage, convert it to the lightweight [`SLCEModel`](@ref) with
-`SLCEModel(fit)`.
+matrices), the fitted `j0`/`jphi`, the `estimator`, the `torque_weight` /
+`force_weight` used, and the (energy) residuals. This is the heavyweight,
+data-bearing object you query for diagnostics ([`r2_energy`](@ref),
+[`rmse_energy`](@ref), [`residuals_energy`](@ref), …). For prediction and storage,
+convert it to the lightweight [`SLCEModel`](@ref) with `SLCEModel(fit)`.
 """
 struct SLCEFit
     dataset::SLCEDataset
@@ -663,4 +813,5 @@ struct SLCEFit
     estimator::AbstractEstimator
     residuals::Vector{Float64}
     torque_weight::Float64
+    force_weight::Float64
 end
