@@ -101,6 +101,7 @@ export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, AdaptiveLasso, Adaptive
     GroupAdaptiveRidge, PrecomputedPilot
 # fit diagnostics (predict / residuals / r2 are StatsAPI generics defaulting to the
 # energy block; the explicit *_energy / *_torque / *_force forms are the full surface)
+export identifiability
 export coef, intercept, nobs, dof, predict, residuals, r2,
     r2_energy, rmse_energy, r2_torque, rmse_torque, r2_force, rmse_force,
     rss_energy, rss_torque, rss_force, residuals_energy, residuals_torque,

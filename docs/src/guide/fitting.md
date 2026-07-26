@@ -130,6 +130,23 @@ than trusting a flag. `asr = false` fits unconstrained, for ablations only: on
 noisy data the resulting model demonstrably gains energy under rigid
 translations.
 
+The constraint is not only about physical propriety — it is often what makes the
+fit *identifiable at all*. Displacement samples that leave the center of mass
+fixed (the natural DFT protocol) cannot see the translation-violating directions:
+the torque channel is blind to every spin-independent direction (which, for a
+basis whose displacement content is all spin-decorated, is exactly the violating
+subspace — a lattice-only sector adds a residue no constraint can cure, so force
+constants are never identifiable from torques alone), and the force channel sees
+only the part whose `Σ_a f_a` does not vanish on the sampled slice. A
+derivative-only fit (`torque_weight + force_weight = 1`, so the energy data enter
+only through the analytic `j0`) is therefore rank-deficient without the ASR and of
+full rank with it: the constrained fit recovers a known model to machine
+precision, while the unconstrained one lands on a materially different coefficient
+vector that reproduces every training force and torque just as well — and then
+disagrees as soon as a configuration drifts off the sampled slice. Use
+[`identifiability`](@ref) to see this ledger for your own dataset before or after
+fitting.
+
 Two practical notes. A too-tight truncation can admit **no** translation-invariant
 displacement content at all (e.g. bond pair terms without their on-site
 partners): the fit then warns and constrains every displacement coefficient to
@@ -331,6 +348,27 @@ For a *linear* estimator (`islinear`: `OLS` / `Ridge` / `AdaptiveRidge` /
 [`dof`](@ref)'s raw count — and [`gcv`](@ref) is the generalized cross-validation
 score `n·RSS/(n − df)²` built on it, the fast λ-selection criterion used by
 [`select_fit`](@ref).
+
+[`identifiability`](@ref) answers a different question — not *how well* the fit
+explains the data, but *whether the data determine the fit at all*:
+
+```julia
+identifiability(f)                        # the design the fit solved
+identifiability(ds; torque_weight = 0.4, force_weight = 0.6)   # before fitting
+# (; ncols, rank, nullity, sigma_min, sigma_max, tol, gap)
+```
+
+`nullity > 0` means the objective is exactly flat along that many coefficient
+directions: different models reproduce the training observables identically, and
+what comes back along those directions is the estimator's null-space convention
+(`OLS`'s minimum norm), not an estimate. `gap` — the smallest kept over the
+largest dropped singular value — says how clean that count is; a value within a
+few orders of 1 means the spectrum has no break and the report is inconclusive
+(raise or lower `rtol` and look again). `fit` always warns about the per-column
+case — columns the data do not touch at all, e.g. every pure-spin column in a
+force-only fit — but a flat direction is generally a *combination* of columns, so
+the exact test is this opt-in one (a full SVD of the design; `O(n·q²)`). The canonical cure is more informative data or, for the
+translation-violating directions, the [ASR](#The-acoustic-sum-rule-(translation-invariance)).
 
 The energy and torque blocks are reported separately throughout (the rebuild does not fold
 them into one combined residual): `residuals_energy(f)` is `y_E − (j0 + X_E·jϕ)` and

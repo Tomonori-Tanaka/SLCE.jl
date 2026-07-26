@@ -110,6 +110,90 @@ function _assemble_problem(dataset::SLCEDataset, wT::Float64, wF::Float64 = 0.0,
     return X, y, xbar, ybar, groups
 end
 
+# Weight / channel validation shared by `fit` and the pre-fit diagnostics
+# ([`identifiability`](@ref)), so a diagnostic assembled off a dataset raises the
+# SAME errors the corresponding fit would instead of failing deeper in the assembly.
+function _validate_fit_request(dataset::SLCEDataset, w::Float64, wF::Float64)
+    isempty(dataset.y_E) && throw(ArgumentError("dataset has no observations"))
+    (0.0 <= w <= 1.0) || throw(ArgumentError("torque_weight must be in [0, 1]; got $w"))
+    (0.0 <= wF <= 1.0) ||
+        throw(ArgumentError("force_weight must be in [0, 1]; got $wF"))
+    w + wF <= 1.0 ||
+        throw(ArgumentError("torque_weight + force_weight must be ≤ 1 (the energy " *
+                            "block carries the remaining 1 − w_T − w_F); got " *
+                            "$w + $wF = $(w + wF)"))
+    if w > 0 && !has_torque(dataset)
+        throw(ArgumentError("torque_weight = $w but the dataset has no torque data; " *
+                            "build it with SLCEDataset(basis, configs, energies, torques)"))
+    end
+    if wF > 0 && !has_force(dataset)
+        throw(ArgumentError("force_weight = $wF but the dataset has no force data; " *
+                            "build it from TrainingDatum vectors with force channels " *
+                            "against a displacement-decorated basis"))
+    end
+    return nothing
+end
+
+# A displacement-decorated basis without a reparameterization (AllImages
+# self-images, or a hand-built dataset that skipped `build_asr`) must not silently
+# take the pure-spin fast path under `asr = true` — unconstrained joint fits are an
+# explicit opt-out.
+function _resolve_asr_rep(dataset::SLCEDataset, asr::Bool)::Union{Nothing,ASRReparam}
+    rep = asr ? dataset.asr : nothing
+    if asr && rep === nothing && _basis_has_disp(dataset.basis)
+        throw(ArgumentError("asr = true but this displacement-decorated dataset " *
+                            "carries no ASR reparameterization (AllImages " *
+                            "self-image basis, or a hand-built dataset without " *
+                            "SLCE.build_asr) — pass asr = false to fit " *
+                            "unconstrained deliberately"))
+    end
+    return rep
+end
+
+# Relative cut for a design column that carries no information. Matches the ASR
+# builder's residue/dead-row convention (`fitting/asr.jl`) — every zero decision in
+# this package is relative, and an exact `iszero` test has measured false negatives:
+# a column that is a multiple of `Σ_a u_a` evaluates to ~1e-19 (not 0) on
+# center-of-mass-free samples, and the energy block's centering leaves a
+# structurally constant column at ~1e-17 rather than exactly 0.
+const _DEAD_COL_RTOL = 1e-12
+
+# Standing identifiability check on the assembled design, cheap enough (O(n·q), one
+# pass) to run on every fit: a column whose norm is negligible against the largest
+# carries no information — the objective is (numerically) flat along it and whatever
+# value comes back is the estimator's null-space convention, not an estimate. The
+# archetype is a derivative-only fit (`force_weight = 1`), where every pure-spin
+# column is structurally zero. This catches only the per-COLUMN case; a flat
+# direction is generally a combination of columns ([`identifiability`](@ref) computes
+# the full rank deficiency at O(n·q²), too expensive to run unasked).
+#
+# Deliberately NOT `maxlog`-limited, unlike the mixed-dataset coverage warnings
+# above: this one reports a property of THIS fit request, and a session that fits
+# several weightings (energy-only, then force-only) must be warned about each one —
+# `maxlog` silences a call site for the whole process. The cost is `k` identical
+# lines when `cross_validate` refits per fold, which is the informative direction.
+function _warn_unidentified(X::AbstractMatrix, rep::Union{Nothing,ASRReparam})
+    isempty(X) && return nothing
+    nrm = [norm(@view X[:, j]) for j in axes(X, 2)]
+    nmax = maximum(nrm)
+    nmax == 0.0 && return nothing                  # an all-zero design: nothing to rank
+    dead = findall(<=(_DEAD_COL_RTOL * nmax), nrm)
+    isempty(dead) && return nothing
+    # Under the reparameterization the indices are γ directions, NOT `jphi`
+    # positions, so the `refit`-drops-them advice (a β-space support rule) does not
+    # transfer — say only what is true in each coordinate system.
+    advice = rep === nothing ?
+             "`refit` drops them (their scaled magnitude is zero)." :
+             "They are directions of the ASR null-space basis, not `jphi` positions."
+    @warn "fit: $(length(dead)) design column(s) carry no information — this fit's " *
+          "data say nothing about them (a force-only fit sees no pure-spin column, " *
+          "for example), so their coefficients are an estimator artifact rather " *
+          "than an estimate. `identifiability` reports the full rank deficiency. " *
+          advice columns = first(dead, 10) coordinates =
+        rep === nothing ? "jphi (β)" : "reparameterized (γ)"
+    return nothing
+end
+
 """
     fit(SLCEFit, dataset, estimator; torque_weight = 0.0, force_weight = 0.0) -> SLCEFit
 
@@ -144,42 +228,23 @@ approximately. Pure-spin bases have no constraints and take a structurally
 identical (bitwise) path. `asr = false` fits unconstrained — for ablations and
 the translation-violation demonstration only: an unconstrained joint model's
 energy is not translation-invariant.
+
+Design columns the assembled problem cannot see at all (a pure-spin column in a
+force-only fit, say — the test is a relative norm cut) are **warned about**: the
+data constrain nothing along them. That standing check is per-column only — call
+[`identifiability`](@ref) for the full rank deficiency (flat directions are
+generally combinations of columns, e.g. the translation-violating directions a
+center-of-mass-free displacement sample cannot see).
 """
 function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator;
              torque_weight::Real = 0.0, force_weight::Real = 0.0,
              asr::Bool = true)::SLCEFit
-    isempty(dataset.y_E) && throw(ArgumentError("dataset has no observations"))
     w = Float64(torque_weight)
     wF = Float64(force_weight)
-    (0.0 <= w <= 1.0) || throw(ArgumentError("torque_weight must be in [0, 1]; got $w"))
-    (0.0 <= wF <= 1.0) ||
-        throw(ArgumentError("force_weight must be in [0, 1]; got $wF"))
-    w + wF <= 1.0 ||
-        throw(ArgumentError("torque_weight + force_weight must be ≤ 1 (the energy " *
-                            "block carries the remaining 1 − w_T − w_F); got " *
-                            "$w + $wF = $(w + wF)"))
-    if w > 0 && !has_torque(dataset)
-        throw(ArgumentError("torque_weight = $w but the dataset has no torque data; " *
-                            "build it with SLCEDataset(basis, configs, energies, torques)"))
-    end
-    if wF > 0 && !has_force(dataset)
-        throw(ArgumentError("force_weight = $wF but the dataset has no force data; " *
-                            "build it from TrainingDatum vectors with force channels " *
-                            "against a displacement-decorated basis"))
-    end
-    rep = asr ? dataset.asr : nothing
-    # A displacement-decorated basis without a reparameterization (AllImages
-    # self-images, or a hand-built dataset that skipped `build_asr`) must not
-    # silently take the pure-spin fast path under `asr = true` — unconstrained
-    # joint fits are an explicit opt-out.
-    if asr && rep === nothing && _basis_has_disp(dataset.basis)
-        throw(ArgumentError("asr = true but this displacement-decorated dataset " *
-                            "carries no ASR reparameterization (AllImages " *
-                            "self-image basis, or a hand-built dataset without " *
-                            "SLCE.build_asr) — pass asr = false to fit " *
-                            "unconstrained deliberately"))
-    end
+    _validate_fit_request(dataset, w, wF)
+    rep = _resolve_asr_rep(dataset, asr)
     X, y, xbar, ybar, groups = _assemble_problem(dataset, w, wF, rep)
+    _warn_unidentified(X, rep)
     gamma = solve_coefficients(estimator, X, y; groups = groups,
                                nullspace = rep === nothing ? nothing : rep.Z)
     j0 = ybar - dot(xbar, gamma)          # = ȳ − x̄_βᵀβ (γ-space x̄ under rep)

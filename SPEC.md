@@ -363,6 +363,25 @@ capability consumed by both the introspection and the Sunny interop.
   unconstrained-violation demonstration, zero-nullity truncation warning
   (`pmax = 1` pair splits), pure-spin bitwise identity, AllImages
   self-image refusal.
+- **Identifiability diagnostics + derivative-only recovery (M3 slice 5)**:
+  `identifiability(fit_or_dataset; rtol) -> (; ncols, rank, nullity, sigma_min,
+  sigma_max, tol, gap)` — the numerical rank of the assembled design in the
+  coordinates the estimator solves (`q` under the ASR) at `min(size)·eps·σ_max`,
+  with `gap` (smallest kept / largest dropped σ) exposing an ambiguous decision;
+  `O(n·q²)` and opt-in; the dataset method validates exactly like `fit` (shared
+  `_validate_fit_request` / `_resolve_asr_rep`). `fit` carries the `O(n·q)`
+  per-column half as a standing warning on design columns whose norm is
+  negligible (relative cut `1e-12`, the ASR convention — `iszero` has measured
+  false negatives). Recovery plan B (`test/unit/test_identifiability.jl`):
+  forces + torques alone (zero energy weight) recover a known joint model to
+  ~1e-15 under the ASR from center-of-mass-free samples, versus a 0.97-away
+  model at equal derivative residuals without it; measured rank ledger —
+  torque-only deficiency `= rank(A) + dim{spin-free feasible}` (`= rank(A)` only
+  when all displacement content is spin-decorated; a lattice-only sector leaves
+  a residue the ASR cannot cure, gated on a second fixture), force-only smaller
+  (plus the zero pure-spin columns), plan-B co-fit deficient unconstrained /
+  full rank `q` constrained with `rank([X; A]) = p`, and no deficiency at all
+  under drifting displacements (design record §6 amendment 9, corrected there).
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled

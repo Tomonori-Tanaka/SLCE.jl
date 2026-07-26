@@ -325,6 +325,60 @@ slots; packed-integer cleverness; per-species row layouts.
      it), and the fitter gains a standing `rank(X̃) < q` residual-flat-direction
      warning. Rotational (Born–Huang) invariances remain OUT of scope (docs
      must not claim ASR closes all exact invariances).
+
+     *Amended 2026-07-26 by the measured plan-B ledger* (D4h fixture: p = 198,
+     rank(A) = 135, q = 63, 9 pure-spin columns;
+     `test/unit/test_identifiability.jl`). Under center-of-mass-free sampling
+     the deficiency is **channel-dependent**, so "= rank(A)" was too strong as
+     a blanket claim:
+     - *torque only*: nullity = 135 = rank(A) **exactly**, rank = q — but this
+       equality is a property of THIS basis, not a law. The torque channel
+       measures ∂E/∂e, so it is blind to **all spin-independent content**; in
+       this fixture every displacement-decorated SALC also carries spin
+       factors, which makes "spin-free" and "translation-violating" coincide.
+       The general rule (gated on a second fixture that adds a lattice-only
+       `Sector(disp = …)`: p = 219, rank(A) = 150, q = 69, 21 spin-free SALCs
+       of which 6 span ASR-feasible directions) is
+       `nullity_torque = rank(A) + dim{spin-free feasible}` = 156, and the ASR
+       does **not** restore full rank there — the constrained torque-only
+       design keeps nullity 6. Only the *pair* of derivative channels does
+       (nullity 0 under the ASR in both fixtures), which is why plan B fits
+       both. Force constants from torque data alone are not identifiable, with
+       or without the constraint.
+     - *force only*: nullity = 63 < rank(A). `Σ_a f_a` **is** `−D E` evaluated
+       at the sample (`f = −∂E/∂u`), so the force channel does see the
+       violating content whose `D E` does not vanish on the slice (it sees 81
+       of the 135 directions); what it cannot see are the directions whose
+       gradient vanishes on the slice — and since every displacement-decorated
+       SALC is homogeneous in `u` (no constant part), that is exactly the
+       directions vanishing to second order there (`E ∝ |Σ_a u_a|²` and
+       relatives). It additionally leaves the 9 pure-spin columns
+       **identically zero** (no spin-only SALC has a displacement derivative).
+     - *torque + force (the plan-B fit)*: nullity = 54 > 0 unconstrained,
+       **0** under the ASR — and `rank([X; A]) = p`, i.e. the constraint rows
+       supply exactly the information the data lack. Recovery is exact
+       (‖β̂ − β‖∞ ~ 1e-15) with the constraint and lands 0.97 away from the
+       truth without it, at machine-precision derivative residuals either way.
+     - the deficiency is a property of the **sampling**: generic (drifting)
+       displacements give full rank with no constraint at all. The ASR's
+       payoff is therefore on realistic COM-free data, and above all in
+       predictions **off** the sampled slice — the violating model reproduces
+       every training derivative and even `Σ_a f_a = 0` *on* the slice, and
+       breaks both the moment `u` drifts.
+
+     The "standing `rank(X̃) < q` warning" is split, because an exact rank test
+     costs `O(n·q²)` — the same order as the fit itself at l044 scale, which
+     is not acceptable unasked: the standing part is an `O(n·q)` **dead-column**
+     check in `fit` (per column, at the package's usual *relative* cut — an
+     exact `iszero` test has a measured false negative, the `Σ_a u_a` columns
+     sitting at ~1e-19 on COM-free samples), and the exact statement is the
+     opt-in `identifiability(fit_or_dataset)` diagnostic (returns
+     `(; ncols, rank, nullity, sigma_min, sigma_max, tol, gap)`; the dataset
+     method answers before fitting; `gap` = smallest kept / largest dropped
+     singular value makes an ambiguous rank decision visible, since unlike
+     `_asr_nullspace` a diagnostic must report rather than refuse; the cut is
+     `min(size)·eps` — `max(size)·eps` would grow with the row count while the
+     `1/√n` whitening keeps the spectrum sample-size-independent).
 - Hierarchical fit = `fit(...; frozen = ...)` offset + L_S-keyed
   `sector_mask`. The estimator layer (GroupAdaptiveRidge / GCV / select_fit /
   cross_validate) survives verbatim; `group_costs` gains a channel split.

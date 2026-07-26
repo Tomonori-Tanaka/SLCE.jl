@@ -6,6 +6,53 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — identifiability diagnostics and derivative-only recovery (M3 slice 5)
+
+- **`identifiability(fit_or_dataset; rtol = nothing)`** — the rank diagnosis of the
+  design the fit actually solves, in the coordinates it solves them in (`p`
+  unconstrained, the ASR's `q = p − rank(A)` under the reparameterization). Returns
+  `(; ncols, rank, nullity, sigma_min, sigma_max, tol, gap)`; `nullity > 0` means
+  the data do not determine the model and the returned coefficients along those
+  directions are the estimator's null-space convention (OLS's minimum norm, or
+  whatever a penalty prefers), not estimates. `gap` (smallest kept / largest
+  dropped singular value) makes an ambiguous rank decision visible — a diagnostic
+  reports where `_asr_nullspace` refuses. The cut is `min(size(X))·eps` (Base's
+  `rank` convention): a `max`-based one would grow with the row count while the
+  `1/√n` block whitening keeps the spectrum sample-size-independent. The dataset
+  method answers before fitting, for a `(torque_weight, force_weight, asr)` one is
+  considering, and raises exactly the errors the corresponding `fit` would (shared
+  validation).
+- **Standing dead-column warning in `fit`** — the `O(n·q)` per-column half of the
+  same question: design columns the data do not touch (every pure-spin column in a
+  force-only fit) are reported, since their fitted values are artifacts. The test
+  is the package's usual **relative** norm cut, not `iszero`: on COM-free samples
+  the SALCs proportional to `Σ_a u_a` sit at ~1e-19 in the torque design, and
+  centering leaves a structurally constant column at ~1e-17. The exact statement
+  stays opt-in: a full rank test is `O(n·q²)`, the same order as the fit itself at
+  production scale.
+- **Recovery plan B (`test/unit/test_identifiability.jl`)**: forces and torques
+  **alone** (zero energy weight — the energy data enter only through the analytic
+  `j0`) recover a known joint model to ~1e-15 under the ASR, from
+  center-of-mass-free displacement samples. Without the constraint the same data
+  admit a materially different model (0.97 away in `β∞`) at machine-precision
+  derivative residuals: the two agree on the sampled slice — energies, forces, and
+  even `Σ_a f_a = 0` — and disagree the moment `u` drifts off it. The measured
+  rank ledger (design record §6 amendment 9, corrected there): torque is blind to
+  **all spin-independent** content, so its deficiency is
+  `rank(A) + dim{spin-free feasible directions}` — equal to `rank(A)` exactly when
+  every displacement-decorated SALC carries spin factors (the first fixture), and
+  strictly larger, with a residue the ASR cannot cure, once a lattice-only sector
+  is present (second fixture, p = 219: torque-only nullity 156 unconstrained, 6
+  constrained — force constants are **not** identifiable from torques alone);
+  force-only deficiency is smaller than `rank(A)` (`Σ_a f_a` *is* `−D E` at the
+  sample, so forces see part of the violation) plus the structurally zero pure-spin
+  columns; the plan-B co-fit is deficient unconstrained and **full rank `q`**
+  constrained in *both* fixtures, with `rank([X; A]) = p` — the
+  constraint rows supply exactly the missing information. Generic (drifting)
+  displacements are full rank with no constraint at all: the deficiency is a
+  property of the sampling protocol, and the ASR's payoff is on realistic COM-free
+  data and in predictions off the sampled slice.
+
 ### Added — acoustic sum rule: exact translation-invariance constraints (M3 slice 4)
 
 - **ASR as exact linear equality constraints** `A·β = 0` (energy invariance under
@@ -82,7 +129,9 @@ release, so everything lives under *Unreleased*.
   the forbidden-band refusal is an `ArgumentError` (package convention); the
   component-grading and residue-free-row invariants are asserted in the suite.
 - Deferred: a serialized joint prediction fixture (gate (c) touches only
-  pure-spin bases); the recovery-plan-B rank-accounting gate lands with plan B.
+  pure-spin bases). The recovery-plan-B rank-accounting gate landed in M3 slice 5
+  (above), correcting §6 amendment 9's blanket "deficiency = rank(A)" to the
+  measured per-channel ledger.
 
 ### Added — force design block and three-block co-fit (M3 slice 3)
 

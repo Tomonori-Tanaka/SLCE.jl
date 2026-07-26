@@ -179,6 +179,7 @@ coef
 intercept
 nobs
 dof
+identifiability
 predict
 residuals
 r2

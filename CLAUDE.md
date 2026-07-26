@@ -381,6 +381,24 @@ Easy to break silently — confirm before touching the algorithm.
   pins `fit`'s numerics). `refit` re-solves on the scaled-magnitude support
   `|jϕ_j|·‖X[:,j]‖ > threshold` of an existing fit (a column sub-matrix), so it rejects a
   `PrecomputedPilot`-backed estimator (fixed-length pilot vector ≠ support length).
+  **`identifiability` (`fitting/diagnostics.jl`) is a third consumer of that same
+  assembly** — it reports the numerical rank of the design the fit solved (or would
+  solve), so it must reassemble through `_assemble_problem` with the fit's own
+  `(w_T, w_F, asr)` and share `fit`'s validation (`_validate_fit_request` /
+  `_resolve_asr_rep`, extracted for exactly that reason: a pre-fit diagnostic must
+  raise the fit's errors, not fail deeper in the assembly). `fit`'s standing
+  dead-column warning is the cheap per-column half of the same question (a
+  **relative** norm cut, `_DEAD_COL_RTOL` — the package's convention everywhere else,
+  and an exact `iszero` test has a measured false negative: `Σ_a u_a` columns sit at
+  ~1e-19 on center-of-mass-free samples) and leans on `refit`'s scaled-magnitude rule
+  (`|jϕⱼ|·‖X[:,j]‖ > threshold`) to justify its "`refit` drops them" advice — change
+  that rule and the message follows; the advice is deliberately dropped in the ASR
+  branch, where the reported indices are γ directions, not `jphi` positions. The
+  physical accounting the diagnostic exists for (which channel sees which
+  translation-violating directions under center-of-mass-free sampling) is pinned in
+  `test/unit/test_identifiability.jl` against the FIXTURE's exact numbers
+  (p/rank(A)/q/pure-spin counts): change the basis fixture and re-derive them there,
+  never relax the equalities.
   **`SLCEFit.residuals` is the energy-only residual** `y_E − (j0 + X_E·jϕ)` (not Magesty's
   combined whitened residual); the diagnostics report energy and torque blocks separately
   (`residuals_energy` returns the stored vector, `residuals_torque`/`rss_torque` recompute
