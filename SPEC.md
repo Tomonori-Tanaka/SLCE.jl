@@ -41,7 +41,7 @@ capability consumed by both the introspection and the Sunny interop.
 
 ## Extension seams (contracts)
 
-- **DFT sources**: `read_configs(src::AbstractDFTSource) -> Vector{<:AbstractTrainingDatum}`.
+- **DFT sources**: `read_configs(src::AbstractDFTSource) -> Vector{TrainingDatum}`.
 - **Estimators**: subtype `AbstractEstimator` + `solve_coefficients(est, X, y; groups)
   -> jphi` (the `(X, y)` is already column-centered and row-scaled — add no intercept,
   do not re-weight; `groups` labels rows from the same sample for grouped resampling).
@@ -323,10 +323,15 @@ capability consumed by both the introspection and the Sunny interop.
   see the M2b-3a bullet for the sector-table form and the `isotropy → soc`
   replacement), `SLCEBasis` (carries its spec in the `spec` field), `SLCEDataset`
   (energy design matrix `X_E`, and the
-  torque design matrix `X_T` via the four-argument form; supports `length`,
+  torque design matrix `X_T` via the four-argument [all configs] or five-argument
+  [mixed: `torque_sel` names the torque-bearing configs, rows for the rest are
+  **excluded**, never zero-padded] forms; the per-row config index `torque_config`
+  is stored and read by every consumer — slicing, `vcat`, `_assemble_problem`'s
+  grouped-CV labels — instead of a uniform-block assumption; supports `length`,
   configuration slicing `dataset[idx]` — integer/`Bool`/`:` — and `vcat` of
-  same-fingerprint parts, all without recomputing design rows; the
-  `SpinDatum`/source path rejects a zero moment on a basis-referenced atom),
+  same-fingerprint parts including mixed torque presence, all without recomputing
+  design rows; the
+  `TrainingDatum`/source path rejects a zero moment on a basis-referenced atom),
   `SLCEModel`/`SLCEFit`
   (plus the public constructor `SLCEModel(basis, j0, jphi)` for synthetic models —
   keys filled in from the basis),
@@ -378,9 +383,18 @@ capability consumed by both the introspection and the Sunny interop.
   brings the table/IO package. `j0` is the intercept (`intercept(c)`), not a row.
   Tables.jl is a lightweight core dep.
 - **DFT data sources** (`io/dftsource.jl`): the **code-agnostic boundary only** —
-  `SpinDatum` (energy + spin directions + magmoms + constraining field + the derived
-  torque target `τ_a = m_a × B_a`, the physical / Landau–Lifshitz torque) and
-  `read_configs(src::AbstractDFTSource) -> Vector{SpinDatum}`, with `SLCEDataset(basis, src)`
+  `TrainingDatum` (per-configuration observables: required energy + spin channel,
+  optional displacements / forces / constraining field with the derived torque
+  target `τ_a = m_a × B_a`, the physical / Landau–Lifshitz torque; `nothing` =
+  not observed, distinct from an observed zero) with its `DatumProvenance`
+  (`torque_qualified` gates X_T rows, auto-derived from the field; `setup_id`/`soc`
+  enforce one computational setup per dataset; `reference_id` +
+  `reference_fingerprint` = `crystal_fingerprint`, a hand-rolled stable FNV-1a over
+  the canonical crystal serialization, pin the clamped-ion reference for any
+  displacement-decorated basis — the double-counting protocol as an invariant).
+  `SpinDatum(energy, moments[, field])` survives as the spin-only convenience
+  constructor (the 2-arg form covers collinear/Ising and torque-less codes), and
+  `read_configs(src::AbstractDFTSource) -> Vector{TrainingDatum}`, with `SLCEDataset(basis, src)`
   going source → dataset. The **concrete per-code adapters live in the `SLCETools.jl`
   package** (`SLCETools.VASP`: `read_poscar`/`write_poscar`, `Oszicar` with SAXIS rotation,
   and the INCAR writer), not in the core. Adding a DFT code is one sibling adapter there —

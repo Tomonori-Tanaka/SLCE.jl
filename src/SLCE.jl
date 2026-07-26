@@ -48,6 +48,7 @@ include("basis/salcbasis.jl")
 # --- fitting + high-level SCE API ---
 include("fitting/estimators.jl")
 include("slce/truncation.jl")     # BasisSpec sugar → dense canonical resolution
+include("io/provenance.jl")       # DatumProvenance (SLCEDataset stores an identity summary)
 include("slce/model.jl")          # pipeline types + constructors + config validation
 include("basis/sectorbasis.jl")   # sector-table → decor-engine basis construction
 include("fitting/design.jl")     # design-matrix assembly (X_E / X_T)
@@ -113,9 +114,10 @@ export MultipoleTerm, multipole_terms, bilinear_terms
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters live in
 # downstream packages as namespaced submodules (e.g. `SLCETools.VASP.read_poscar`), so
 # adding a code touches neither the core nor this export list. The one in-core format
-# is Magesty's EMBSET training set — code-agnostic (it carries exactly what SpinDatum
-# stores), kept here for legacy-data reuse.
-export AbstractDFTSource, SpinDatum, read_configs
+# is Magesty's EMBSET training set — code-agnostic (it carries exactly what a
+# spin-only TrainingDatum stores), kept here for legacy-data reuse.
+export AbstractDFTSource, TrainingDatum, DatumProvenance, SpinDatum, read_configs
+export crystal_fingerprint
 export EmbsetFile, read_embset
 
 # --- Public, unexported -----------------------------------------------------------
@@ -125,7 +127,7 @@ export EmbsetFile, read_embset
 # tier is machine-checkable (`Base.ispublic`, Aqua) instead of a comment-only promise.
 public Harmonics, SolidHarmonics, AngularMomentum                    # numeric kernels
 public build_neighbor_list, NeighborPair, NeighborList, interplanar_spacing
-public analyze_symmetry, n_ops, SymOp, SpaceGroup, AbstractTrainingDatum
+public analyze_symmetry, n_ops, SymOp, SpaceGroup
 public build_clusters, ClusterMember, ClusterOrbit, ClusterSet
 public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
 public Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor                # decoration labels

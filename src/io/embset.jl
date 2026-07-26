@@ -1,11 +1,11 @@
 # Reader for Magesty's EMBSET training-set format — the legacy plain-text exchange
 # format for constrained-noncollinear DFT spin configurations. Kept in the core (not
 # an SLCETools adapter) because the format is DFT-code-agnostic: it carries exactly
-# the observables `SpinDatum` stores (energy, per-atom moment and constraining-field
-# vectors) with no code-specific metadata.
+# the observables a spin-only `TrainingDatum` stores (energy, per-atom moment and
+# constraining-field vectors) with no code-specific metadata.
 
 """
-    EmbsetFile(path; n_atoms = nothing, zero_moment_atol = 1e-10)
+    EmbsetFile(path; n_atoms = nothing, zero_moment_atol = 1e-10, setup_id = nothing)
 
 An [`AbstractDFTSource`](@ref) for a Magesty EMBSET training-set file, so a legacy
 training set drops straight into the pipeline:
@@ -21,22 +21,28 @@ struct EmbsetFile <: AbstractDFTSource
     path::String
     n_atoms::Union{Int,Nothing}
     zero_moment_atol::Float64
+    setup_id::Union{String,Nothing}
 end
 
 function EmbsetFile(path::AbstractString; n_atoms::Union{Integer,Nothing} = nothing,
-                    zero_moment_atol::Real = 1e-10)::EmbsetFile
+                    zero_moment_atol::Real = 1e-10,
+                    setup_id::Union{AbstractString,Nothing} = nothing)::EmbsetFile
     return EmbsetFile(String(path), n_atoms === nothing ? nothing : Int(n_atoms),
-                      Float64(zero_moment_atol))
+                      Float64(zero_moment_atol),
+                      setup_id === nothing ? nothing : String(setup_id))
 end
 
-read_configs(src::EmbsetFile)::Vector{SpinDatum} =
+read_configs(src::EmbsetFile)::Vector{TrainingDatum} =
     read_embset(src.path; n_atoms = src.n_atoms,
-                zero_moment_atol = src.zero_moment_atol)
+                zero_moment_atol = src.zero_moment_atol, setup_id = src.setup_id)
 
 """
-    read_embset(path; n_atoms = nothing, zero_moment_atol = 1e-10) -> Vector{SpinDatum}
+    read_embset(path; n_atoms = nothing, zero_moment_atol = 1e-10,
+                setup_id = nothing) -> Vector{TrainingDatum}
 
-Read a Magesty EMBSET training-set file into [`SpinDatum`](@ref)s.
+Read a Magesty EMBSET training-set file into spin-only [`TrainingDatum`](@ref)s
+(via the [`SpinDatum`](@ref) constructor). `setup_id`, when given, is stamped into
+every datum's [`DatumProvenance`](@ref) (one EMBSET file = one computational setup).
 
 The format (as written by Magesty's `oszicar_to_embset`): `#` comment lines and blank
 lines are ignored; what remains is a sequence of per-configuration blocks, each one
@@ -58,10 +64,15 @@ instead of silently reassigning moments).
 
 Torques are derived as `τ_a = m_a × B_a` by the [`SpinDatum`](@ref) constructor, which
 also receives `zero_moment_atol` (the ẑ-placeholder threshold for non-magnetic atoms —
-`SLCEDataset` then rejects a placeholder on any basis-referenced atom).
+`SLCEDataset` then rejects a placeholder on any basis-referenced atom). Provenance
+follows the `SpinDatum` derivation: a configuration whose field block is entirely
+zero gets `torque_qualified = false` (its torque rows are not admitted into a
+co-fit), the rest `true`.
 """
 function read_embset(path::AbstractString; n_atoms::Union{Integer,Nothing} = nothing,
-                     zero_moment_atol::Real = 1e-10)::Vector{SpinDatum}
+                     zero_moment_atol::Real = 1e-10,
+                     setup_id::Union{AbstractString,Nothing} = nothing,
+                     )::Vector{TrainingDatum}
     isfile(path) || throw(ArgumentError("no such EMBSET file: $path"))
     lines = String[]
     for raw in eachline(path)
@@ -79,7 +90,7 @@ function read_embset(path::AbstractString; n_atoms::Union{Integer,Nothing} = not
                             "a multiple of n_atoms + 1 = $blk"))
 
     nconf = length(lines) ÷ blk
-    data = Vector{SpinDatum}(undef, nconf)
+    data = Vector{TrainingDatum}(undef, nconf)
     moments = Matrix{Float64}(undef, 3, nat)
     field = Matrix{Float64}(undef, 3, nat)
     for c = 1:nconf
@@ -101,8 +112,11 @@ function read_embset(path::AbstractString; n_atoms::Union{Integer,Nothing} = not
                                              "config $c, atom $i, field", path)
             end
         end
+        c_flag = any(!iszero, field)   # same derivation as SpinDatum's default
+        prov = DatumProvenance(; constrained = c_flag, torque_qualified = c_flag,
+                               setup_id = setup_id)
         data[c] = SpinDatum(energy, moments, field;
-                            zero_moment_atol = zero_moment_atol)
+                            zero_moment_atol = zero_moment_atol, provenance = prov)
     end
     return data
 end

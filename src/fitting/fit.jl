@@ -14,15 +14,33 @@ function _assemble_problem(dataset::SLCEDataset, w::Float64)
     if w > 0
         n_E = length(y_E)
         n_T = length(dataset.y_T)
+        # A mixed dataset can be sliced down to a torque-free part (e.g. a CV training
+        # fold that happens to hold no torque-bearing config); √(w/0) would silently
+        # produce a degenerate objective, so fail loudly here.
+        n_T > 0 || throw(ArgumentError(
+            "torque_weight = $w > 0 but this dataset (or data split) has no torque " *
+            "rows — stratify the split by torque presence or use torque_weight = 0"))
+        # On a mixed dataset the torque-bearing MINORITY carries the whole weight
+        # w (the objective is a pair of per-block means). That is the intended
+        # semantics, but it is qualitatively different from the all-torque case, so
+        # say so once instead of silently redefining what torque_weight weighs.
+        nat3 = 3 * n_atoms(dataset.basis.crystal)
+        if n_T < nat3 * n_E
+            @warn "mixed dataset: torque rows cover only part of the configurations" *
+                  " — torque_weight = $w concentrates on the torque-bearing subset" coverage =
+                round(n_T / (nat3 * n_E); digits = 3) maxlog = 1
+        end
         se = sqrt((1 - w) / n_E)
         sm = sqrt(w / n_T)
         X = vcat((X_E .- xbar') .* se, dataset.X_T .* sm)
         y = vcat((y_E .- ybar) .* se, dataset.y_T .* sm)
         # Resampling-unit labels for grouped cross-validation: a configuration's energy
-        # row and all its (config-major) torque-component rows share its index, so a
-        # CV-based estimator never splits one configuration across folds.
-        block = div(n_T, n_E)                       # = 3·n_atoms torque rows per config
-        groups = vcat(collect(1:n_E), repeat(1:n_E; inner = block))
+        # row and all its torque-component rows share its index, so a CV-based
+        # estimator never splits one configuration across folds. The torque-row labels
+        # are READ from the dataset's stored per-row config index (`torque_config`) —
+        # never re-derived from a uniform-block assumption, which a mixed (ragged)
+        # torque design violates.
+        groups = vcat(collect(1:n_E), dataset.torque_config)
     else
         X = X_E .- xbar'
         y = y_E .- ybar

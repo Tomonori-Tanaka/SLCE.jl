@@ -279,10 +279,12 @@ quantity. The same contract is the natural entry point for the reverse direction
 
 The SCE pipeline must not care which DFT code produced its training data. So the
 code-specific I/O is confined to a single boundary: the only objects the fitting
-machinery consumes are `SpinDatum` (energy + spin directions + moment magnitudes +
-constraining field + the derived torque target) and the `SLCEDataset` built from them.
+machinery consumes are `TrainingDatum` (per-configuration observables: energy + spin
+directions + moment magnitudes, plus optional displacements / forces / constraining
+field with the derived torque target, and a `DatumProvenance`) and the `SLCEDataset`
+built from them; `SpinDatum(...)` survives as the spin-only convenience constructor.
 Each DFT code is an `AbstractDFTSource` *adapter* implementing
-`read_configs(src) -> Vector{SpinDatum}`; the concrete adapters live **outside the
+`read_configs(src) -> Vector{TrainingDatum}`; the concrete adapters live **outside the
 core**, as namespaced submodules of the companion SLCETools.jl package
 (`SLCETools.VASP`, …), so nothing code-specific reaches the
 core or its export list. Adding a code is one sibling submodule there — the core's public

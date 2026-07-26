@@ -55,8 +55,9 @@ configuration — a header, the energy (eV), then one row per atom carrying the 
 
 Both formats are simple enough to parse inline. The structure reader returns the lattice,
 the fractional coordinates, and the per-atom species; the `EMBSET` reader turns each block
-into a [`SpinDatum`](@ref) — the core's neutral training record, which derives the spin
-direction ``\hat{\boldsymbol e}_a = \boldsymbol m_a/\lVert\boldsymbol m_a\rVert`` and the
+into a spin-only [`TrainingDatum`](@ref) via the [`SpinDatum`](@ref) constructor — the
+core's neutral training record, which derives the spin direction
+``\hat{\boldsymbol e}_a = \boldsymbol m_a/\lVert\boldsymbol m_a\rVert`` and the
 torque ``\boldsymbol\tau_a = \boldsymbol m_a \times \boldsymbol B_a`` for you.
 
 ```@example case1
@@ -79,7 +80,7 @@ function read_poscar(path)
 end
 
 function read_embset(path, nat)
-    data  = SpinDatum[]
+    data  = TrainingDatum[]
     lines = readlines(path)
     i = 1
     while i <= length(lines)

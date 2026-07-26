@@ -331,22 +331,33 @@ salcs(b::SLCEBasis) = b.salc_basis.salcs
 """
     SLCEDataset(basis, configs, energies)
     SLCEDataset(basis, configs, energies, torques)
+    SLCEDataset(basis, configs, energies, torques, torque_sel)
 
 Pair an [`SLCEBasis`](@ref) with training data: spin configurations `configs`
 (each `3 × n_atoms`, unit columns) and their `energies`. Materializes the energy
 design matrix `X_E[config, salc] = evaluate_salc(salc, config)`.
 
 The four-argument form additionally takes per-configuration torques (each
-`3 × n_atoms`, the DFT torque `τ_a = m_a × B_a = −e_a × ∂E/∂e_a` on every atom) and builds the
-torque design matrix `X_T` for an energy+torque co-fit (see [`fit`](@ref)). Its
-rows are flattened config-major, then atom-major, then `xyz`:
-`row = 3·n_atoms·(config−1) + 3·(atom−1) + component`. Torque-free datasets leave
-`X_T`/`y_T` empty.
+`3 × n_atoms`, the DFT torque `τ_a = m_a × B_a = −e_a × ∂E/∂e_a` on every atom) and
+builds the torque design matrix `X_T` for an energy+torque co-fit (see
+[`fit`](@ref)). The five-argument form is the **mixed** variant: `torque_sel` names
+the (strictly increasing) configuration indices that carry torque data, and
+`torques` has one `3 × n_atoms` block per entry of `torque_sel` — configurations
+outside `torque_sel` contribute energy rows only. Torque rows are flattened
+config-major, then atom-major, then `xyz`, and rows of torque-free configurations
+are **excluded entirely** (never zero-padded: padded rows would silently inflate the
+`√(w/n_T)` whitening and dilute the observed torques). The per-row provenance is
+stored in `torque_config` — `torque_config[r]` is the configuration index of torque
+row `r` — which every consumer (slicing, `vcat`, `_assemble_problem`'s grouped-CV
+labels) reads instead of re-deriving row offsets from a uniform-block assumption.
+Torque-free datasets leave `X_T`/`y_T`/`torque_config` empty.
 
 Datasets support `length` (number of configs), configuration slicing
 `dataset[idx]` (integer vector/range, `Bool` mask, or `:`), and `vcat` of parts
 built on the same basis — see those methods for train/test splitting and
-incremental data addition.
+incremental data addition. The recommended construction path from DFT data is
+`SLCEDataset(basis, data::AbstractVector{TrainingDatum})` (see the io layer), which
+derives `torque_sel` from each datum's channels and provenance.
 """
 struct SLCEDataset
     basis::SLCEBasis
@@ -355,6 +366,36 @@ struct SLCEDataset
     y_E::Vector{Float64}
     X_T::Matrix{Float64}
     y_T::Vector{Float64}
+    torque_config::Vector{Int}   # config index of each torque row (nondecreasing)
+    # Dataset-level identity summary (setup_id / soc / reference_id /
+    # reference_fingerprint; the per-datum booleans stay false here). The
+    # one-setup / one-reference invariants are checked at construction from
+    # TrainingDatum vectors — storing the identity lets `vcat` (the documented
+    # incremental-addition path) re-assert them instead of silently bypassing.
+    provenance::DatumProvenance
+
+    function SLCEDataset(basis::SLCEBasis, configs::Vector{Matrix{Float64}},
+                        X_E::Matrix{Float64}, y_E::Vector{Float64},
+                        X_T::Matrix{Float64}, y_T::Vector{Float64},
+                        torque_config::Vector{Int},
+                        provenance::DatumProvenance = DatumProvenance())
+        nc = length(configs)
+        (size(X_E, 1) == nc && length(y_E) == nc) ||
+            throw(DimensionMismatch("X_E/y_E rows ($(size(X_E, 1))/$(length(y_E))) " *
+                                    "≠ number of configs $nc"))
+        (size(X_T, 1) == length(y_T) == length(torque_config)) ||
+            throw(DimensionMismatch("X_T rows $(size(X_T, 1)), y_T length " *
+                                    "$(length(y_T)), torque_config length " *
+                                    "$(length(torque_config)) must agree"))
+        issorted(torque_config) ||
+            throw(ArgumentError("torque_config must be nondecreasing (config-major " *
+                                "torque row order)"))
+        if !isempty(torque_config)
+            (torque_config[1] >= 1 && torque_config[end] <= nc) ||
+                throw(ArgumentError("torque_config entries must index configs 1:$nc"))
+        end
+        return new(basis, configs, X_E, y_E, X_T, y_T, torque_config, provenance)
+    end
 end
 
 """
@@ -402,11 +443,24 @@ function Base.getindex(d::SLCEDataset, idx::AbstractVector{<:Integer})::SLCEData
     cfgs = d.configs[idx]                       # BoundsError on an out-of-range index
     X_E = d.X_E[idx, :]
     y_E = d.y_E[idx]
-    has_torque(d) || return SLCEDataset(d.basis, cfgs, X_E, y_E, d.X_T, d.y_T)
-    # torque rows come in per-config blocks of 3·n_atoms (config-major layout)
-    nrow = 3 * n_atoms(d.basis.crystal)
-    rows = reduce(vcat, [(nrow * (i - 1) + 1):(nrow * i) for i in idx])
-    return SLCEDataset(d.basis, cfgs, X_E, y_E, d.X_T[rows, :], d.y_T[rows])
+    has_torque(d) ||
+        return SLCEDataset(d.basis, cfgs, X_E, y_E, d.X_T, d.y_T, Int[],
+                          d.provenance)
+    # Torque rows are located through the stored per-row config index (ragged
+    # layout: a config without torque data has no rows), never through a uniform
+    # 3·n_atoms block assumption. `torque_config` is nondecreasing, so each
+    # config's rows are one `searchsorted` range; duplicate indices (bootstrap
+    # resampling) duplicate the rows.
+    rows = Int[]
+    tc = Int[]
+    for (k, i) in enumerate(idx)
+        r = searchsorted(d.torque_config, i)
+        isempty(r) && continue
+        append!(rows, r)
+        append!(tc, fill(k, length(r)))
+    end
+    return SLCEDataset(d.basis, cfgs, X_E, y_E, d.X_T[rows, :], d.y_T[rows], tc,
+                      d.provenance)
 end
 
 function Base.getindex(d::SLCEDataset, mask::AbstractVector{Bool})::SLCEDataset
@@ -423,9 +477,11 @@ Base.getindex(d::SLCEDataset, ::Colon)::SLCEDataset = d[1:length(d)]
 
 Concatenate datasets built on the **same basis** — checked by the SALC-basis
 fingerprint, so a dataset built from a persisted-and-reloaded basis concatenates
-with one built in-session. All parts must agree on carrying torque data or not.
-Together with `dataset[idx]` this supports incremental data addition and
-resampling without rebuilding design matrices.
+with one built in-session. Parts may differ in torque presence (a torque-bearing
+part and an energy-only part concatenate into a mixed dataset; each torque row
+keeps its configuration through the re-offset `torque_config`). Together with
+`dataset[idx]` this supports incremental data addition and resampling without
+rebuilding design matrices.
 """
 function Base.vcat(a::SLCEDataset, rest::SLCEDataset...)::SLCEDataset
     isempty(rest) && return a
@@ -437,16 +493,34 @@ function Base.vcat(a::SLCEDataset, rest::SLCEDataset...)::SLCEDataset
         n_atoms(b.basis.crystal) == n_atoms(a.basis.crystal) ||
             throw(ArgumentError("dataset $k has $(n_atoms(b.basis.crystal)) atoms " *
                                 "per config, dataset 1 has $(n_atoms(a.basis.crystal))"))
-        has_torque(b) == has_torque(a) ||
-            throw(ArgumentError("cannot vcat torque-bearing and energy-only datasets " *
-                                "(dataset $k differs from dataset 1)"))
+        # The one-setup / one-reference invariants are checked when a dataset is
+        # built from TrainingDatum vectors; vcat (the incremental-addition path)
+        # must re-assert them or it silently reintroduces exactly the
+        # family-correlated energy-offset bias they exist to prevent.
+        b.provenance == a.provenance ||
+            throw(ArgumentError("dataset $k has a different setup/reference " *
+                                "identity (setup_id = $(repr(b.provenance.setup_id)), " *
+                                "soc = $(repr(b.provenance.soc)), reference_id = " *
+                                "$(repr(b.provenance.reference_id))) than dataset 1 " *
+                                "(setup_id = $(repr(a.provenance.setup_id)), soc = " *
+                                "$(repr(a.provenance.soc)), reference_id = " *
+                                "$(repr(a.provenance.reference_id))) — one dataset " *
+                                "must come from one computational setup and one " *
+                                "clamped-ion reference"))
+    end
+    tc = Int[]
+    off = 0
+    for p in parts
+        append!(tc, p.torque_config .+ off)
+        off += length(p)
     end
     return SLCEDataset(a.basis,
                       reduce(vcat, [p.configs for p in parts]),
                       reduce(vcat, [p.X_E for p in parts]),
                       reduce(vcat, [p.y_E for p in parts]),
                       reduce(vcat, [p.X_T for p in parts]),
-                      reduce(vcat, [p.y_T for p in parts]))
+                      reduce(vcat, [p.y_T for p in parts]),
+                      tc, a.provenance)
 end
 
 # Spin configurations must be `3 × n_atoms` with finite, unit-norm columns — the
@@ -491,7 +565,8 @@ function _require_pure_spin_basis(basis::SLCEBasis)
 end
 
 function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::AbstractVector;
-                   atol::Real = 1e-6)::SLCEDataset
+                   atol::Real = 1e-6,
+                   provenance::DatumProvenance = DatumProvenance())::SLCEDataset
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
     _require_pure_spin_basis(basis)
@@ -499,22 +574,41 @@ function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::Abstra
     _validate_configs(basis, cfgs; atol = atol)
     X = _design_energy(basis, cfgs)
     empty_T = Matrix{Float64}(undef, 0, size(X, 2))
-    return SLCEDataset(basis, cfgs, X, collect(Float64, energies), empty_T, Float64[])
+    return SLCEDataset(basis, cfgs, X, collect(Float64, energies), empty_T, Float64[],
+                      Int[], provenance)
 end
 
+SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::AbstractVector,
+           torques::AbstractVector; kwargs...)::SLCEDataset =
+    SLCEDataset(basis, configs, energies, torques, 1:length(configs); kwargs...)
+
 function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::AbstractVector,
-                   torques::AbstractVector; atol::Real = 1e-6)::SLCEDataset
+                   torques::AbstractVector, torque_sel::AbstractVector{<:Integer};
+                   atol::Real = 1e-6,
+                   provenance::DatumProvenance = DatumProvenance())::SLCEDataset
+    isempty(configs) && throw(ArgumentError("no training configurations"))
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
     _require_pure_spin_basis(basis)
     cfgs = [Matrix{Float64}(c) for c in configs]
-    length(torques) == length(cfgs) ||
-        throw(ArgumentError("got $(length(torques)) torque blocks for $(length(cfgs)) configs"))
+    sel = collect(Int, torque_sel)
+    issorted(sel; lt = <=) ||                          # strictly increasing
+        throw(ArgumentError("torque_sel must be strictly increasing"))
+    isempty(sel) && throw(ArgumentError("torque_sel is empty — use the three-argument " *
+                                        "energy-only form instead"))
+    (sel[1] >= 1 && sel[end] <= length(cfgs)) ||
+        throw(ArgumentError("torque_sel entries must index configs 1:$(length(cfgs))"))
+    length(torques) == length(sel) ||
+        throw(ArgumentError("got $(length(torques)) torque blocks for " *
+                            "$(length(sel)) torque-bearing configs"))
     _validate_configs(basis, cfgs; atol = atol)
     X_E = _design_energy(basis, cfgs)
-    X_T = _design_torque(basis, cfgs)
-    y_T = _flatten_torques(torques, cfgs)
-    return SLCEDataset(basis, cfgs, X_E, collect(Float64, energies), X_T, y_T)
+    tcfgs = cfgs[sel]
+    X_T = _design_torque(basis, tcfgs)
+    y_T = _flatten_torques(torques, tcfgs)
+    tc = repeat(sel; inner = 3 * n_atoms(basis.crystal))
+    return SLCEDataset(basis, cfgs, X_E, collect(Float64, energies), X_T, y_T, tc,
+                      provenance)
 end
 """
     SLCEModel

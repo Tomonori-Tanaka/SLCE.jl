@@ -119,8 +119,8 @@ table / IO / plotting package.
 ## Reading DFT data
 
 DFT-code I/O is isolated at the *training-data boundary*. The core owns only the
-**abstract seam**: a source implements [`read_configs`](@ref)`(src) -> Vector{SpinDatum}`,
-and the SCE pipeline only ever sees the code-agnostic [`SpinDatum`](@ref) /
+**abstract seam**: a source implements [`read_configs`](@ref)`(src) -> Vector{TrainingDatum}`,
+and the SCE pipeline only ever sees the code-agnostic [`TrainingDatum`](@ref) /
 [`SLCEDataset`](@ref) — once you have the data, the originating code is irrelevant.
 
 ```julia
@@ -129,6 +129,21 @@ src     = some_source                                    # any AbstractDFTSource
 dataset = SLCEDataset(basis, src)                         # read_configs(src) under the hood
 fit(SLCEFit, dataset, OLS(); torque_weight = 0.5)
 ```
+
+A [`TrainingDatum`](@ref) is one configuration's observables: the spin channel
+(directions + moment magnitudes) plus energy are required, everything else —
+displacements, forces, constraining field/torques — is optional, with `nothing`
+meaning *not observed* (distinct from an observed zero). Spin-only data are built
+with the [`SpinDatum`](@ref) convenience constructor; `SpinDatum(energy, moments)`
+(no field) covers collinear/Ising configurations and codes without constrained
+noncollinear output, which contribute energy rows only. Each datum carries a
+[`DatumProvenance`](@ref): `torque_qualified` gates whether its torque rows enter a
+co-fit (auto-derived — a zero field does not qualify unless you explicitly assert a
+converged unconstrained run), `setup_id`/`soc` pin one computational setup per
+dataset, and `reference_id`/`reference_fingerprint` (see
+[`crystal_fingerprint`](@ref)) pin the clamped-ion reference for displacement data.
+A dataset may freely **mix** torque-bearing and energy-only configurations from one
+setup — the torque design keeps rows exactly for the qualified ones.
 
 The torque target from a constrained calculation is
 ``\boldsymbol\tau_a = \boldsymbol m_a \times \boldsymbol B_a`` (the physical /
@@ -159,7 +174,8 @@ constrained-noncollinear INCAR / input sets) for generating new training data.
 
 The one concrete format the core ships is Magesty's **EMBSET** training set — it is
 DFT-code-agnostic (energies plus per-atom moment and constraining-field vectors, exactly
-what [`SpinDatum`](@ref) stores), so an existing Magesty data set drops straight in:
+what a spin-only [`TrainingDatum`](@ref) stores), so an existing Magesty data set drops
+straight in:
 
 ```julia
 dataset = SLCEDataset(basis, EmbsetFile("EMBSET"))        # or read_embset("EMBSET")

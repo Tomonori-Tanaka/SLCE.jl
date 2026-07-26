@@ -221,17 +221,40 @@ Easy to break silently — confirm before touching the algorithm.
   (same order as the design matrix). Add or rename a `SALCKey` field → update the row
   builder, the `Tables.Schema`, and `test/unit/test_coeftable.jl`.
 - **DFT training-torque target ↔ the model torque convention** (`io/dftsource.jl`): the
-  training torque carried by a `SpinDatum` is `τ_a = m_a × B_a` (`B` = constraining field),
-  which must stay the *same* physical quantity, sign, and `3×n_atoms` config/atom/`xyz` layout
-  as the model's `predict_torque = −e_a × ∂E/∂e_a` (the design-matrix convention) — **both**
-  are the physical / Landau–Lifshitz torque `m × B_eff`. Flip one side only and the co-fit
-  silently biases; flipping **both** (as done when the package moved from the `+e×∇E`
+  training torque carried by a `TrainingDatum` is `τ_a = m_a × B_a` (`B` = constraining
+  field), which must stay the *same* physical quantity, sign, and `3×n_atoms` config/atom/`xyz`
+  layout as the model's `predict_torque = −e_a × ∂E/∂e_a` (the design-matrix convention) —
+  **both** are the physical / Landau–Lifshitz torque `m × B_eff`. Flip one side only and the
+  co-fit silently biases; flipping **both** (as done when the package moved from the `+e×∇E`
   energy-rotation-gradient to this `−e×∇E` Landau–Lifshitz convention) leaves `J` unchanged.
+  The convention is enforced by code only on the field-derived path (`SpinDatum` /
+  `TrainingDatum(field = ...)` compute the cross product); a caller passing `torques`
+  directly bypasses that funnel, so the `TrainingDatum` docstring restates it there.
   **DFT-code I/O is confined to `AbstractDFTSource` adapters in the SLCETools.jl package**
-  (`SLCETools.VASP`), which produce `SpinDatum`s (rotating moments / field from the `SAXIS`
-  frame by `Rz(α)·Ry(β)`); the core consumes only `SpinDatum`/`SLCEDataset` and stays
+  (`SLCETools.VASP`), which produce `TrainingDatum`s (rotating moments / field from the `SAXIS`
+  frame by `Rz(α)·Ry(β)` — spin channels only: displacements/forces stay in the lattice
+  Cartesian frame); the core consumes only `TrainingDatum`/`SLCEDataset` and stays
   DFT-code-agnostic. The VASP parsers are cross-checked against Magesty in SLCETools's oracle.
-  The `SpinDatum` torque sign defined here is the convention source the adapters must match.
+  The torque sign defined here is the convention source the adapters must match. An adapter
+  must NOT zero-fill a missing field block: `field = nothing` (not computed) and a present
+  all-zero field (computed, vanishes) are different objects, and `torque_qualified` is
+  derived from the latter — fabricated zeros re-open exactly the false-`τ = 0` hazard the
+  optional channel exists to close.
+- **Torque-row bookkeeping is stored, never re-derived** (`slce/model.jl` `SLCEDataset` ↔
+  `fitting/fit.jl` `_assemble_problem` ↔ `fitting/selection.jl` `cross_validate` /
+  `_grouped_folds` ↔ `fitting/design.jl`): a mixed dataset's torque design `X_T` is ragged
+  (rows exist only for torque-qualified configs — excluded, never zero-padded, or the
+  `√(w/n_T)` whitening silently dilutes real torques), and `dataset.torque_config` (per-row
+  config index, nondecreasing) is the ONE source every consumer reads: `dataset[idx]` and
+  `vcat` re-label/re-offset it, `_assemble_problem` builds the grouped-CV `groups` from it
+  (the old `div(n_T, n_E)` uniform-block derivation silently mislabels ragged data), and
+  `cross_validate` derives its torque-presence strata from it (stratified folds + the
+  `w > 0` fold cap keep every training split torque-bearing; a torque-free holdout fold
+  scores energy-only, never `0 · NaN`), and `select_fit`'s `:cv` branch stratifies its
+  per-unit fold deal the same way (both call `_grouped_folds(...; strata)`). Change the
+  row layout in one place and all of them (plus the ragged tests in `test_dataset.jl`)
+  move together; the future force block `X_F` reuses this contract with its own
+  per-row index.
 - **Sunny export conversion ↔ the energy reconstruction** (`slce/bilinear.jl` — matrices /
   extraction / gate — plus `interop/sunny.jl` — primitive unfold — and
   `ext/SLCESunnyExt.jl`): `_l1_pair_matrix` / `_l2_onsite_matrix` must satisfy

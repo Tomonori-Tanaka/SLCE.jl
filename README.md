@@ -166,7 +166,7 @@ by configuration.
 ### Reading DFT data
 
 DFT-code I/O is isolated at the training-data boundary: the core owns only the
-code-agnostic `SpinDatum` / `SLCEDataset` seam (`read_configs(src::AbstractDFTSource)`), so
+code-agnostic `TrainingDatum` / `SLCEDataset` seam (`read_configs(src::AbstractDFTSource)`), so
 once you have the data the originating code is irrelevant. The **concrete VASP adapter lives
 in the companion [SLCETools.jl](https://github.com/Tomonori-Tanaka/SLCETools.jl) package**:
 
@@ -240,7 +240,7 @@ torque** design matrices → `OLS` / `Ridge` / `AdaptiveRidge` / `Lasso` / `Elas
 dimensions agree exactly).
 
 Basis/model **persistence**, a human-authored **`input.toml`**, **tabular coefficient
-output** (`coeftable`), a **code-agnostic DFT-source seam** (`SpinDatum` / `SLCEDataset`; the
+output** (`coeftable`), a **code-agnostic DFT-source seam** (`TrainingDatum` / `SLCEDataset`; the
 concrete VASP adapter lives in the companion `SLCETools.jl`), **GLMNet** Lasso / elastic-net /
 adaptive-Lasso estimators, and **Sunny.jl export** are implemented as extensions.
 

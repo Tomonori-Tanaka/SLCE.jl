@@ -311,16 +311,18 @@ AngularMomentum.complex_to_real_tensor
 ## DFT data sources
 
 The **code-agnostic boundary** of the training-data input: the SCE pipeline only ever sees
-`SpinDatum` / [`SLCEDataset`](@ref). Concrete DFT-code adapters (the VASP POSCAR / OSZICAR
-reader and INCAR writer) live in the companion
+[`TrainingDatum`](@ref) / [`SLCEDataset`](@ref). Concrete DFT-code adapters (the VASP
+POSCAR / OSZICAR reader and INCAR writer) live in the companion
 [SLCETools.jl](https://github.com/Tomonori-Tanaka/SLCETools.jl) package
 (`SLCETools.VASP.read_poscar` / `Oszicar` / `write_inputs`), so adding a code touches neither
 the core nor its exports.
 
 ```@docs
 AbstractDFTSource
-AbstractTrainingDatum
+TrainingDatum
+DatumProvenance
 SpinDatum
+crystal_fingerprint
 read_configs
 ```
 

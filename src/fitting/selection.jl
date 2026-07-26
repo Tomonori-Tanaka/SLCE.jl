@@ -298,12 +298,44 @@ end
 # across the train/holdout boundary. A core port of the GLMNet extension's
 # `_make_folds` (the extension cannot be referenced from here); same seed ⇒ identical
 # folds within a Julia session/version (`hash` is version-dependent).
-function _grouped_folds(units::AbstractVector, nf::Int, seed::Int)::Vector{Int}
+#
+# `strata` (optional, one Bool per unit in `unique(units)` order) stratifies the
+# deal: stratum-`true` units are dealt round-robin first, stratum-`false` units
+# continue the deal from where the first stratum stopped — so both the per-fold unit
+# counts AND the per-fold stratum-`true` counts differ by at most one across folds.
+# Used by `cross_validate` on a mixed dataset (stratum = "config carries torque
+# rows"): without it, an unstratified deal routinely produces torque-free folds when
+# torque-bearing configs are the minority. `strata = nothing` is bit-identical to
+# the unstratified deal.
+function _grouped_folds(units::AbstractVector, nf::Int, seed::Int;
+                        strata::Union{Nothing,AbstractVector{Bool}} = nothing)::Vector{Int}
     uniq = unique(units)
     order = sortperm([hash((seed, u)) for u in uniq])
     foldof = Dict{eltype(uniq),Int}()
-    @inbounds for rank in eachindex(order)
-        foldof[uniq[order[rank]]] = mod1(rank, nf)
+    if strata === nothing
+        @inbounds for rank in eachindex(order)
+            foldof[uniq[order[rank]]] = mod1(rank, nf)
+        end
+    else
+        length(strata) == length(uniq) ||
+            throw(DimensionMismatch("strata has $(length(strata)) entries for " *
+                                    "$(length(uniq)) distinct units"))
+        # strata is indexed by POSITION in unique(units); require the identity
+        # (units already unique, in order) so a future caller with duplicated
+        # units cannot silently misalign strata to unit values.
+        units == uniq ||
+            throw(ArgumentError("stratified folds require `units` to be the " *
+                                "distinct resampling units themselves (strata is " *
+                                "positional); deduplicate before calling"))
+        dealt = 0
+        for pass in (true, false)
+            @inbounds for rank in eachindex(order)
+                u = order[rank]
+                strata[u] == pass || continue
+                dealt += 1
+                foldof[uniq[u]] = mod1(dealt, nf)
+            end
+        end
     end
     return [foldof[u] for u in units]
 end
@@ -530,7 +562,20 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
         nf < Int(nfolds) &&
             @warn "select_fit: reducing CV folds so every fold keeps ≥ 3 resampling " *
                   "units" requested = Int(nfolds) effective = nf units = nunits
-        folds = _grouped_folds(units, nf, seed)
+        # Stratify by per-config torque presence on a mixed dataset (same rationale
+        # and mechanism as cross_validate): the λ path must not be ranked on folds
+        # with wildly uneven torque content. Units here are ROW labels; the fold
+        # assignment is per distinct unit, so build the per-unit strata and deal
+        # over the distinct units.
+        strata = nothing
+        if w > 0 && has_torque(dataset) &&
+           length(dataset.torque_config) < 3 * n_atoms(dataset.basis.crystal) * length(dataset)
+            tqp = falses(length(dataset))
+            tqp[unique(dataset.torque_config)] .= true
+            strata = tqp
+        end
+        ufolds = _grouped_folds(collect(1:length(dataset)), nf, seed; strata = strata)
+        folds = [ufolds[u] for u in units]
         sse = zeros(Float64, nl)
         for k = 1:nf
             ho = findall(==(k), folds)
@@ -772,7 +817,7 @@ struct CVResult
     n_holdout::Vector{Int}        # held-out configurations per fold
     score::Vector{Float64}
     rmse_energy::Vector{Float64}
-    rmse_torque::Vector{Float64}  # NaN per entry for an energy-only dataset
+    rmse_torque::Vector{Float64}  # NaN: energy-only dataset, or torque-free fold
     pooled_score::Float64
     pooled_rmse_energy::Float64
     pooled_rmse_torque::Float64   # NaN for an energy-only dataset
@@ -809,11 +854,19 @@ Configuration-grouped `nfolds`-fold cross-validation of
 scratch on the training configurations only (energy centering and torque whitening
 included — nothing leaks across the split), then scored on the held-out
 configurations in prediction space. A configuration is one resampling unit, so its
-energy row and its `3·n_atoms` torque rows always land on the same side of the
-split. Fold assignment is deterministic in `seed` (seeded-hash round-robin, the
-same rule as [`select_fit`](@ref)'s `:cv`); when the dataset has fewer than
-`3·nfolds` configurations the fold count is reduced (with a warning) so every fold
-keeps ≥ 3 configurations, and fewer than 6 configurations is an error.
+energy row and all of its torque rows (none, for a torque-free configuration of a
+mixed dataset) always land on the same side of the split. Fold assignment is
+deterministic in `seed` (seeded-hash round-robin, the same rule as
+[`select_fit`](@ref)'s `:cv`) and, on a mixed dataset, **stratified by torque
+presence** so the torque-bearing minority spreads evenly across folds — a
+torque-free holdout fold scores energy-only (its `rmse_torque` entry is `NaN`),
+and `torque_weight > 0` additionally requires ≥ 2 torque-bearing configurations
+and caps the fold count by their number so every training split keeps torque
+rows. (Fold assignments on a mixed dataset therefore differ from an unstratified
+deal at the same `seed`; uniform-torque and energy-only datasets are unaffected.)
+When the dataset has fewer than `3·nfolds` configurations the fold count is
+reduced (with a warning) so every fold keeps ≥ 3 configurations, and fewer than
+6 configurations is an error.
 
 Use it to compare estimators, `torque_weight` settings, or a [`refit`](@ref)-style
 support on an equal footing: `rmse_energy` and `rmse_torque` report both error axes
@@ -844,14 +897,31 @@ function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
     end
     nc = length(dataset)
     nf = min(Int(nfolds), div(nc, 3))
+    hastq = has_torque(dataset)
+    # Stratify the fold deal by per-config torque presence (mixed datasets: torque
+    # rows exist only for some configs). Without stratification, an unstratified
+    # deal routinely produces torque-free folds when torque-bearing configs are the
+    # minority, and a torque-free TRAINING split is a hard error under w > 0.
+    tqpresent = falses(nc)
+    hastq && (tqpresent[unique(dataset.torque_config)] .= true)
+    ntq = count(tqpresent)
+    if w > 0
+        # Every fold must hold ≥ 1 torque-bearing config (so every training split
+        # keeps some): cap the fold count by the number of torque-bearing configs.
+        ntq >= 2 || throw(ArgumentError(
+            "torque_weight = $w > 0 needs ≥ 2 torque-bearing configurations for " *
+            "cross-validation (every training split must keep torque rows); got $ntq"))
+        nf = min(nf, ntq)
+    end
     nf >= 2 || throw(ArgumentError(
         "cross-validation needs at least 6 configurations for ≥ 2 folds; got $nc"))
     nf < Int(nfolds) &&
         @warn "cross_validate: reducing CV folds so every fold keeps ≥ 3 " *
-              "configurations" requested = Int(nfolds) effective = nf configs = nc
+              "configurations and (for torque_weight > 0) ≥ 1 torque-bearing " *
+              "configuration" requested = Int(nfolds) effective = nf configs = nc
 
-    folds = _grouped_folds(collect(1:nc), nf, seed)
-    hastq = has_torque(dataset)
+    folds = _grouped_folds(collect(1:nc), nf, seed;
+                           strata = hastq ? tqpresent : nothing)
     n_holdout = Vector{Int}(undef, nf)
     score = Vector{Float64}(undef, nf)
     rmseE = Vector{Float64}(undef, nf)
@@ -871,13 +941,17 @@ function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
         rmseE[k] = sqrt(mseE)
         sseE += sum(abs2, residE)
         nE += length(residE)
-        if hastq
+        # A holdout fold of a mixed dataset can hold no torque rows (only when
+        # w == 0 — stratification plus the fold cap guarantee torque rows in every
+        # fold under w > 0); its rmse_torque stays NaN and its score is energy-only,
+        # never `0 * NaN`.
+        if hastq && !isempty(hset.y_T)
             residT = hset.y_T .- hset.X_T * f.jphi
             mseT = mean(abs2, residT)
             rmseT[k] = sqrt(mseT)
             sseT += sum(abs2, residT)
             nT += length(residT)
-            score[k] = (1 - w) * mseE + w * mseT
+            score[k] = w > 0 ? (1 - w) * mseE + w * mseT : mseE
         else
             score[k] = mseE
         end

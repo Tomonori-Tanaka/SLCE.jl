@@ -6,6 +6,87 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — joint data layer: `TrainingDatum` (M3 slice 2, BREAKING)
+
+- **`SpinDatum` the type is gone**; the name survives as convenience constructors
+  returning the new **`TrainingDatum`** — one concrete, code-agnostic training
+  record for the spin-lattice pipeline. Required channels: `energy` (every code
+  emits one; VASP constrained runs carry exactly one penalty `E_p` in TOTEN —
+  verified, negligible/subtractable) and the spin channel (`directions` unit
+  columns — collinear/Ising `±ẑ` is legal input — plus **nonnegative** `magmoms`;
+  the sign lives in the direction, enforced). Optional channels, `nothing` =
+  **not observed** (distinct from an observed zero): `displacements` (`nothing`
+  ≡ `u = 0` exactly), `forces` (`f = −∂E/∂u`, legal at `u = 0` without
+  displacements — reference forces are real physics), `field`, `torques`
+  (derived `τ = m × B` when the field is present; direct-`torques` callers must
+  match the Landau–Lifshitz convention stated in the docstring). Breaking for
+  type annotations only (`::SpinDatum`, `Vector{SpinDatum}`); call sites of the
+  constructor keep working, and a new 2-arg `SpinDatum(energy, moments)` covers
+  field-less sources (collinear runs, codes without constrained noncollinear
+  output).
+- **`DatumProvenance`** (keyword-constructed) rides on every datum:
+  `torque_qualified` gates torque rows into `X_T` and is **derived** as
+  `any(!iszero, field)` by the `SpinDatum` constructor — a zero field carries no
+  constraint information, so its `τ = 0` rows are not admitted unless the caller
+  explicitly asserts a converged unconstrained run (whose `τ = 0` is a genuine
+  stationarity observation) via `DatumProvenance(torque_qualified = true)`;
+  `setup_id`/`soc` enforce **one computational setup per dataset** (cross-setup
+  energies share no common scale, and SOC-sector basis functions do not vanish
+  on Ising configs, so a mixed regression corrupts exactly the smallest
+  couplings — multi-fidelity use goes through staged fits, per-family datasets +
+  `frozen`/`sector_mask`); `reference_id` + `reference_fingerprint` pin the
+  clamped-ion reference.
+- **`crystal_fingerprint(crystal)`**: stable (Julia-version-independent,
+  hand-rolled FNV-1a) content fingerprint of a `Crystal` — coordinates quantized
+  at `1e-10` with the fractional wrap boundary folded, `-0.0` normalized,
+  length-prefixed strings. Same-lineage identity by design, not symmetry
+  equivalence. `SLCEDataset` requires every datum's fingerprint to match
+  `basis.crystal` whenever the basis carries `p ≥ 1` SALCs — **keyed off the
+  basis, not the datum**: against a displacement-decorated basis even spin-only
+  data assert "u = 0 at the reference", so unpinned legacy data are rejected
+  (the double-counting protocol as an invariant); pure-spin bases keep the
+  unpinned path, and displaced data against a pure-spin basis are rejected
+  outright.
+- **Mixed (ragged) datasets**: `SLCEDataset(basis, data::Vector{TrainingDatum})`
+  admits torque rows exactly for the qualified configurations, so "many cheap
+  energy-only configs + few constrained noncollinear ones" is one first-class
+  dataset. Torque rows of unqualified configs are **excluded, never zero-padded**
+  (padding would silently inflate the `√(w/n_T)` whitening). The per-row config
+  index `SLCEDataset.torque_config` is stored and read by every consumer:
+  slicing/`vcat` re-label and re-offset it (`vcat` now legally concatenates
+  torque-bearing and energy-only parts), `_assemble_problem` builds its
+  grouped-CV labels from it (replacing the uniform-block `div(n_T, n_E)`
+  derivation, which silently mislabels ragged data) and errors on a torque-free
+  split under `torque_weight > 0`, and `cross_validate` stratifies its folds by
+  torque presence (torque-free holdout folds score energy-only, never `0 · NaN`;
+  `w > 0` requires ≥ 2 torque-bearing configs and caps the fold count so every
+  training split keeps torque rows). A five-argument
+  `SLCEDataset(basis, configs, energies, torques, torque_sel)` exposes the mixed
+  form directly; the four-argument form is unchanged (bit-identical designs).
+- `read_embset` returns `Vector{TrainingDatum}` and gains a `setup_id` keyword
+  (stamped into every datum; per-config `torque_qualified` derived from the
+  field block). `AbstractTrainingDatum` is removed (nothing dispatched on it).
+- Review-round hardening: `SLCEDataset` stores a dataset-level **identity
+  summary** (`provenance`: setup/soc/reference) so `vcat` — the documented
+  incremental-addition path — re-asserts the one-setup/one-reference invariants
+  instead of silently bypassing them (slices carry it; the raw constructors
+  accept it as a keyword); the keyword `TrainingDatum` constructor derives
+  `torque_qualified` by the same rule as `SpinDatum` (explicit `torques` qualify;
+  an all-zero field does not) so the two construction paths of one type cannot
+  disagree on the gate; `_assemble_problem` warns once (`maxlog = 1`) when a
+  mixed dataset's torque rows cover only part of the configurations (the
+  torque-bearing minority carries the whole `torque_weight`); `select_fit`'s
+  `:cv` branch stratifies its fold deal by torque presence exactly like
+  `cross_validate`; `_basis_has_disp` keys off the spec's `pmax` as well as the
+  surviving SALCs (a symmetry-annihilated `p ≥ 1` spec must still pin the
+  reference); `crystal_fingerprint` documents the quantization-boundary
+  limitation honestly (straddling values mismatch loudly — pinned by a test).
+- Deferred to the joint-design slice (with `X_F`): displacement validation
+  beyond finiteness (minimum-image consistency, the displacement-radius guard)
+  and the `p ≥ 1` design-matrix build itself (`SLCEDataset` still refuses a
+  displacement-decorated basis at the design boundary, *after* the reference
+  invariants run).
+
 ### Added — joint gradient kernel (M3 slice 1)
 
 - `accumulate_grad!(Ge, Gu, salc, e, u, weight[, scratch])`: the joint
