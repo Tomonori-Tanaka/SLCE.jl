@@ -6,6 +6,50 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — staged (hierarchical) fitting, closing M3 (slice 6)
+
+- **`fit(...; frozen, sector_mask)`** — fit a joint model in physical stages
+  (exchange, then spin–lattice coupling, then force constants) instead of one shot.
+  `sector_mask` selects the columns a stage fits (`SLCE.sector_columns`: `:all` /
+  `:spin` / `:lattice` / `:coupled` — a partition by channel — and `:soc_free` /
+  `:soc` — a crosscutting partition by `L_S`; also unions, explicit column lists,
+  and `Bool` masks), `frozen` holds the rest at a previously fitted
+  [`SLCEModel`](@ref)'s coefficients, matched by `SALCKey` and never positionally
+  (a key the target basis lacks, carrying a nonzero coefficient, is an error rather
+  than a silent drop). `j0` is never frozen. A frozen value on a free column is
+  ignored — that column is being re-fitted.
+- **The staging axis is not the truncation axis.** `Sector(soc = false)` decides
+  what the model can express; `sector_mask = :soc_free` decides what a stage fits.
+  Both now read ONE predicate (`SLCE.is_soc_free`), and the suite gates that the
+  masked key set is exactly the key set a `soc = false` rebuild produces (design
+  record §13 risk 4, "soc-vs-sector_mask drift").
+- **Affine ASR (the `ASRReparam.beta_p` slot, until now a placeholder that threw)**:
+  a stage's constraint is `A_free·β_free = −A_frozen·β_frozen`, solved exactly as
+  particular solution + null space, so a staged model is translation-invariant **as
+  a whole**. When the frozen part is itself ASR-satisfying — every stage of a chain
+  is — the right-hand side vanishes and the stage stays homogeneous (the staged-fit
+  theorem, §6 amendment 8); "satisfying" is judged by the same *relative* measure
+  `asr_residual` reports, since a fitted stage leaves ~1e-16 and treating that as a
+  violation would send every chained stage down the affine path, where a
+  roundoff-sized right-hand side is generically infeasible. An infeasible freeze
+  (a violation on constraint rows the free columns cannot balance) is refused with
+  those rows named. Measured on the D4h fixture: **channel masks never straddle a
+  constraint row** (A's rows are graded by spin content and displacement degree),
+  while the `L_S` masks straddle 54 of 180 — which is precisely why the staging axis
+  needs the affine machinery.
+- **`SLCEFit.reparam`** now records the reparameterization the estimator actually
+  solved under (the dataset's ASR, or the stage's). `refit`, `gcv`,
+  `effective_dof`, `identifiability` and `dof` read it instead of `dataset.asr`, so
+  a staged fit is never silently re-assembled as an unstaged one: `dof` is the
+  stage's free-parameter count, and `refit` stays inside the stage (frozen
+  coefficients are not thresholded away, the support is intersected with the free
+  columns, and the constraint is re-derived for that sub-stage).
+  `cross_validate` threads `frozen`/`sector_mask` to every fold;
+  `select_support` rejects a staged fit (its frozen columns are not selectable).
+- No staging request means the untouched path: `fit` without `frozen` and with
+  `sector_mask = :all` returns bitwise-identical coefficients and keeps the
+  dataset's own reparameterization object.
+
 ### Added — identifiability diagnostics and derivative-only recovery (M3 slice 5)
 
 - **`identifiability(fit_or_dataset; rtol = nothing)`** — the rank diagnosis of the

@@ -572,7 +572,7 @@ function _orbit_salcs_decors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
             cbs = [_decor_coupled_bases(sl) for sl in slotlists]
             blockset = sort(unique((ls, lf) for cbo in cbs for (ls, lf, _) in cbo))
             for (L_S, Lf) in blockset
-                soc || L_S == 0 || continue
+                soc || is_soc_free(L_S) || continue   # shared with the :soc_free mask
                 blocks = _project_and_fold_decors(stab, assignments, slotlists,
                                                   cbs, L_S, Lf, wcache)
                 for terms_rep in blocks

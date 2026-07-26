@@ -309,10 +309,28 @@ Easy to break silently — confirm before touching the algorithm.
   gates are the symbolic-vs-numerical rank equality (through `accumulate_grad!`'s
   `Gu` column sum) and finite-`t` translation invariance + per-config `Σf = 0`
   through the production evaluator, run after `fit` AND after `refit`
-  (`test/unit/test_asr.jl`). `ASRReparam.beta_p` is the affine slot for the
-  staged-fit slice (frozen-stage offsets) and throws while unused; the staged-fit
-  rule is "each stage fitted under its own ASR keeps the next stage's constraint
-  homogeneous".
+  (`test/unit/test_asr.jl`). `ASRReparam.beta_p` is the affine slot the staged fit
+  fills (frozen-stage offsets); the staged-fit rule is "each stage fitted under its
+  own ASR keeps the next stage's constraint homogeneous".
+- **Staging axis ↔ truncation axis** (`fitting/staged.jl` ↔ `basis/salcbasis.jl` ↔
+  `slce/truncation.jl`): `Sector(soc = …)` defines the model's SUPPORT (columns that
+  are never built), `sector_mask`/`frozen` define what a fit STAGE moves (columns held
+  at frozen values). They are never merged, and they share exactly one predicate —
+  `is_soc_free` (`basis/salc.jl`), used by the basis builder's `soc || is_soc_free(L_S)`
+  filter and by `sector_columns(basis, :soc_free)` — because the failure mode is silent
+  drift between "what a SOC-less calculation can express" and "what a SOC-less stage
+  fits" (design record §13 risk 4). The gate is set equality between the masked keys
+  and a `soc = false` rebuild's keys (`test/unit/test_staged.jl`). A stage is realized
+  as ONE affine `ASRReparam` (zero `Z` rows on frozen columns, `beta_p` = frozen values
+  + particular solution), so the assembly/solve path is the ASR path verbatim; the
+  identity `size(Z, 2) == p − rank` therefore holds only for a basis-level
+  reparameterization, NOT for a stage. `SLCEFit.reparam` is what every re-derivation
+  (`refit`/`gcv`/`effective_dof`/`identifiability`/`dof`) must read — reading
+  `dataset.asr` instead silently re-assembles a staged fit as an unstaged one. Whether
+  the frozen part counts as ASR-satisfying is the RELATIVE `asr_residual` measure, not
+  `A·β == 0`: a fitted stage leaves ~1e-16, and treating that as a violation sends the
+  next stage down the affine path where a roundoff-sized right-hand side is generically
+  infeasible (the bug the chain gate caught).
 - **Sunny export conversion ↔ the energy reconstruction** (`slce/bilinear.jl` — matrices /
   extraction / gate — plus `interop/sunny.jl` — primitive unfold — and
   `ext/SLCESunnyExt.jl`): `_l1_pair_matrix` / `_l2_onsite_matrix` must satisfy

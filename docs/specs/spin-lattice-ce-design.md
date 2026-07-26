@@ -383,6 +383,36 @@ slots; packed-integer cleverness; per-species row layouts.
   `sector_mask`. The estimator layer (GroupAdaptiveRidge / GCV / select_fit /
   cross_validate) survives verbatim; `group_costs` gains a channel split.
 
+  *Realized 2026-07-26 (M3 slice 6, `fitting/staged.jl`).* One affine
+  `ASRReparam` carries the whole staging request — `Z` zero-rowed on frozen
+  columns (a plain orthonormal selection matrix when there is no ASR),
+  `beta_p` = frozen values + particular solution — so the assembly and solve
+  paths are the ASR paths verbatim, and `SLCEFit.reparam` records which one ran.
+  Amendments the implementation forced:
+  1. *Homogeneity is a RELATIVE test.* "The frozen part satisfies the ASR" must be
+     judged by the same `‖Aβ‖/(‖A‖‖β‖)` measure `asr_residual` reports (cut
+     `1e-10`), not by `A·β == 0`: a stage fitted under the ASR leaves ~1e-16, and
+     taking that for a violation sends every chained stage down the affine path —
+     where a roundoff-sized right-hand side is generically outside range(A_free)
+     and would be refused as infeasible. (Caught by the three-stage chain gate.)
+  2. *Which masks actually straddle* (measured, D4h fixture, 180 constraint rows):
+     the CHANNEL masks (`:spin`/`:lattice`/`:coupled`) straddle **zero** rows — A's
+     rows are graded by (spin content, total displacement degree), so they couple
+     only same-channel columns — while the `L_S` masks straddle **54 of 180**, as
+     §12 (p) anticipated. Amendment 8's straddling concern is therefore real but
+     specific: a channel-staged chain is homogeneous by construction, and the
+     affine machinery earns its keep on `L_S` staging and on externally frozen
+     models.
+  3. *Penalties under an affine feasible set* shrink γ toward the particular
+     solution, not toward zero (`‖γ‖ = ‖β − beta_p‖`). Unavoidable; the fit warns
+     when a non-OLS estimator meets a nonzero free-column `beta_p`.
+  4. *`dof` generalizes to the reparameterization's column count* (`p` → `q` →
+     stage free parameters), and `refit` de-biases INSIDE the stage: the support is
+     intersected with the movable columns (frozen coefficients were never fitted,
+     so they cannot be thresholded away) and the constraint re-derived as a
+     sub-stage. `select_support` rejects staged fits (its group-cost front assumes
+     every column is selectable).
+
 ## 7. Downstream contract (D-5)
 
 - Successor term type: **`DecoratedTerm` / `decorated_terms(model)`** — per-slot

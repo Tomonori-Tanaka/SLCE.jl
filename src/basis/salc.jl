@@ -45,6 +45,22 @@ Whether every decor of the key is a bare spin factor (the v4 decoration shape).
 is_pure_spin(k::SALCKey)::Bool = all(is_pure_spin, k.decors)
 
 """
+    is_soc_free(k::SALCKey) -> Bool
+    is_soc_free(L_S::Integer) -> Bool
+
+Whether the key belongs to the SOC-less channel: `L_S == 0`, the total-spin-scalar
+block. This is the ONE definition two different axes share — the basis-level
+truncation `Sector(soc = false)` (which drops every other block at build time,
+`basis/salcbasis.jl`) and the fit-level staging selector `:soc_free`
+([`SLCE.sector_columns`](@ref), which freezes them instead) — so the two cannot
+drift apart. Within the time-reversal-even basis this package builds, `L_S = 0`
+plus the even-`Σl` parity rule is exactly the SOC-less content (`L_S = 0` alone
+would admit the T-odd scalar chirality).
+"""
+is_soc_free(L_S::Integer)::Bool = L_S == 0
+is_soc_free(k::SALCKey)::Bool = is_soc_free(k.L_S)
+
+"""
     SlotRef
 
 One tensor axis ("slot") of a [`SALCTerm`](@ref): the member-site index it

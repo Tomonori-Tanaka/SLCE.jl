@@ -262,6 +262,16 @@ _gcv_neff(f::SLCEFit)::Int =
     (f.torque_weight > 0 ? length(f.dataset.y_T) : 0) +
     (f.force_weight > 0 ? length(f.dataset.y_F) : 0)
 
+# The coefficient vector the estimator's own weight map was evaluated at: the solve
+# runs on γ with `β = beta_p + Z·γ`, so the penalized quantity is `jphi − beta_p`
+# (identical to `jphi` for every non-staged fit — `beta_p ≡ 0`).
+#
+# NOTE: keep this ABOVE the docstring below. Anything between a docstring and the
+# function it documents steals it, and Documenter then reports "no docs found"
+# while the unit suite stays green.
+_penalty_beta(f::SLCEFit, rep::Union{Nothing,ASRReparam})::Vector{Float64} =
+    rep === nothing ? f.jphi : f.jphi .- rep.beta_p
+
 """
     effective_dof(f::SLCEFit) -> Float64
 
@@ -280,9 +290,13 @@ function effective_dof(f::SLCEFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "effective_dof requires a linear estimator (`islinear`); " *
         "got $(typeof(f.estimator))"))
-    rep = f.asr ? f.dataset.asr : nothing
+    rep = f.reparam                       # the STAGE's Z on a staged fit
     X, _, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight, rep)
-    lambda, w = _penalty_diagonal(f.estimator, f.jphi)
+    # The weight map must be evaluated where the SOLVER evaluated it: at β = Z·γ,
+    # i.e. `jphi − beta_p`. On an affine stage the offset is nonzero, and for a
+    # GROUP penalty a frozen column's value would otherwise leak into a group norm
+    # the solve never saw.
+    lambda, w = _penalty_diagonal(f.estimator, _penalty_beta(f, rep))
     df = w === nothing ? _rank_df(X) :
          (rep === nothing ? _edof(X, lambda, w) : _edof_ns(X, lambda, w, rep.Z))
     return df + 1.0
@@ -332,11 +346,11 @@ Linear estimators only ([`islinear`](@ref)).
 function gcv(f::SLCEFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "gcv requires a linear estimator (`islinear`); got $(typeof(f.estimator))"))
-    rep = f.asr ? f.dataset.asr : nothing
+    rep = f.reparam                       # the STAGE's Z on a staged fit
     X, y, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight, rep)
-    lambda, w = _penalty_diagonal(f.estimator, f.jphi)
+    lambda, w = _penalty_diagonal(f.estimator, _penalty_beta(f, rep))
     # under ASR the assembled design is γ-space: compress β (orthonormal Z ⇒ γ = Z'β)
-    beta = rep === nothing ? f.jphi : rep.Z' * f.jphi
+    beta = rep === nothing ? f.jphi : rep.Z' * _penalty_beta(f, rep)
     return first(_gcv_score(X, y, beta, lambda, w;
                             Z = rep === nothing ? nothing : rep.Z,
                             n_eff = _gcv_neff(f)))
@@ -831,6 +845,14 @@ function select_support(f::SLCEFit;
                             "is not implemented yet — the group cost model is " *
                             "pure-spin; use refit directly for constrained " *
                             "de-biasing"))
+    # A staged fit's frozen columns are not candidates for thresholding (they were
+    # never fitted), so the per-group alive/cost accounting below would report a
+    # support the stage cannot choose.
+    f.reparam === nothing ||
+        throw(ArgumentError("select_support on a staged fit (frozen / sector_mask) " *
+                            "is not implemented yet — its frozen columns are not " *
+                            "selectable, so the group cost front would be wrong; " *
+                            "use refit, which stays inside the stage"))
 
     # per-group max scaled magnitude on the assembled training design (refit's rule)
     X, _, _, _, _ = _assemble_problem(f.dataset, w)
@@ -962,6 +984,13 @@ error measured when the dataset carries torque data). This differs from
 centering/whitening for speed — `cross_validate` is the honest
 generalization-error estimate.
 
+`asr`, `frozen` and `sector_mask` are threaded to every fold's [`fit`](@ref), so a
+staged fitting plan is cross-validated exactly as it will be run. The frozen model
+is held fixed across folds by construction — it is an input, not something the
+folds re-estimate — so a plan whose earlier stage was fitted on *these* same
+configurations reports an optimistic score; cross-validate the whole chain (or fit
+the frozen stage on separate data) if that matters.
+
 A `PrecomputedPilot` (or an `AdaptiveLasso` carrying one) is rejected: its fixed,
 full-data coefficient vector does not depend on the training fold, so the holdout
 score would leak the held-out data.
@@ -973,7 +1002,9 @@ score would leak the held-out data.
 """
 function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
                         torque_weight::Real = 0.0, nfolds::Integer = 5,
-                        seed::Integer = 1, asr::Bool = true)::CVResult
+                        seed::Integer = 1, asr::Bool = true,
+                        frozen::Union{Nothing,SLCEModel} = nothing,
+                        sector_mask = :all)::CVResult
     w = Float64(torque_weight)
     (0.0 <= w <= 1.0) || throw(ArgumentError("torque_weight must be in [0, 1]; got $w"))
     if w > 0 && !has_torque(dataset)
@@ -1024,7 +1055,8 @@ function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
     for k = 1:nf
         ho = findall(==(k), folds)
         tr = findall(!=(k), folds)
-        f = fit(SLCEFit, dataset[tr], estimator; torque_weight = w, asr = asr)
+        f = fit(SLCEFit, dataset[tr], estimator; torque_weight = w, asr = asr,
+                frozen = frozen, sector_mask = sector_mask)
         hset = dataset[ho]
         residE = hset.y_E .- (f.j0 .+ hset.X_E * f.jphi)
         mseE = mean(abs2, residE)

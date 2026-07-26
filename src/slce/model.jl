@@ -335,34 +335,59 @@ The acoustic-sum-rule (translation-invariance) reparameterization of a joint
 basis: the row-normalized constraint matrix `A` (`A·β = 0` ⇔ the model energy is
 invariant under rigid translations `u_a → u_a + t`), an **orthonormal** null-space
 basis `Z` (`β = beta_p + Z·γ`; identity blocks on pure-spin columns), the
-particular solution `beta_p` (all-zero in the homogeneous case — the affine slot
-exists so the staged-fit slice can carry frozen-stage offsets without reworking
-this type), and `rank(A)`. Built once per basis by [`build_asr`](@ref) at
-`SLCEDataset` construction and stored on `dataset.asr`; `_assemble_problem` only
-applies it. Never persisted — `Z`'s gauge is factorization-dependent, while
-`β = Z·γ` is gauge-invariant, so `jphi` remains the only stored coefficient
-object and [`asr_residual`](@ref) re-verifies models from the basis.
+particular solution `beta_p` (all-zero in the homogeneous case), and the number of
+constraints binding the reparameterized columns. Built once per basis by
+[`build_asr`](@ref) at `SLCEDataset` construction and stored on `dataset.asr`;
+`_assemble_problem` only applies it. Never persisted — `Z`'s gauge is
+factorization-dependent, while `β = Z·γ` is gauge-invariant, so `jphi` remains the
+only stored coefficient object and [`asr_residual`](@ref) re-verifies models from
+the basis.
+
+The same type carries a **staged** fit's reparameterization (`fit`'s
+`frozen` / `sector_mask`, `fitting/staged.jl`): `Z` then has a zero row on every
+frozen column and spans the ASR null space of the free ones only, `beta_p` carries
+the frozen values plus — when the frozen part violates the ASR by itself — the
+particular solution of `A_free·β_free = −A_frozen·β_frozen`, and `rank` counts the
+constraints binding the free columns. So `size(Z, 2) == p − rank` holds for a
+basis-level reparameterization but NOT for a stage (which fits fewer columns);
+the invariant checked here is the dimensional one.
 """
 struct ASRReparam
     A::Matrix{Float64}
     Z::Matrix{Float64}
     beta_p::Vector{Float64}
     rank::Int
+    # The columns this reparameterization FITS (all of them for a basis-level one;
+    # a stage's free set). Not derivable from the other fields — `beta_p` mixes the
+    # frozen values with the particular solution, and a free column that the
+    # constraint structurally zeroes has the same all-zero `Z` row as a frozen one.
+    # `refit` needs the distinction to rebuild a sub-stage over the SAME frozen part.
+    free::Vector{Int}
 
     function ASRReparam(A::Matrix{Float64}, Z::Matrix{Float64},
-                        beta_p::Vector{Float64}, rank::Int)
+                        beta_p::Vector{Float64}, rank::Int,
+                        free::Vector{Int} = collect(axes(A, 2)))
         p = size(A, 2)
+        (issorted(free) && allunique(free) &&
+         (isempty(free) || (first(free) >= 1 && last(free) <= p))) ||
+            throw(ArgumentError("free columns must be sorted, unique and within " *
+                                "1:$p"))
         size(Z, 1) == p ||
             throw(DimensionMismatch("Z has $(size(Z, 1)) rows for $p constraint " *
                                     "columns"))
         length(beta_p) == p ||
             throw(DimensionMismatch("beta_p has length $(length(beta_p)) for $p " *
                                     "columns"))
-        size(Z, 2) == p - rank ||
-            throw(DimensionMismatch("Z has $(size(Z, 2)) columns; expected " *
-                                    "p − rank = $(p - rank)"))
+        # `size(Z, 2) == p − rank` only for a basis-level reparameterization; a
+        # stage fits a subset of the columns, so the free-parameter count is
+        # `|free| − rank(A_free)` — still bounded by `p − rank`, which keeps the
+        # shape check meaningful for both.
+        size(Z, 2) <= p - rank ||
+            throw(DimensionMismatch("Z has $(size(Z, 2)) columns, more than the " *
+                                    "$(p - rank) = p − rank a feasible space can " *
+                                    "have"))
         0 <= rank <= p || throw(ArgumentError("rank must be in 0:$p; got $rank"))
-        return new(A, Z, beta_p, rank)
+        return new(A, Z, beta_p, rank, free)
     end
 end
 
@@ -885,4 +910,12 @@ struct SLCEFit
     # fields, exactly like `torque_weight`/`force_weight`.
     asr::Bool
     asr_residual::Float64
+    # The reparameterization the estimator actually solved under, or `nothing` for
+    # a plain unconstrained fit: `dataset.asr` for an ordinary constrained fit, and
+    # the STAGE's affine reparameterization for a staged one (`frozen` /
+    # `sector_mask` — its `Z` pins the frozen columns and its `beta_p` carries their
+    # values). Every consumer that re-derives the solve — `refit`, `gcv`,
+    # `effective_dof`, `identifiability`, `dof` — must read this field rather than
+    # `dataset.asr`, or a staged fit is silently re-assembled as an unstaged one.
+    reparam::Union{Nothing,ASRReparam}
 end

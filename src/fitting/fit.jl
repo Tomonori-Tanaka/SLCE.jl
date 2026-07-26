@@ -20,12 +20,16 @@
 # bitwise identical to the unconstrained assembly.
 function _assemble_problem(dataset::SLCEDataset, wT::Float64, wF::Float64 = 0.0,
                            rep::Union{Nothing,ASRReparam} = nothing)
-    if rep !== nothing && any(!iszero, rep.beta_p)
-        throw(ArgumentError("affine ASR (nonzero beta_p — a frozen-stage offset) " *
-                            "lands with the staged-fit slice"))
-    end
+    # Affine reparameterization `β = beta_p + Z·γ` (a staged fit: `beta_p` carries
+    # the frozen coefficients plus, when the frozen part violates the ASR, the
+    # particular solution of `A_free·β_free = −A_frozen·β_frozen`). The offset is a
+    # KNOWN contribution to every observable, so it moves to the target side —
+    # `ỹ = y − X_β·beta_p` — before centering and whitening, leaving the estimator
+    # the homogeneous problem in γ. `beta_p ≡ 0` (every non-staged fit) reduces to
+    # the previous code path bitwise: `_offset` returns the target untouched.
+    affine = rep !== nothing && any(!iszero, rep.beta_p)
     X_E = rep === nothing ? dataset.X_E : dataset.X_E * rep.Z
-    y_E = dataset.y_E
+    y_E = affine ? dataset.y_E .- dataset.X_E * rep.beta_p : dataset.y_E
     xbar = vec(mean(X_E; dims = 1))
     ybar = mean(y_E)
     if wT > 0 || wF > 0
@@ -68,7 +72,8 @@ function _assemble_problem(dataset::SLCEDataset, wT::Float64, wF::Float64 = 0.0,
             sm = sqrt(wT / n_T)
             push!(blocksX, rep === nothing ? dataset.X_T .* sm :
                            (dataset.X_T * rep.Z) .* sm)
-            push!(blocksy, dataset.y_T .* sm)
+            y_T = affine ? dataset.y_T .- dataset.X_T * rep.beta_p : dataset.y_T
+            push!(blocksy, y_T .* sm)
             append!(groups, dataset.torque_config)
         end
         if wF > 0
@@ -96,7 +101,12 @@ function _assemble_problem(dataset::SLCEDataset, wT::Float64, wF::Float64 = 0.0,
                 Xf = (dataset.X_F .* sf) * rep.Z[dataset.force_cols, :]
             end
             push!(blocksX, Xf)
-            push!(blocksy, dataset.y_F .* sf)
+            # the force block is COMPACT: its columns are `force_cols`, so the
+            # offset reads the matching slice of `beta_p`
+            y_F = affine ?
+                  dataset.y_F .- dataset.X_F * view(rep.beta_p, dataset.force_cols) :
+                  dataset.y_F
+            push!(blocksy, y_F .* sf)
             append!(groups, dataset.force_config)
         end
         # ≥ 2 blocks always: wT > 0 || wF > 0 held, so a derivative block joined
@@ -235,24 +245,92 @@ data constrain nothing along them. That standing check is per-column only — ca
 [`identifiability`](@ref) for the full rank deficiency (flat directions are
 generally combinations of columns, e.g. the translation-violating directions a
 center-of-mass-free displacement sample cannot see).
+
+## Staged (hierarchical) fits
+
+`sector_mask` restricts the fit to a subset of the columns and `frozen` holds the
+rest at the coefficients of a previously fitted [`SLCEModel`](@ref) — the standard
+way to build a joint model in physical stages (fit the exchange first, then the
+spin–lattice coupling against the frozen exchange, then the force constants):
+
+```julia
+f1 = fit(SLCEFit, ds, OLS(); sector_mask = :spin)
+f2 = fit(SLCEFit, ds, OLS(); sector_mask = [:coupled, :lattice],
+         frozen = SLCEModel(f1), torque_weight = 0.3, force_weight = 0.3)
+```
+
+`sector_mask` takes a selector symbol, a collection of them (union), or explicit
+columns — see [`SLCE.sector_columns`](@ref) for the selector table. Frozen
+coefficients are matched to this basis by `SALCKey`, never positionally; a frozen
+value on a column the mask leaves free is ignored (that column is being re-fitted).
+`j0` is never frozen — it is recovered analytically at every stage.
+
+Under the ASR the stage's constraint becomes affine, `A_free·β_free =
+−A_frozen·β_frozen`, and is solved exactly (particular solution + null space), so
+**the staged model is translation-invariant as a whole**, not stage by stage. When
+the frozen part was itself fitted under the ASR the right-hand side is zero and the
+stage stays homogeneous — the reason a chain of stages costs nothing in exactness.
+Freezing a model that violates the ASR is legal and lights up the affine path; if
+its violation lies on constraint rows the free columns cannot balance, the fit
+refuses and names those rows. Note that a penalty then shrinks γ toward the
+particular solution rather than toward zero (an unavoidable consequence of an
+affine feasible set — the fit warns).
 """
 function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator;
              torque_weight::Real = 0.0, force_weight::Real = 0.0,
-             asr::Bool = true)::SLCEFit
+             asr::Bool = true, frozen::Union{Nothing,SLCEModel} = nothing,
+             sector_mask::Union{Symbol,AbstractVector} = :all)::SLCEFit
     w = Float64(torque_weight)
     wF = Float64(force_weight)
     _validate_fit_request(dataset, w, wF)
     rep = _resolve_asr_rep(dataset, asr)
+    if frozen !== nothing || sector_mask !== :all
+        rep = _fit_stage(dataset, rep, frozen, sector_mask, estimator)
+    end
     X, y, xbar, ybar, groups = _assemble_problem(dataset, w, wF, rep)
     _warn_unidentified(X, rep)
     gamma = solve_coefficients(estimator, X, y; groups = groups,
                                nullspace = rep === nothing ? nothing : rep.Z)
     j0 = ybar - dot(xbar, gamma)          # = ȳ − x̄_βᵀβ (γ-space x̄ under rep)
-    jphi = rep === nothing ? gamma : rep.Z * gamma
+    jphi = rep === nothing ? gamma : rep.beta_p .+ rep.Z * gamma
     residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
-    applied = rep !== nothing
-    return SLCEFit(dataset, j0, jphi, estimator, residuals, w, wF, applied,
-                  applied ? _asr_residual(rep, jphi) : 0.0)
+    # `asr` records the CONSTRAINT, not the reparameterization: a mask-only stage
+    # on a pure-spin basis carries a `Z` but no constraint rows. (Written as a
+    # short-circuit on `rep === nothing` so the residual call sees the narrowed
+    # type — a `Bool` flag would leave `Union{Nothing,ASRReparam}` for JET.)
+    resid = rep === nothing || size(rep.A, 1) == 0 ? 0.0 : _asr_residual(rep, jphi)
+    return SLCEFit(dataset, j0, jphi, estimator, residuals, w, wF,
+                   rep !== nothing && size(rep.A, 1) > 0, resid, rep)
+end
+
+# Resolve the staging request into the reparameterization the solve runs under.
+function _fit_stage(dataset::SLCEDataset, rep::Union{Nothing,ASRReparam},
+                    frozen::Union{Nothing,SLCEModel}, sector_mask,
+                    estimator::AbstractEstimator)::ASRReparam
+    basis = dataset.basis
+    free = sector_columns(basis, sector_mask)
+    isempty(free) &&
+        throw(ArgumentError("sector_mask = $(repr(sector_mask)) selects no column " *
+                            "of this basis — the stage would fit nothing"))
+    beta_f = frozen === nothing ? zeros(Float64, n_salcs(basis)) :
+             _frozen_coefficients(basis, frozen)
+    had_frozen = any(!iszero, beta_f)
+    # A frozen value on a FREE column is ignored: that column is being re-fitted.
+    beta_f[free] .= 0.0
+    if had_frozen && !any(!iszero, beta_f)
+        @warn "staged fit: `sector_mask` leaves every column of the frozen model " *
+              "free, so nothing is actually frozen — narrow the mask to the " *
+              "columns this stage should fit" n_free = length(free)
+    end
+    stage = _stage_reparam(basis, free, beta_f, rep === nothing ? nothing : rep.A)
+    if any(!iszero, view(stage.beta_p, free)) && !(estimator isa OLS)
+        @warn "staged fit: the frozen coefficients violate the ASR, so the " *
+              "feasible set is affine and this estimator's penalty shrinks toward " *
+              "the particular solution, not toward zero. Freeze an ASR-satisfying " *
+              "model (any stage fitted under the ASR is one) to keep the usual " *
+              "shrinkage semantics."
+    end
+    return stage
 end
 
 """
@@ -273,7 +351,9 @@ where `X` is the assembled (centered / whitened) design. `threshold = 0` (the de
 keeps the columns of nonzero scaled magnitude — the nonzero support of `f`, minus any
 column the centering annihilates to a zero column. Coefficients off the support are set to
 zero; `j0` is recovered analytically as in `fit`. If the support is empty, an all-zero `jϕ`
-is returned (with a warning) and `j0` falls back to `mean(y_E)`.
+is returned (with a warning) and `j0` falls back to `mean(y_E)` — on a staged fit the
+frozen part and the constraint's particular solution are kept instead (that is the
+`γ = 0` model), and `j0` is re-derived from it.
 
 A [`PrecomputedPilot`](@ref) (or an [`AdaptiveLasso`](@ref) whose pilot is one) is
 rejected: its fixed coefficient vector has the original column count, not the refit
@@ -286,6 +366,12 @@ unconstrained refit would silently re-break translation invariance in the de-bia
 step). Setting the off-support coefficients to zero is always feasible (the
 constraint is homogeneous), but a support that splits a constraint-coupled column
 set can force some survivors to zero — legal, and surfaced with a warning.
+
+On a **staged** fit (`frozen` / `sector_mask`) the de-biasing stays inside the
+stage: the frozen coefficients keep their values (they were not fitted, so they
+cannot be thresholded away), the support is intersected with the stage's free
+columns, and the constraint is re-derived for that sub-stage — so the refitted
+model is exactly as translation-invariant as the staged one.
 """
 function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
                threshold::Real = 0.0)::SLCEFit
@@ -302,12 +388,35 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
     # contribution magnitude |jϕ_j|·‖X[:, j]‖ clears the threshold.
     support = findall(j -> abs(jphi_in[j]) * norm(@view X[:, j]) > threshold,
                       eachindex(jphi_in))
-    rep = f.asr ? dataset.asr : nothing
+    rep = f.reparam
+    # Columns the fit could actually move: everything for a plain fit, the stage's
+    # free (and not structurally dead) columns for a staged one. A frozen column is
+    # not a fitted coefficient, so it is never thresholded away.
+    #
+    # `jϕ` starts from the FROZEN part alone — `beta_p` with every free column
+    # cleared. Clearing only the `movable` ones would keep the previous stage's
+    # PARTICULAR SOLUTION (which lives on the free columns of an affine stage) while
+    # dropping the γ part that balanced it, i.e. hand back a model that violates the
+    # ASR while still reporting the constraint as applied. That distinction is why
+    # the reparameterization records its own `free` set.
     jphi = zeros(Float64, length(jphi_in))
-    if isempty(support)
-        # Short-circuit before `solve_coefficients`: a GLMNet-backed estimator would error
-        # on a zero-column design, and the all-zero `jϕ` is a well-defined (degenerate) fit
-        # whose `j0` falls back to `mean(y_E)`.
+    movable = Int[]
+    if rep !== nothing
+        movable = [j for j in axes(rep.Z, 1) if norm(@view rep.Z[j, :]) >= 1e-12]
+        support = intersect(support, movable)
+        jphi = copy(rep.beta_p)
+        jphi[rep.free] .= 0.0
+    end
+    if rep !== nothing && isempty(support)
+        # Short-circuit before `solve_coefficients` (a GLMNet-backed estimator would
+        # error on a zero-column design). γ = 0 is the well-defined degenerate fit,
+        # and on a stage that is `beta_p` itself — feasible by construction, frozen
+        # part and particular solution intact.
+        @warn "refit: empty support — every fitted coefficient is at or below the " *
+              "scaled-magnitude threshold. Returning the stage's particular " *
+              "solution (γ = 0); j0 is re-derived." threshold
+        jphi = copy(rep.beta_p)
+    elseif isempty(support)
         @warn "refit: empty support — every coefficient is at or below the " *
               "scaled-magnitude threshold. Returning an all-zero jϕ; " *
               "j0 falls back to mean(y_E)." threshold
@@ -315,35 +424,43 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
         jphi[support] .= solve_coefficients(estimator, view(X, :, support), y;
                                             groups = groups)
     else
-        # Constrained refit: β_{S^c} = 0 exactly, so the constraint reduces to
-        # A[:, S]·β_S = 0 — re-derive its null space and solve in the restricted
-        # γ space. Columns whose Z_S rows vanish are structurally zeroed by the
-        # support choice (their constraint partners were dropped); say so.
-        Z_S, _ = _asr_nullspace(rep.A[:, support])
-        if size(Z_S, 2) == 0
+        # Constrained / staged refit: the surviving columns form a new stage over
+        # the SAME frozen part, so the constraint is re-derived as
+        # `A[:, S]·β_S = −A·β_frozen` (zero on the right whenever the frozen part is
+        # itself ASR-feasible). Free columns the constraint structurally zeroes are
+        # kept in the sub-stage's free set — they carry no γ but may carry a
+        # particular-solution value, which must be re-derived rather than inherited.
+        sub_free = sort(union(support, setdiff(rep.free, movable)))
+        stage = _stage_reparam(dataset.basis, sub_free, jphi,
+                               size(rep.A, 1) == 0 ? nothing : rep.A;
+                               remedy = "lower the `refit` threshold so the support " *
+                                        "keeps the balancing columns")
+        if size(stage.Z, 2) == 0
             @warn "refit: the ASR constraint annihilates the selected support — " *
                   "every surviving column needs a dropped partner to stay " *
-                  "translation-invariant. Returning an all-zero jϕ." threshold
+                  "translation-invariant. Returning the constraint's particular " *
+                  "solution." threshold
+            jphi = stage.beta_p
         else
-            # Warn only about columns the SUPPORT kills — columns already dead
-            # under the full constraint (basis-level, reported by `build_asr`)
-            # are dead for every support and are not the support's doing.
-            dead = [support[k] for k in axes(Z_S, 1)
-                    if norm(@view Z_S[k, :]) < 1e-12 &&
-                       norm(@view rep.Z[support[k], :]) >= 1e-12]
+            dead = [j for j in support
+                    if norm(@view stage.Z[j, :]) < 1e-12 &&
+                       norm(@view rep.Z[j, :]) >= 1e-12]
             isempty(dead) ||
                 @warn "refit: the support splits an ASR-coupled column set — " *
                       "these surviving columns are structurally zeroed by the " *
                       "constraint" columns = dead
-            gamma = solve_coefficients(estimator, view(X, :, support) * Z_S, y;
-                                       groups = groups, nullspace = Z_S)
-            jphi[support] .= Z_S * gamma
+            Xs = X * stage.Z
+            ys = any(!iszero, stage.beta_p) ? y .- X * stage.beta_p : y
+            gamma = solve_coefficients(estimator, Xs, ys;
+                                       groups = groups, nullspace = stage.Z)
+            jphi = stage.beta_p .+ stage.Z * gamma
         end
     end
     j0 = ybar - dot(xbar, jphi)
     residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
-    return SLCEFit(dataset, j0, jphi, estimator, residuals, w, wF, rep !== nothing,
-                  rep === nothing ? 0.0 : _asr_residual(rep, jphi))
+    resid = rep === nothing || size(rep.A, 1) == 0 ? 0.0 : _asr_residual(rep, jphi)
+    return SLCEFit(dataset, j0, jphi, estimator, residuals, w, wF,
+                   rep !== nothing && size(rep.A, 1) > 0, resid, rep)
 end
 
 # A `PrecomputedPilot` carries a fixed, full-design coefficient vector. `refit` and

@@ -54,6 +54,7 @@ include("slce/model.jl")          # pipeline types + constructors + config valid
 include("basis/sectorbasis.jl")   # sector-table → decor-engine basis construction
 include("fitting/asr.jl")        # ASR constraint builder + null-space machinery
 include("fitting/design.jl")     # design-matrix assembly (X_E / X_T / X_F)
+include("fitting/staged.jl")     # sector selectors + staged (frozen) reparameterization
 include("fitting/fit.jl")        # fit / refit / predict
 include("fitting/diagnostics.jl")  # coef / intercept / residuals / R² / RMSE
 include("fitting/selection.jl")  # MC-cost group labels/costs, GCV, λ-path + Pareto
@@ -137,11 +138,12 @@ public build_clusters, ClusterMember, ClusterOrbit, ClusterSet
 public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
 public Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor                # decoration labels
 public SectorRule                                                     # resolved sector row
-public has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin
+public has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin, is_soc_free
 public spin_decors, spin_ls, rep_scale
 public islinear, solve_coefficients
 public salc_groups, group_costs, cost_weights                        # MC-cost grouping
 public ASRReparam, build_asr                                         # ASR machinery
+public sector_columns                                                # staged-fit selectors
 public save, load                                                    # TOML persistence
 
 end # module SLCE

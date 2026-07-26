@@ -167,6 +167,17 @@ SLCE.ASRReparam
 SLCE.build_asr
 ```
 
+## Staged (hierarchical) fitting
+
+`fit`'s `frozen` / `sector_mask` keywords fit a model in physical stages (see the
+[fitting guide](guide/fitting.md#Staged-(hierarchical)-fits)); the selector table
+is public but unexported.
+
+```@docs
+SLCE.sector_columns
+SLCE.is_soc_free
+```
+
 ## Diagnostics
 
 The `*_energy` / `*_torque` / `*_force` accessors are the full, per-observable

@@ -363,6 +363,27 @@ capability consumed by both the introspection and the Sunny interop.
   unconstrained-violation demonstration, zero-nullity truncation warning
   (`pmax = 1` pair splits), pure-spin bitwise identity, AllImages
   self-image refusal.
+- **Staged (hierarchical) fitting — M3 slice 6 (closes M3)**: `fit(...; frozen,
+  sector_mask)` (`fitting/staged.jl`). `SLCE.sector_columns(basis, selector)` —
+  `:all` / `:spin` / `:lattice` / `:coupled` (channel partition) and `:soc_free` /
+  `:soc` (`L_S` partition), unions, explicit columns, `Bool` masks; `:soc_free`
+  shares `SLCE.is_soc_free` with the `Sector(soc = false)` truncation (anti-drift
+  gate: masked keys ≡ SOC-less rebuild's keys). `frozen::SLCEModel` matched by
+  `SALCKey` (orphan nonzero key ⇒ error); free-column frozen values ignored; `j0`
+  never frozen. One affine reparameterization carries both: `Z` zero-rowed on
+  frozen columns (a plain selection matrix when there is no ASR — still
+  orthonormal, so the estimator contract holds), `beta_p` = frozen values +
+  particular solution of `A_free·β_free = −A_frozen·β_frozen`; homogeneity judged
+  by the relative `asr_residual` measure (`_STAGE_HOMOGENEOUS_RTOL`), infeasible
+  freeze refused with the straddling rows named. `_assemble_problem` applies the
+  offset target-side (`ỹ = y − X_β·beta_p`) per block, before centering.
+  `SLCEFit.reparam` records what was solved under; `dof` = stage free parameters,
+  `refit` stays inside the stage, `cross_validate` threads the plan,
+  `select_support` rejects staged fits. Gates: `test/unit/test_staged.jl`
+  (selectors + anti-drift, mask-only ≡ untouched bitwise, staged ≠ joint, exact
+  recovery when the frozen values are exact, chain homogeneity + whole-model
+  translation invariance, affine path with a hand-frozen violating coefficient,
+  channel masks straddle 0 rows vs `L_S` masks 54/180, consumer follow-through).
 - **Identifiability diagnostics + derivative-only recovery (M3 slice 5)**:
   `identifiability(fit_or_dataset; rtol) -> (; ncols, rank, nullity, sigma_min,
   sigma_max, tol, gap)` — the numerical rank of the assembled design in the

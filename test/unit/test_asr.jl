@@ -173,7 +173,12 @@ end
         # ASRReparam invariants
         @test_throws DimensionMismatch ASRReparam(zeros(1, 3), zeros(2, 2),
                                                   zeros(3), 1)
-        @test_throws DimensionMismatch ASRReparam(zeros(1, 3), zeros(3, 1),
+        @test_throws DimensionMismatch ASRReparam(zeros(1, 3), zeros(3, 3),
+                                                  zeros(2), 1)
+        # a NARROWER Z than p − rank is legal: that is a staged fit (fewer free
+        # columns); only a Z wider than the space it maps into is a shape error
+        @test ASRReparam(zeros(1, 3), zeros(3, 1), zeros(3), 1) isa ASRReparam
+        @test_throws DimensionMismatch ASRReparam(zeros(1, 3), zeros(3, 4),
                                                   zeros(3), 1)
     end
 
@@ -318,9 +323,18 @@ end
         @test gcv(fw1) == first(_gcv_score(Xw, yw, fw1.jphi, lam, wv;
                                            n_eff = neff))
         @test neff < size(Xw, 1)                  # the correction is active
-        # affine slot is a loud placeholder until the staged-fit slice
-        repa = ASRReparam(rep.A, rep.Z, ones(m), rep.rank)
-        @test_throws ArgumentError _assemble_problem(ds, 0.0, 0.0, repa)
+        # the affine slot moves the known contribution to the target side:
+        # ỹ = y − X_β·beta_p, applied BEFORE centering (so the centered block is
+        # exactly the residual of the offset model). Gated against a hand-built
+        # reparameterization here; the staged fits that produce one live in
+        # test/unit/test_staged.jl.
+        bp = 0.01 .* collect(1.0:m)
+        repa = ASRReparam(rep.A, rep.Z, bp, rep.rank)
+        Xa, ya, _, _, _ = _assemble_problem(ds, 0.0, 0.0, repa)
+        X0, y0, _, _, _ = _assemble_problem(ds, 0.0, 0.0, rep)
+        yoff = ds.X_E * bp
+        @test Xa == X0                                   # the design is unchanged
+        @test maximum(abs, ya .- (y0 .- (yoff .- sum(yoff) / length(yoff)))) < 1e-10
     end
 
     @testset "AllImages self-image clusters are refused" begin

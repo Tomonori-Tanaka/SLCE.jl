@@ -31,11 +31,14 @@ nobs(f::SLCEFit) = length(f.dataset.y_E)
 Degrees of freedom consumed by the fit: the number of FREE parameters plus the
 intercept `j0`. Unconstrained, that is `length(coef(f)) + 1`; under the ASR
 constraint (`fit(...; asr = true)` on a joint basis) the `rank(A)` exactly-enforced
-equalities are not free, so `dof = p − rank(A) + 1`. This is the parametric count,
+equalities are not free, so `dof = p − rank(A) + 1`; a staged fit
+(`frozen` / `sector_mask`) counts only the columns that stage fits, minus the
+constraints binding them. All three are one expression — the column count of the
+reparameterization the fit actually solved under. This is the parametric count,
 not an effective / selected count, even for a sparse estimator.
 """
 dof(f::SLCEFit)::Int =
-    length(f.jphi) + 1 - (f.asr ? (f.dataset.asr::ASRReparam).rank : 0)
+    (f.reparam === nothing ? length(f.jphi) : size((f.reparam::ASRReparam).Z, 2)) + 1
 
 """
     residuals_energy(f::SLCEFit) -> Vector{Float64}
@@ -233,7 +236,7 @@ deliberately, not a per-fit check.
 """
 function identifiability(f::SLCEFit;
                          rtol::Union{Nothing,Real} = nothing)::IdentifiabilityReport
-    rep = f.asr ? f.dataset.asr : nothing
+    rep = f.reparam                       # the STAGE's Z on a staged fit
     X, _, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight, rep)
     return _identifiability(X, rtol)
 end

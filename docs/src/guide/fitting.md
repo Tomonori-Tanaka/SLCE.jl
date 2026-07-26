@@ -227,6 +227,52 @@ struct MyEstimator <: AbstractEstimator end
 SLCE.solve_coefficients(::MyEstimator, X, y; groups = nothing) = X \ y  # centered (X, y)
 ```
 
+## Staged (hierarchical) fits
+
+A joint model can be built in physical stages instead of one shot: fit the
+exchange first, then the spin–lattice coupling against the frozen exchange, then
+the force constants. `sector_mask` says which columns a stage fits and `frozen`
+supplies the coefficients of the previous stage:
+
+```julia
+f1 = fit(SLCEFit, ds, OLS(); sector_mask = :spin)
+f2 = fit(SLCEFit, ds, OLS(); sector_mask = :coupled, frozen = SLCEModel(f1),
+         torque_weight = 0.3, force_weight = 0.3)
+f3 = fit(SLCEFit, ds, OLS(); sector_mask = :lattice, frozen = SLCEModel(f2),
+         torque_weight = 0.3, force_weight = 0.3)
+```
+
+Selectors are `:all`, `:spin`, `:lattice`, `:coupled` (a partition by channel),
+and `:soc_free` / `:soc` (a crosscutting partition by `L_S`); a collection of them
+is their union, and an explicit column list or `Bool` mask also works. Inspect a
+plan before running it with [`SLCE.sector_columns`](@ref). Frozen coefficients are
+matched by `SALCKey`, never positionally, and a frozen value on a column the mask
+leaves free is ignored — that column is being re-fitted. `j0` is never frozen.
+
+Staging is **not** the same as truncation. `Sector(soc = false)` decides what the
+model can express (it never builds those columns); `sector_mask = :soc_free`
+decides what *this stage* fits, leaving the rest at their frozen values. The two
+share one predicate, so they always name the same content.
+
+Nor is a chain of stages the same as one joint fit: an earlier stage absorbs
+whatever the later columns would have explained, so the two agree only when the
+blocks are orthogonal in the design. Stages buy control and conditioning, not the
+same optimum.
+
+What the ASR contributes here is exactness across the chain. A stage's constraint
+becomes affine, `A_free·β_free = −A_frozen·β_frozen`, and is solved as such — so
+the staged model is translation-invariant **as a whole**, not stage by stage. When
+the frozen part was itself fitted under the ASR (any stage of a chain), the
+right-hand side vanishes and the stage stays homogeneous, which is why a chain
+costs nothing in exactness. Freezing an externally supplied model that violates
+the ASR is legal and takes the affine path; if the violation lives on constraint
+rows the free columns cannot balance, the fit refuses and names those rows —
+widen the mask, or freeze a model whose [`asr_residual`](@ref) is small.
+
+[`refit`](@ref) stays inside the stage (frozen coefficients are never thresholded
+away), and `dof` / [`gcv`](@ref) / [`identifiability`](@ref) all report the
+stage's own parameter count.
+
 ## Refitting on a selected support
 
 After a sparse fit (`Lasso` / `AdaptiveLasso` / `AdaptiveRidge`), the surviving
