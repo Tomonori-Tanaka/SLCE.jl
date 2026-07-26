@@ -290,6 +290,21 @@ force_constants
 dynamical_matrix
 ```
 
+## Sampler row tables
+
+The contract a sampler builds its gather programs against: which `(channel, k, l, m)`
+basis rows a site carries, in what order, and what goes in them. Blocks stack in
+`Channel`-enum order with `SPIN` first at offset 0 — verbatim
+`SLCE.Harmonics.lm_index`, so adding the displacement channel never moves a row a
+spin-only consumer already addresses.
+
+```@docs
+SLCE.RowLayout
+SLCE.row_layout
+SLCE.row_index
+SLCE.site_rows!
+```
+
 ## Harmonics kernel
 
 The `Harmonics` submodule (public, unexported — call as `SLCE.Harmonics.Zlm` etc.)

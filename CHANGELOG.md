@@ -6,6 +6,30 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the sampler row-table contract (M4 slice 3a)
+
+- **`SLCE.row_layout(model)` → `SLCE.RowLayout`** (public, unexported), with
+  `SLCE.row_index` and `SLCE.site_rows!`. A sampler evaluates a term by gathering one
+  number per tensor axis out of a per-site row table; this fixes that numbering ONCE
+  so the model and the sampler's program builder cannot disagree about it.
+
+  Blocks stack in `Channel`-enum order. The `SPIN` block is at offset 0 and is
+  *verbatim* `Harmonics.lm_index` — not merely isomorphic to it — so a pure-spin
+  model's layout is the one the spin-only consumers already use and the displacement
+  channel can only ever append. (It keeps the `l = 0` row that no `SiteFactor`
+  addresses, precisely so the numbering is `lm_index` itself.) The `DISP` block
+  carries `2l + 1` rows per `(k, l)` the basis uses, holding `|u|^{2k} R_{l,m}(u)`.
+
+  The layout is a property of the **support**, not the coefficients, so a consumer
+  may keep its row tables across a coefficient hot-swap; `RowLayout` compares by
+  value for exactly that check.
+
+The gate is end-to-end (`test/unit/test_rowlayout.jl`): a miniature consumer that
+tabulates rows with `site_rows!`, addresses them with `row_index`, and contracts
+`decorated_terms` reproduces `predict_energy`. Index bookkeeping alone cannot catch a
+numbering-vs-contents disagreement; that sum can.
+
+
 ### Added — force constants and the dynamical matrix (M4 slice 2)
 
 - **`force_constants(model; spins, order = 2)` → `ForceConstantSet`** — the exact

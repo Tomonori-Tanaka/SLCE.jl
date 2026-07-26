@@ -70,6 +70,10 @@ include("slce/bilinear.jl")
 # (consumed by downstream packages such as the SLCETools.jl samplers).
 include("slce/introspect.jl")
 
+# --- the per-site basis-row layout: the contract a sampler builds its gather
+# programs against (SLCEMonteCarlo's sweep kernels are the consumer).
+include("slce/rowlayout.jl")
+
 # --- physics deliverables of the displacement channel: exact force constants at a
 # spin configuration, and their reciprocal-space form.
 include("slce/forceconstants.jl")
@@ -154,6 +158,7 @@ public islinear, solve_coefficients
 public salc_groups, group_costs, cost_weights                        # MC-cost grouping
 public ASRReparam, build_asr                                         # ASR machinery
 public sector_columns                                                # staged-fit selectors
+public RowLayout, row_layout, row_index, site_rows!   # sampler row-table contract
 public save, load                                                    # TOML persistence
 
 end # module SLCE
