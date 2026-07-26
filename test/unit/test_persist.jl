@@ -115,6 +115,52 @@ end
         rm(path)
     end
 
+    # The whole model-level reload contract above runs on a PURE-SPIN basis, whose
+    # v5 keys are the value-preserving `spin_decors(ls)` / `L_S = Lf` map of the old
+    # v4 ones. A displacement-decorated key exercises the parts that map represents:
+    # a real `SiteDecor` list, `L_S ≠ Lf`, slot-based terms — and the joint predicts
+    # that read them. Structure and fingerprint are gated for a mixed SLCEBasis in
+    # test_sectorbasis.jl; what is gated here is the coefficient re-pairing and the
+    # numbers that come out afterwards.
+    @testset "decorated model round-trips (keys, coefficients, joint predicts)" begin
+        crm = Crystal(Lattice(Matrix(3.0 * I(3))),
+                      [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        bm = SLCEBasis(crm, BasisSpec(crm; lmax = 1, pmax = 2, sectors = [
+            Sector(spin = (nbody = 1:2,), cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
+            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)]))
+        km = bm.salc_basis.keys
+        @test any(k -> any(MR.has_disp, k.decors), km)      # the fixture is decorated
+        @test any(k -> k.L_S != k.Lf, km)                   # and L_S is a real field
+        mm = SLCEModel(bm, 0.31, randn(rng, length(km)), km)
+        pm = tempname() * ".toml"
+        MR.save(pm, mm)
+        m2 = MR.load(SLCEModel, pm)
+        @test m2.keys == mm.keys
+        @test m2.jphi == mm.jphi                            # bitwise, re-paired by key
+        es = [_pcfg(rng, 2) for _ = 1:8]
+        us = [0.05 .* randn(rng, 3, 2) for _ = 1:8]
+        for (e, u) in zip(es, us)                           # joint predicts, all three
+            @test predict_energy(m2, e, u) == predict_energy(mm, e, u)
+            @test predict_force(m2, e, u) == predict_force(mm, e, u)
+            @test predict_torque(m2, e, u) == predict_torque(mm, e, u)
+        end
+        # scrambling the on-disk order must not move a decorated model either
+        docm = MR._to_doc(mm)
+        reverse!(docm["couplings"])
+        @test MR._model_from_doc(docm).jphi == mm.jphi
+        # `asr_residual` is RECOMPUTED from the basis on demand (never persisted),
+        # so a feasible model must still read as feasible after a reload
+        rep = MR.build_asr(bm)
+        mfeas = SLCEModel(bm, 0.0, rep.Z * randn(rng, size(rep.Z, 2)), km)
+        pf = tempname() * ".toml"
+        MR.save(pf, mfeas)
+        @test asr_residual(mfeas) < 1e-13
+        @test asr_residual(MR.load(SLCEModel, pf)) == asr_residual(mfeas)
+        rm(pm)
+        rm(pf)
+    end
+
     @testset "coefficients re-pair to the basis by key, not by position" begin
         doc = MR._to_doc(model)
         reverse!(doc["couplings"])             # scramble the on-disk coefficient order

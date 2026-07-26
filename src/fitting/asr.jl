@@ -53,6 +53,15 @@ function _asr_matrix(basis::SLCEBasis)::Matrix{Float64}
     rows = Dict{_ASRRowKey,Dict{Int,Float64}}()
     for (j, s) in enumerate(ss)
         any(has_disp, s.key.decors) || continue
+        # The evaluator's column scale, carried so `A` lives in the same design
+        # coordinates the fit solves in. It does not actually move the null space:
+        # `_ASRRowKey` keys on the spin monomial itself, so every column a given row
+        # touches carries the identical spin factor — hence the identical
+        # `n_spin` — and a factor constant along a row is divided out again by the
+        # relative row normalization below. Keep it anyway: it is what makes the
+        # matrix's ENTRIES comparable to the design's (the symbolic-vs-numerical rank
+        # gate and any future per-degree `disp_scale` rescaling both read them), and
+        # a row that ever couples mixed `n_spin` would need it for real.
         scale = (4π)^(count(has_spin, s.decors) / 2)
         for mem in s.members
             allunique(mem.atoms) ||

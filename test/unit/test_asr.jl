@@ -348,6 +348,83 @@ end
         @test hasself                # the fixture must actually exercise the path
         @test_throws ArgumentError build_asr(b1)
     end
+    # Every other fixture here is a 2-body bond. Third-order force constants are
+    # what the displacement channel exists for (and what M4's `force_constants` /
+    # `dynamical_matrix` will read), and a 3-body cluster is the first case where one
+    # constraint row couples THREE site blocks at once — the translation generator
+    # has to cancel across all of them, not just a pair.
+    @testset "3-body clusters: constraint, invariance and Σf = 0" begin
+        lat3 = Lattice(Matrix(3.4 * I(3)))
+        cr3 = Crystal(lat3, [0.0 0.3 0.0; 0.0 0.0 0.3; 0.0 0.0 0.0], [1, 1, 1], ["Fe"])
+        # degree 1:3 is what admits a genuine 3-body displacement term: three sites
+        # need three displacement slots, so a degree ≤ 2 budget silently has none.
+        b3 = SLCEBasis(cr3, BasisSpec(cr3; lmax = 1, pmax = 3, sectors = [
+            Sector(spin = [1, 1], disp = (degree = 1,), nbody = 2, cutoff = 2.3),
+            Sector(disp = (degree = 1:3,), nbody = 1:3, cutoff = 2.3)]))
+        s3 = salcs(b3)
+        p3 = length(s3)
+        nat3 = n_atoms(cr3)
+        @test count(s -> s.key.body == 3, s3) > 0        # the fixture must have them
+        # the disp-active columns span two different spin counts, so the constraint
+        # rows are graded by spin content, not merely by displacement degree
+        @test length(unique(count(SLCE.has_spin, s.key.decors)
+                            for s in s3 if any(SLCE.has_disp, s.key.decors))) == 2
+
+        rep3 = build_asr(b3)
+        B3 = _numeric_translation_image(b3, 90, MersenneTwister(31))
+        @test _svd_rank(B3) == rep3.rank                 # symbolic ≡ numerical
+        @test maximum(abs, B3 * rep3.Z) / maximum(abs, B3) < 1e-10   # Z ⊆ null(image)
+
+        # The gates that actually accept the constraint run through the PRODUCTION
+        # evaluator, not through ‖Aβ‖ (which is ~eps by construction): a feasible
+        # model's energy is invariant under a rigid translation of every
+        # displacement, and its forces sum to zero on each configuration.
+        rng3 = MersenneTwister(37)
+        beta3 = rep3.Z * randn(rng3, size(rep3.Z, 2))
+        m3 = SLCEModel(b3, 0.0, beta3)
+        shift = [0.31, -0.72, 0.55]
+        function _translation_dev(mdl, e, u)
+            E0 = predict_energy(mdl, e, u)
+            return maximum(abs(predict_energy(mdl, e, u .+ t .* shift) - E0)
+                           for t in (1e-3, 1e-2, 5e-2))
+        end
+        pts = [(_as_cfg(rng3, nat3), 0.05 .* randn(rng3, 3, nat3)) for _ = 1:6]
+        for (e, u) in pts
+            @test _translation_dev(m3, e, u) < 1e-12
+            @test norm(sum(predict_force(m3, e, u); dims = 2)) < 1e-12
+        end
+        @test asr_residual(m3) < 1e-13
+
+        # teeth: an unconstrained model of the SAME basis breaks both, so the two
+        # checks above are not vacuous at this body order
+        mbad = SLCEModel(b3, 0.0, randn(MersenneTwister(41), p3))
+        e0, u0 = pts[1]
+        @test _translation_dev(mbad, e0, u0) > 1e-3
+        @test norm(sum(predict_force(mbad, e0, u0); dims = 2)) > 1e-3
+
+        # and the same gates after a fit AND after a refit (the constrained solve
+        # and the support re-derivation each rebuild the null space)
+        prov3 = DatumProvenance(; torque_qualified = true, reference_id = "r3",
+                                reference_fingerprint = crystal_fingerprint(cr3),
+                                setup_id = "s3")
+        data3 = map(1:120) do _
+            e = _as_cfg(rng3, nat3)
+            u = 0.05 .* randn(rng3, 3, nat3)
+            TrainingDatum(; energy = predict_energy(m3, e, u), directions = e,
+                          magmoms = ones(nat3), displacements = u,
+                          forces = predict_force(m3, e, u),
+                          torques = predict_torque(m3, e, u), provenance = prov3)
+        end
+        ds3 = SLCEDataset(b3, data3)
+        f3 = fit(SLCEFit, ds3, OLS(); torque_weight = 0.3, force_weight = 0.3)
+        for g in (f3, refit(f3; threshold = 0.0))
+            mg = SLCEModel(g)
+            @test asr_residual(mg) < 1e-12
+            @test _translation_dev(mg, e0, u0) < 1e-10
+            @test norm(sum(predict_force(mg, e0, u0); dims = 2)) < 1e-10
+        end
+    end
+
     @testset "vcat refuses silent ASR disagreement" begin
         # a hand-built part without its `asr` stays combinable (it inherits the
         # carrying part's reparameterization only when no CONFLICTING one exists)

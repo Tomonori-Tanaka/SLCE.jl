@@ -6,6 +6,52 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — test-suite audit: gates that could not fail
+
+A review of the *tests* (not the code) for verification gaps. Nothing was found
+broken — the oracle / Sunny / GLMNet suites, which had not run since the ASR,
+identifiability and staged slices, are green (14063 / 26 / 27), and a mutation
+check confirms gate (j) catches a force-sign flip applied at **both** sign sites
+at once. What was missing was the ability to notice future breakage:
+
+- **CI now runs the suite with `JULIA_NUM_THREADS: 4`.** The threaded-vs-serial
+  gates compare a parallel result against a serial reference; at one thread
+  `Threads.@threads` *is* that reference, so every such assertion passed while
+  exercising nothing. A single-threaded CI cannot see a data race in the orbit
+  loop or in a design-matrix builder.
+- **The joint design builders got the serial reference the pure-spin ones had.**
+  `_design_energy(basis, cfgs, disps)`, `_design_torque(…, tatoms)` and
+  `_design_force` each thread over columns with a per-task `SALCScratch` plus two
+  gradient buffers, and none of the three was compared against anything.
+- **The ASR is now gated at 3-body**, where one constraint row couples three site
+  blocks instead of a pair — the case third-order force constants (and M4's
+  `force_constants` / `dynamical_matrix`) live in. Every previous `build_asr`
+  fixture was a 2-body bond. Symbolic rank ≡ numerical translation-image rank
+  (217), finite-`t` translation invariance and per-config `Σf = 0` through the
+  production evaluator, after `fit` and after `refit`, with an unconstrained model
+  as the teeth.
+- **A displacement-decorated `SLCEModel` now round-trips through save/load with the
+  numbers checked** — coefficient re-pairing by `SALCKey`, the three joint
+  predicts, and `asr_residual` (recomputed from the basis, never persisted) before
+  and after a reload. The model-level reload contract had been gated only on
+  pure-spin keys, whose v5 form is a value-preserving relabel of the v4 one; the
+  mixed-basis persistence test compares an `SLCEBasis` structurally.
+- **`examples/` are CI'd.** Each self-gates with `@assert`s on a recovered coupling
+  — the fence that caught the canonical-member J/2 regression — and nothing ran
+  them: the docs job executes the tutorials, which are different files.
+- `checkdocs = :public`: the unexported `public` surface (`build_asr`,
+  `sector_columns`, `salc_groups`, `SolidHarmonics`, …) is API, and a missing
+  docstring there now fails the strict docs build like any other.
+- Pinned the documented behavior that `cross_validate` ignores the force block
+  (identical result with the block dropped), and `rss_force`, the one exported
+  diagnostic never called directly.
+- Noted in `fitting/asr.jl` that the `(4π)^{n_spin/2}` column scale cannot move the
+  null space — `_ASRRowKey` keys on the spin monomial, so the factor is constant
+  along each row and the relative row normalization divides it out. Verified by
+  mutation: dropping it leaves the whole suite bit-identically green. It stays
+  because it is what makes `A`'s entries comparable to the design's.
+
+
 ### Added — staged (hierarchical) fitting, closing M3 (slice 6)
 
 - **`fit(...; frozen, sector_mask)`** — fit a joint model in physical stages

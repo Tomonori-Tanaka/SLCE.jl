@@ -28,9 +28,40 @@ jobs:
       - uses: julia-actions/julia-buildpkg@v1
       # TEST_MODE=all: unit + Aqua + JET (the oracle / Sunny / GLMNet suites carry
       # heavy optional deps and stay local-only — see CLAUDE.md's test table).
+      #
+      # JULIA_NUM_THREADS > 1 is REQUIRED, not a speed knob: the threaded-vs-serial
+      # gates (`test_threading.jl`, and the deterministic basis build in
+      # `test_salc.jl`) compare a parallel result against a serial reference, and at
+      # one thread `Threads.@threads` runs the reference's own code path — the
+      # assertions pass without exercising anything. A data race in the orbit loop or
+      # in a design-matrix builder is invisible to a single-threaded CI.
       - uses: julia-actions/julia-runtest@v1
         env:
           TEST_MODE: all
+          JULIA_NUM_THREADS: "4"
+
+  examples:
+    name: runnable examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.12"
+      - uses: julia-actions/cache@v2
+      # `examples/` carries its own environment (it `dev`s the package and adds
+      # Spglib). Each example self-gates with `@assert`s on a recovered coupling —
+      # the fence that caught the canonical-member J/2 regression — so they have to
+      # RUN somewhere. The docs job executes the tutorials, not these.
+      - name: Instantiate the examples environment
+        run: julia --project=examples -e 'using Pkg; Pkg.instantiate()'
+      - name: Run every example
+        run: |
+          for f in examples/*.jl; do
+            echo "::group::$f"
+            julia --project=examples "$f"
+            echo "::endgroup::"
+          done
 
   docs:
     name: documentation build

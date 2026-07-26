@@ -129,7 +129,23 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
         @test r2_force(f) ≈ 1.0 atol = 1e-12
         @test rmse_force(f) < 1e-10
         @test residuals_force(f) == f.dataset.y_F .- f.dataset.X_F * f.jphi[fcols]
+        @test rss_force(f) == sum(abs2, residuals_force(f))
         @test isfinite(gcv(f)) && effective_dof(f) > 0
+    end
+
+    # `cross_validate` has no `force_weight` yet and documents that it scores a
+    # force-carrying dataset on its energy(+torque) blocks only. Pin that: the same
+    # data with the force block dropped must produce the identical result. Whoever
+    # adds the force channel will fail here and has to update the note with it,
+    # rather than silently changing what every recorded CV score means.
+    @testset "cross_validate ignores the force block (documented, pinned)" begin
+        dsF = SLCEDataset(basis, [d for d in data])
+        dsNoF = SLCEDataset(basis, [d for d in data]; use_force = false)
+        @test has_force(dsF) && !has_force(dsNoF)
+        cvF = cross_validate(dsF, OLS(); torque_weight = 0.3, nfolds = 3, asr = false)
+        cvN = cross_validate(dsNoF, OLS(); torque_weight = 0.3, nfolds = 3, asr = false)
+        @test cvF.pooled_rmse_energy == cvN.pooled_rmse_energy
+        @test cvF.pooled_rmse_torque == cvN.pooled_rmse_torque
     end
 
     @testset "gate (j), model level: predict_force ≡ −FD(predict_energy)" begin

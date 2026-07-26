@@ -48,6 +48,10 @@ makedocs(;
         "API reference" => "api.md",
     ],
     warnonly = false,   # strict: any @example error / missing docstring fails the build
-    checkdocs = :exports,
+    # :public, not :exports — the unexported `public` surface (SolidHarmonics,
+    # build_asr, sector_columns, salc_groups, …) is API too: it is what the
+    # downstream packages and the staged-fit plans call, so a missing docstring
+    # there has to fail the build like any other.
+    checkdocs = :public,
     doctest = false,
 )

@@ -362,7 +362,9 @@ capability consumed by both the introspection and the Sunny interop.
   `Σ_a f_a = 0` at physical `t` after `fit` AND after `refit`, the
   unconstrained-violation demonstration, zero-nullity truncation warning
   (`pmax = 1` pair splits), pure-spin bitwise identity, AllImages
-  self-image refusal.
+  self-image refusal, and the same rank / invariance / `Σf = 0` battery at
+  **3-body**, where one constraint row couples three site blocks (the
+  third-order force-constant case; every other fixture is a 2-body bond).
 - **Staged (hierarchical) fitting — M3 slice 6 (closes M3)**: `fit(...; frozen,
   sector_mask)` (`fitting/staged.jl`). `SLCE.sector_columns(basis, selector)` —
   `:all` / `:spin` / `:lattice` / `:coupled` (channel partition) and `:soc_free` /

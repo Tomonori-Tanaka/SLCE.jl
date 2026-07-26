@@ -432,11 +432,28 @@ Easy to break silently — confirm before touching the algorithm.
 | `julia --project=test/oracle test/oracle/runtests.jl` | from-scratch numerics vs pinned Magesty |
 | `julia --project=test/sunny test/sunny/runtests.jl` | real `Sunny.System` energy vs SCE (extension) |
 | `julia --project=test/glmnet test/glmnet/runtests.jl` | GLMNet Lasso / elastic-net solve (extension) |
+| `for f in examples/*.jl; do julia --project=examples $f; done` | the runnable examples' own `@assert` gates |
 
 The core suite (`runtests.jl`) dispatches on the `TEST_MODE` env var
 (`default`/`all`/`unit`/`aqua`/`jet`) and never depends on Magesty. The oracle,
 Sunny, and GLMNet suites are separate environments that carry the heavy/optional
 dependency (a pinned Magesty.jl / Sunny / GLMNet) the core deliberately omits.
+
+**Run the core suite with `-t N>1`.** CI pins `JULIA_NUM_THREADS: 4` for exactly
+this reason: the threaded-vs-serial gates (`test_threading.jl` for the pure-spin
+AND joint design builders, the deterministic basis build in `test_salc.jl`)
+compare a parallel result against a serial reference, and at one thread
+`Threads.@threads` *is* the serial reference — the assertions pass while
+exercising nothing. A hoisted scratch buffer or a lazily-filled cache in the
+orbit loop is invisible to a single-threaded run.
+
+The examples are CI'd too (their own job), because each one self-gates with
+`@assert`s on a recovered coupling — the fence that caught the canonical-member
+J/2 regression — and nothing else runs them: the docs job executes the
+`docs/src/tutorials/*.md` `@example` blocks, which are different files. Their
+`Manifest.toml` is untracked, so a stale local one (it survived the M0 rename
+still naming `MagestyRebuild`) breaks the env, not the repo: `rm
+examples/Manifest.toml && julia --project=examples -e 'using Pkg; Pkg.resolve()'`.
 
 ## Git (this rebuild)
 
