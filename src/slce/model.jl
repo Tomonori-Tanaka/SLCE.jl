@@ -329,6 +329,44 @@ The ordered SALC basis functions of `basis` (column order of the design matrix).
 salcs(b::SLCEBasis) = b.salc_basis.salcs
 
 """
+    ASRReparam
+
+The acoustic-sum-rule (translation-invariance) reparameterization of a joint
+basis: the row-normalized constraint matrix `A` (`A·β = 0` ⇔ the model energy is
+invariant under rigid translations `u_a → u_a + t`), an **orthonormal** null-space
+basis `Z` (`β = beta_p + Z·γ`; identity blocks on pure-spin columns), the
+particular solution `beta_p` (all-zero in the homogeneous case — the affine slot
+exists so the staged-fit slice can carry frozen-stage offsets without reworking
+this type), and `rank(A)`. Built once per basis by [`build_asr`](@ref) at
+`SLCEDataset` construction and stored on `dataset.asr`; `_assemble_problem` only
+applies it. Never persisted — `Z`'s gauge is factorization-dependent, while
+`β = Z·γ` is gauge-invariant, so `jphi` remains the only stored coefficient
+object and [`asr_residual`](@ref) re-verifies models from the basis.
+"""
+struct ASRReparam
+    A::Matrix{Float64}
+    Z::Matrix{Float64}
+    beta_p::Vector{Float64}
+    rank::Int
+
+    function ASRReparam(A::Matrix{Float64}, Z::Matrix{Float64},
+                        beta_p::Vector{Float64}, rank::Int)
+        p = size(A, 2)
+        size(Z, 1) == p ||
+            throw(DimensionMismatch("Z has $(size(Z, 1)) rows for $p constraint " *
+                                    "columns"))
+        length(beta_p) == p ||
+            throw(DimensionMismatch("beta_p has length $(length(beta_p)) for $p " *
+                                    "columns"))
+        size(Z, 2) == p - rank ||
+            throw(DimensionMismatch("Z has $(size(Z, 2)) columns; expected " *
+                                    "p − rank = $(p - rank)"))
+        0 <= rank <= p || throw(ArgumentError("rank must be in 0:$p; got $rank"))
+        return new(A, Z, beta_p, rank)
+    end
+end
+
+"""
     SLCEDataset(basis, configs, energies)
     SLCEDataset(basis, configs, energies, torques)
     SLCEDataset(basis, configs, energies, torques, torque_sel)
@@ -398,6 +436,10 @@ struct SLCEDataset
     y_F::Vector{Float64}
     force_config::Vector{Int}    # config index of each force row (nondecreasing)
     force_cols::Vector{Int}      # SALC columns with displacement content (increasing)
+    # ASR reparameterization (basis property, `force_cols` discipline): `nothing`
+    # on pure-spin bases — the structural fast path that keeps those fits bitwise
+    # identical. Built once at construction, carried by slicing/`vcat`.
+    asr::Union{Nothing,ASRReparam}
     # Dataset-level identity summary (setup_id / soc / reference_id /
     # reference_fingerprint; the per-datum booleans stay false here). The
     # one-setup / one-reference invariants are checked at construction from
@@ -414,7 +456,8 @@ struct SLCEDataset
                         X_F::Matrix{Float64} = Matrix{Float64}(undef, 0, 0),
                         y_F::Vector{Float64} = Float64[],
                         force_config::Vector{Int} = Int[],
-                        force_cols::Vector{Int} = Int[])
+                        force_cols::Vector{Int} = Int[],
+                        asr::Union{Nothing,ASRReparam} = nothing)
         nc = length(configs)
         (size(X_E, 1) == nc && length(y_E) == nc) ||
             throw(DimensionMismatch("X_E/y_E rows ($(size(X_E, 1))/$(length(y_E))) " *
@@ -460,8 +503,11 @@ struct SLCEDataset
                                     "targets are meaningless without the displacement " *
                                     "fields they were computed at"))
         end
+        asr === nothing || size(asr.A, 2) == n_salcs(basis) ||
+            throw(DimensionMismatch("asr constraint matrix has $(size(asr.A, 2)) " *
+                                    "columns for $(n_salcs(basis)) SALC columns"))
         return new(basis, configs, disps, X_E, y_E, X_T, y_T, torque_config,
-                   X_F, y_F, force_config, force_cols, provenance)
+                   X_F, y_F, force_config, force_cols, asr, provenance)
     end
 end
 
@@ -549,7 +595,7 @@ function Base.getindex(d::SLCEDataset, idx::AbstractVector{<:Integer})::SLCEData
     X_F, y_F, fc = _slice_channel_rows(d.X_F, d.y_F, d.force_config, idx)
     return SLCEDataset(d.basis, cfgs, X_E, y_E, X_T, y_T, tc, d.provenance;
                       disps = dsp, X_F = X_F, y_F = y_F, force_config = fc,
-                      force_cols = d.force_cols)
+                      force_cols = d.force_cols, asr = d.asr)
 end
 
 function Base.getindex(d::SLCEDataset, mask::AbstractVector{Bool})::SLCEDataset
@@ -621,6 +667,21 @@ function Base.vcat(a::SLCEDataset, rest::SLCEDataset...)::SLCEDataset
                                 "blocks are not column-compatible"))
         end
     end
+    # The ASR reparameterization is a basis property like `force_cols`: take it
+    # from any part that carries one, but refuse silent disagreement — a
+    # hand-built part missing its `asr` must not inherit another part's Z/A
+    # unnoticed when other parts carry a DIFFERENT reparameterization object.
+    asr = nothing
+    for p in parts
+        p.asr === nothing && continue
+        if asr === nothing
+            asr = p.asr
+        elseif !(p.asr === asr || (p.asr.A == asr.A && p.asr.Z == asr.Z))
+            throw(ArgumentError("parts disagree on the ASR reparameterization — " *
+                                "rebuild the hand-built part with " *
+                                "asr = SLCE.build_asr(basis)"))
+        end
+    end
     tc = Int[]
     fc = Int[]
     off = 0
@@ -643,7 +704,8 @@ function Base.vcat(a::SLCEDataset, rest::SLCEDataset...)::SLCEDataset
                       X_F = X_F,
                       y_F = reduce(vcat, [p.y_F for p in parts]),
                       force_config = fc,
-                      force_cols = fcols)
+                      force_cols = fcols,
+                      asr = asr)
 end
 
 # Spin configurations must be `3 × n_atoms` with finite, unit-norm columns — the
@@ -801,10 +863,12 @@ end
 
 The **full result of [`fit`](@ref)**: the [`SLCEDataset`](@ref) (with its design
 matrices), the fitted `j0`/`jphi`, the `estimator`, the `torque_weight` /
-`force_weight` used, and the (energy) residuals. This is the heavyweight,
-data-bearing object you query for diagnostics ([`r2_energy`](@ref),
-[`rmse_energy`](@ref), [`residuals_energy`](@ref), …). For prediction and storage,
-convert it to the lightweight [`SLCEModel`](@ref) with `SLCEModel(fit)`.
+`force_weight` used, whether the ASR constraint was applied (`asr`, with the
+achieved relative residual `asr_residual` — see [`asr_residual`](@ref)), and the
+(energy) residuals. This is the heavyweight, data-bearing object you query for
+diagnostics ([`r2_energy`](@ref), [`rmse_energy`](@ref),
+[`residuals_energy`](@ref), …). For prediction and storage, convert it to the
+lightweight [`SLCEModel`](@ref) with `SLCEModel(fit)`.
 """
 struct SLCEFit
     dataset::SLCEDataset
@@ -814,4 +878,11 @@ struct SLCEFit
     residuals::Vector{Float64}
     torque_weight::Float64
     force_weight::Float64
+    # Whether the ASR reparameterization was APPLIED (false for pure-spin bases
+    # even under `asr = true` — there is nothing to constrain) and the achieved
+    # relative residual ‖A·β‖/(‖A‖·‖β‖). Part of the re-assembly contract:
+    # `refit`/`gcv`/`effective_dof` reconstruct the same problem from these
+    # fields, exactly like `torque_weight`/`force_weight`.
+    asr::Bool
+    asr_residual::Float64
 end

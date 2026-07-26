@@ -15,8 +15,22 @@ using SLCE: ElasticNet, AdaptiveLasso
 import SLCE: solve_coefficients
 using GLMNet: glmnet, glmnetcv
 
+# L1 under an ASR null-space reparameterization is a generalized lasso GLMNet
+# cannot solve, and L1 on γ is factorization-gauge-dependent and selects nothing
+# physical — reject rather than silently solve a different objective (design
+# record §6 amendment 6). GroupAdaptiveRidge generalizes cleanly; point there.
+function _reject_nullspace(nullspace)
+    nullspace === nothing ||
+        throw(ArgumentError("L1 estimators do not support ASR-constrained solves " *
+                            "(a generalized lasso; L1 on γ would be gauge-" *
+                            "dependent). Use GroupAdaptiveRidge, or fit with " *
+                            "asr = false for an unconstrained ablation."))
+    return nothing
+end
+
 function solve_coefficients(est::ElasticNet, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing)::Vector{Float64}
+                            groups = nothing, nullspace = nothing)::Vector{Float64}
+    _reject_nullspace(nullspace)
     Xf = Matrix{Float64}(X)
     yf = Vector{Float64}(y)
     return _glmnet_solve(Xf, yf, est.alpha, est.lambda, est.standardize, est.nfolds,
@@ -24,7 +38,8 @@ function solve_coefficients(est::ElasticNet, X::AbstractMatrix, y::AbstractVecto
 end
 
 function solve_coefficients(est::AdaptiveLasso, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing)::Vector{Float64}
+                            groups = nothing, nullspace = nothing)::Vector{Float64}
+    _reject_nullspace(nullspace)
     Xf = Matrix{Float64}(X)
     yf = Vector{Float64}(y)
     # First stage: the pilot fit (any estimator) supplies the adaptive weights. Its own

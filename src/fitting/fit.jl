@@ -9,8 +9,22 @@
 # displacement-active SALCs in `dataset.force_cols`); it is scattered into the full
 # design width here — the structurally zero columns exist only in the assembled
 # stack, never in the dataset.
-function _assemble_problem(dataset::SLCEDataset, wT::Float64, wF::Float64 = 0.0)
-    X_E = dataset.X_E
+#
+# With an ASR reparameterization `rep` (built once at dataset construction — this
+# function only APPLIES it, design record §6 amendment 1) every block is
+# right-multiplied by the orthonormal null-space basis `Z` BEFORE stacking (the
+# compact force block via `Z[force_cols, :]`, never materializing the scattered
+# zeros), so the estimator solves in γ with `β = Z·γ` exactly satisfying `A·β = 0`.
+# `xbar` is then the γ-space column mean — `j0 = ȳ − x̄ᵀγ = ȳ − (x̄_β)ᵀβ` either
+# way. `rep === nothing` (pure-spin, or `asr = false`) is the structural fast path,
+# bitwise identical to the unconstrained assembly.
+function _assemble_problem(dataset::SLCEDataset, wT::Float64, wF::Float64 = 0.0,
+                           rep::Union{Nothing,ASRReparam} = nothing)
+    if rep !== nothing && any(!iszero, rep.beta_p)
+        throw(ArgumentError("affine ASR (nonzero beta_p — a frozen-stage offset) " *
+                            "lands with the staged-fit slice"))
+    end
+    X_E = rep === nothing ? dataset.X_E : dataset.X_E * rep.Z
     y_E = dataset.y_E
     xbar = vec(mean(X_E; dims = 1))
     ybar = mean(y_E)
@@ -52,7 +66,8 @@ function _assemble_problem(dataset::SLCEDataset, wT::Float64, wF::Float64 = 0.0)
                     round(n_T / (tblock * n_E); digits = 3) maxlog = 1
             end
             sm = sqrt(wT / n_T)
-            push!(blocksX, dataset.X_T .* sm)
+            push!(blocksX, rep === nothing ? dataset.X_T .* sm :
+                           (dataset.X_T * rep.Z) .* sm)
             push!(blocksy, dataset.y_T .* sm)
             append!(groups, dataset.torque_config)
         end
@@ -73,8 +88,13 @@ function _assemble_problem(dataset::SLCEDataset, wT::Float64, wF::Float64 = 0.0)
                     round(n_F / (fblock * n_E); digits = 3) maxlog = 1
             end
             sf = sqrt(wF / n_F)
-            Xf = zeros(Float64, n_F, size(X_E, 2))
-            @views Xf[:, dataset.force_cols] .= dataset.X_F .* sf
+            if rep === nothing
+                Xf = zeros(Float64, n_F, size(X_E, 2))
+                @views Xf[:, dataset.force_cols] .= dataset.X_F .* sf
+            else
+                # compact-block path: only the force-active rows of Z are needed
+                Xf = (dataset.X_F .* sf) * rep.Z[dataset.force_cols, :]
+            end
             push!(blocksX, Xf)
             push!(blocksy, dataset.y_F .* sf)
             append!(groups, dataset.force_config)
@@ -115,9 +135,19 @@ receives per-row group labels so its folds are **grouped by configuration** — 
 configuration's energy row and its torque-/force-component rows are never split
 across the train/holdout boundary, which would otherwise leak within-configuration
 structure into the CV estimate and bias λ selection.
+
+With `asr = true` (the default) and a displacement-decorated basis, the fit is
+solved under the exact acoustic-sum-rule constraint `A·β = 0` (energy invariance
+under rigid translations `u_a → u_a + t`) by the null-space reparameterization
+`β = Z·γ` stored on `dataset.asr` — the constraint holds by construction, not
+approximately. Pure-spin bases have no constraints and take a structurally
+identical (bitwise) path. `asr = false` fits unconstrained — for ablations and
+the translation-violation demonstration only: an unconstrained joint model's
+energy is not translation-invariant.
 """
 function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator;
-             torque_weight::Real = 0.0, force_weight::Real = 0.0)::SLCEFit
+             torque_weight::Real = 0.0, force_weight::Real = 0.0,
+             asr::Bool = true)::SLCEFit
     isempty(dataset.y_E) && throw(ArgumentError("dataset has no observations"))
     w = Float64(torque_weight)
     wF = Float64(force_weight)
@@ -137,11 +167,27 @@ function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator
                             "build it from TrainingDatum vectors with force channels " *
                             "against a displacement-decorated basis"))
     end
-    X, y, xbar, ybar, groups = _assemble_problem(dataset, w, wF)
-    jphi = solve_coefficients(estimator, X, y; groups = groups)
-    j0 = ybar - dot(xbar, jphi)
+    rep = asr ? dataset.asr : nothing
+    # A displacement-decorated basis without a reparameterization (AllImages
+    # self-images, or a hand-built dataset that skipped `build_asr`) must not
+    # silently take the pure-spin fast path under `asr = true` — unconstrained
+    # joint fits are an explicit opt-out.
+    if asr && rep === nothing && _basis_has_disp(dataset.basis)
+        throw(ArgumentError("asr = true but this displacement-decorated dataset " *
+                            "carries no ASR reparameterization (AllImages " *
+                            "self-image basis, or a hand-built dataset without " *
+                            "SLCE.build_asr) — pass asr = false to fit " *
+                            "unconstrained deliberately"))
+    end
+    X, y, xbar, ybar, groups = _assemble_problem(dataset, w, wF, rep)
+    gamma = solve_coefficients(estimator, X, y; groups = groups,
+                               nullspace = rep === nothing ? nothing : rep.Z)
+    j0 = ybar - dot(xbar, gamma)          # = ȳ − x̄_βᵀβ (γ-space x̄ under rep)
+    jphi = rep === nothing ? gamma : rep.Z * gamma
     residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
-    return SLCEFit(dataset, j0, jphi, estimator, residuals, w, wF)
+    applied = rep !== nothing
+    return SLCEFit(dataset, j0, jphi, estimator, residuals, w, wF, applied,
+                  applied ? _asr_residual(rep, jphi) : 0.0)
 end
 
 """
@@ -167,6 +213,14 @@ is returned (with a warning) and `j0` falls back to `mean(y_E)`.
 A [`PrecomputedPilot`](@ref) (or an [`AdaptiveLasso`](@ref) whose pilot is one) is
 rejected: its fixed coefficient vector has the original column count, not the refit
 support length, and is meaningless once a support has been chosen.
+
+On an ASR-constrained fit the support restriction changes the feasible space: the
+null space of `A[:, support]` is **re-derived** (design record §6 amendment 5 —
+reusing the full-basis `Z` restricted to the support is not a null space, and an
+unconstrained refit would silently re-break translation invariance in the de-bias
+step). Setting the off-support coefficients to zero is always feasible (the
+constraint is homogeneous), but a support that splits a constraint-coupled column
+set can force some survivors to zero — legal, and surfaced with a warning.
 """
 function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
                threshold::Real = 0.0)::SLCEFit
@@ -175,12 +229,15 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
     dataset = f.dataset
     w = f.torque_weight
     wF = f.force_weight
+    # β-space assembly: the support rule and the analytic j0 live in β coordinates
+    # regardless of the constraint (the alive rule measures physical contribution).
     X, y, xbar, ybar, groups = _assemble_problem(dataset, w, wF)
     jphi_in = f.jphi
     # Scaled-magnitude support on the assembled design: a column survives when its
     # contribution magnitude |jϕ_j|·‖X[:, j]‖ clears the threshold.
     support = findall(j -> abs(jphi_in[j]) * norm(@view X[:, j]) > threshold,
                       eachindex(jphi_in))
+    rep = f.asr ? dataset.asr : nothing
     jphi = zeros(Float64, length(jphi_in))
     if isempty(support)
         # Short-circuit before `solve_coefficients`: a GLMNet-backed estimator would error
@@ -189,13 +246,39 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
         @warn "refit: empty support — every coefficient is at or below the " *
               "scaled-magnitude threshold. Returning an all-zero jϕ; " *
               "j0 falls back to mean(y_E)." threshold
-    else
+    elseif rep === nothing
         jphi[support] .= solve_coefficients(estimator, view(X, :, support), y;
                                             groups = groups)
+    else
+        # Constrained refit: β_{S^c} = 0 exactly, so the constraint reduces to
+        # A[:, S]·β_S = 0 — re-derive its null space and solve in the restricted
+        # γ space. Columns whose Z_S rows vanish are structurally zeroed by the
+        # support choice (their constraint partners were dropped); say so.
+        Z_S, _ = _asr_nullspace(rep.A[:, support])
+        if size(Z_S, 2) == 0
+            @warn "refit: the ASR constraint annihilates the selected support — " *
+                  "every surviving column needs a dropped partner to stay " *
+                  "translation-invariant. Returning an all-zero jϕ." threshold
+        else
+            # Warn only about columns the SUPPORT kills — columns already dead
+            # under the full constraint (basis-level, reported by `build_asr`)
+            # are dead for every support and are not the support's doing.
+            dead = [support[k] for k in axes(Z_S, 1)
+                    if norm(@view Z_S[k, :]) < 1e-12 &&
+                       norm(@view rep.Z[support[k], :]) >= 1e-12]
+            isempty(dead) ||
+                @warn "refit: the support splits an ASR-coupled column set — " *
+                      "these surviving columns are structurally zeroed by the " *
+                      "constraint" columns = dead
+            gamma = solve_coefficients(estimator, view(X, :, support) * Z_S, y;
+                                       groups = groups, nullspace = Z_S)
+            jphi[support] .= Z_S * gamma
+        end
     end
     j0 = ybar - dot(xbar, jphi)
     residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
-    return SLCEFit(dataset, j0, jphi, estimator, residuals, w, wF)
+    return SLCEFit(dataset, j0, jphi, estimator, residuals, w, wF, rep !== nothing,
+                  rep === nothing ? 0.0 : _asr_residual(rep, jphi))
 end
 
 # A `PrecomputedPilot` carries a fixed, full-design coefficient vector. `refit` and

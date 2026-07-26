@@ -225,6 +225,43 @@ function _edof(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64};
     return df
 end
 
+# ASR generalization of `_edof`: the β-space penalty diagonal `w` compresses to the
+# dense SPD matrix `P = Z'·D·Z` in γ space, so the diagonal-whitening shortcut is
+# silently wrong under `Z` — whiten by the Cholesky factor of `P` instead (design
+# record §6 amendment 6). `X` here is the γ-space design `X̃ = X_β·Z` (q columns);
+# q is small for joint bases, so the primal q × q eigenproblem suffices.
+function _edof_ns(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64},
+                  Z::Matrix{Float64})::Float64
+    all(>(0.0), w) ||
+        throw(ArgumentError("effective_dof/gcv: the penalty diagonal has a " *
+                            "nonpositive weight (a zero GroupAdaptiveRidge " *
+                            "group weight?) — the compressed penalty Z'DZ must " *
+                            "be positive definite"))
+    P = Symmetric(Z' * (w .* Z))
+    C = cholesky(P)
+    G = X' * X
+    W = (C.U' \ G) / C.U                      # U⁻ᵀ·(X̃'X̃)·U⁻¹, P = U'U
+    df = 0.0
+    for s in eigvals(Symmetric(Matrix(W)))
+        s > 0.0 || continue
+        df += s / (s + lambda)
+    end
+    return df
+end
+
+# Rows whose whitening weight is exactly zero (the energy block at
+# w_T + w_F = 1) carry no information; GCV's `n` must not count them or the score
+# is systematically optimistic. They stay in the SOLVE stack (bitwise compatibility
+# of the fitted coefficients) — only the counting changes.
+# The zero-weight condition is the SAME expression `_assemble_problem` scales
+# with (`√(max(0, 1 − wT − wF)/n_E)`) — a `wT + wF >= 1` test can disagree with
+# it by one rounding at sums that straddle 1 (e.g. 1/3 + 2/3).
+_gcv_neff(f::SLCEFit)::Int =
+    (max(0.0, 1 - f.torque_weight - f.force_weight) == 0.0 ? 0 :
+     size(f.dataset.X_E, 1)) +
+    (f.torque_weight > 0 ? length(f.dataset.y_T) : 0) +
+    (f.force_weight > 0 ? length(f.dataset.y_F) : 0)
+
 """
     effective_dof(f::SLCEFit) -> Float64
 
@@ -235,30 +272,40 @@ counts the analytic intercept `j0`. For an unpenalized fit ([`OLS`](@ref), or
 `lambda = 0`) this is the design rank `+1`. Distinct from [`dof`](@ref), the raw
 parametric count. Linear estimators only ([`islinear`](@ref)); the adaptive members
 ([`AdaptiveRidge`](@ref) / [`GroupAdaptiveRidge`](@ref)) are handled in the standard
-converged-weight sense.
+converged-weight sense. On an ASR-constrained fit the hat matrix lives in the
+reparameterized (γ) space — the β-space penalty compresses to `Z'·D·Z` — so the
+value is bounded by `p − rank(A) + 1`.
 """
 function effective_dof(f::SLCEFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "effective_dof requires a linear estimator (`islinear`); " *
         "got $(typeof(f.estimator))"))
-    X, _, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight)
+    rep = f.asr ? f.dataset.asr : nothing
+    X, _, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight, rep)
     lambda, w = _penalty_diagonal(f.estimator, f.jphi)
-    df = w === nothing ? _rank_df(X) : _edof(X, lambda, w)
+    df = w === nothing ? _rank_df(X) :
+         (rep === nothing ? _edof(X, lambda, w) : _edof_ns(X, lambda, w, rep.Z))
     return df + 1.0
 end
 
 # The GCV score (and the effective dof it used, intercept included) on an already-
 # assembled problem; shared by `gcv(::SLCEFit)` and the `select_fit` λ-path driver
-# (which passes its cached `XtX`). `w === nothing` ⇔ unpenalized. The score is `Inf`
-# when `df` approaches the row count `n` (the near-interpolating regime, where the GCV
-# denominator loses meaning); the ≥ 1 slack keeps the score from exploding on rounding
-# when `df ≈ n`.
+# (which passes its cached `XtX`). `w === nothing` ⇔ unpenalized. `beta` must be in
+# the SAME coordinate space as `X`'s columns (γ under ASR — the caller compresses).
+# `n_eff` is the informative row count (`size(X, 1)` minus zero-weight rows). The
+# score is `Inf` when `df` approaches `n_eff` (the near-interpolating regime, where
+# the GCV denominator loses meaning); the ≥ 1 slack keeps the score from exploding
+# on rounding when `df ≈ n_eff`.
 function _gcv_score(X::Matrix{Float64}, y::Vector{Float64}, beta::Vector{Float64},
                     lambda::Float64, w::Union{Nothing,Vector{Float64}};
                     XtX::Union{Nothing,Matrix{Float64}} = nothing,
+                    Z::Union{Nothing,Matrix{Float64}} = nothing,
+                    n_eff::Int = size(X, 1),
                     )::Tuple{Float64,Float64}
-    n = size(X, 1)
-    df = (w === nothing ? _rank_df(X) : _edof(X, lambda, w; XtX = XtX)) + 1.0
+    n = n_eff
+    df = (w === nothing ? _rank_df(X) :
+          (Z === nothing ? _edof(X, lambda, w; XtX = XtX) :
+           _edof_ns(X, lambda, w, Z))) + 1.0
     n - df < max(1.0, 1e-8 * n) && return (Inf, df)
     rss = sum(abs2, y .- X * beta)
     return (n * rss / (n - df)^2, df)
@@ -285,9 +332,14 @@ Linear estimators only ([`islinear`](@ref)).
 function gcv(f::SLCEFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "gcv requires a linear estimator (`islinear`); got $(typeof(f.estimator))"))
-    X, y, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight)
+    rep = f.asr ? f.dataset.asr : nothing
+    X, y, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight, rep)
     lambda, w = _penalty_diagonal(f.estimator, f.jphi)
-    return first(_gcv_score(X, y, f.jphi, lambda, w))
+    # under ASR the assembled design is γ-space: compress β (orthonormal Z ⇒ γ = Z'β)
+    beta = rep === nothing ? f.jphi : rep.Z' * f.jphi
+    return first(_gcv_score(X, y, beta, lambda, w;
+                            Z = rep === nothing ? nothing : rep.Z,
+                            n_eff = _gcv_neff(f)))
 end
 
 # --- λ-path driver with the cost-aware Pareto selection rule ----------------------
@@ -471,6 +523,15 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
                     threshold::Union{Nothing,Real} = nothing, nfolds::Integer = 5,
                     seed::Integer = 1)::SelectionPath
     isempty(dataset.y_E) && throw(ArgumentError("dataset has no observations"))
+    # The λ path below solves UNCONSTRAINED (direct `_solve_gar` on the cached
+    # Gram); running it on an ASR-carrying joint basis would silently diverge from
+    # `fit`'s constrained default. Joint selection needs the channel-split group
+    # costs (design record §6) — reject until that lands.
+    dataset.asr === nothing ||
+        throw(ArgumentError("select_fit on an ASR-constrained (joint) basis is " *
+                            "not implemented yet — the λ path and the group cost " *
+                            "model are pure-spin; use fit/cross_validate for " *
+                            "joint models"))
     w = Float64(torque_weight)
     (0.0 <= w <= 1.0) || throw(ArgumentError("torque_weight must be in [0, 1]; got $w"))
     if w > 0 && !has_torque(dataset)
@@ -545,16 +606,22 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
 
     edof = fill(NaN, nl)
     score = Vector{Float64}(undef, nl)
+    # w = 1 leaves the energy rows in the stack with exactly zero weight — they
+    # carry no information and must not inflate GCV's n (same zero test as the
+    # assembly's scale expression).
+    neff = n - (max(0.0, 1 - w) == 0.0 ? length(dataset.y_E) : 0)
     if criterion === :gcv
         wv = Vector{Float64}(undef, length(Xty))
         normsq = Vector{Float64}(undef, G)
         for i = 1:nl
             if lams[i] == 0.0
-                score[i], edof[i] = _gcv_score(X, y, betas[i], 0.0, nothing)
+                score[i], edof[i] = _gcv_score(X, y, betas[i], 0.0, nothing;
+                                               n_eff = neff)
             else
                 _gar_weights!(wv, betas[i], est.column_groups, est.group_weights,
                               est.group_sizes, est.epsilon, normsq)
-                score[i], edof[i] = _gcv_score(X, y, betas[i], lams[i], wv; XtX = XtX)
+                score[i], edof[i] = _gcv_score(X, y, betas[i], lams[i], wv;
+                                               XtX = XtX, n_eff = neff)
             end
         end
     else
@@ -619,14 +686,15 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
     n_alive[sel], cost[sel], t_sel = alive_stats!(alive, fsel.jphi)
     if criterion === :gcv
         if lams[sel] == 0.0
-            score[sel], edof[sel] = _gcv_score(X, y, fsel.jphi, 0.0, nothing)
+            score[sel], edof[sel] = _gcv_score(X, y, fsel.jphi, 0.0, nothing;
+                                               n_eff = neff)
         else
             wv = Vector{Float64}(undef, length(Xty))
             normsq = Vector{Float64}(undef, G)
             _gar_weights!(wv, fsel.jphi, est.column_groups, est.group_weights,
                           est.group_sizes, est.epsilon, normsq)
             score[sel], edof[sel] = _gcv_score(X, y, fsel.jphi, lams[sel], wv;
-                                               XtX = XtX)
+                                               XtX = XtX, n_eff = neff)
         end
     end
     return SelectionPath(lams, score, criterion, edof, n_alive, cost, Float64(delta),
@@ -758,6 +826,11 @@ function select_support(f::SLCEFit;
                             "$(f.force_weight)) — cost-weighted support selection " *
                             "for the force channel is not implemented yet; select " *
                             "on a fit with force_weight = 0"))
+    f.dataset.asr === nothing ||
+        throw(ArgumentError("select_support on an ASR-constrained (joint) basis " *
+                            "is not implemented yet — the group cost model is " *
+                            "pure-spin; use refit directly for constrained " *
+                            "de-biasing"))
 
     # per-group max scaled magnitude on the assembled training design (refit's rule)
     X, _, _, _, _ = _assemble_problem(f.dataset, w)
@@ -900,7 +973,7 @@ score would leak the held-out data.
 """
 function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
                         torque_weight::Real = 0.0, nfolds::Integer = 5,
-                        seed::Integer = 1)::CVResult
+                        seed::Integer = 1, asr::Bool = true)::CVResult
     w = Float64(torque_weight)
     (0.0 <= w <= 1.0) || throw(ArgumentError("torque_weight must be in [0, 1]; got $w"))
     if w > 0 && !has_torque(dataset)
@@ -951,7 +1024,7 @@ function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
     for k = 1:nf
         ho = findall(==(k), folds)
         tr = findall(!=(k), folds)
-        f = fit(SLCEFit, dataset[tr], estimator; torque_weight = w)
+        f = fit(SLCEFit, dataset[tr], estimator; torque_weight = w, asr = asr)
         hset = dataset[ho]
         residE = hset.y_E .- (f.j0 .+ hset.X_E * f.jphi)
         mseE = mean(abs2, residE)

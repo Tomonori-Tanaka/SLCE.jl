@@ -17,6 +17,9 @@ makedocs(;
         edit_link = nothing,
         repolink = "",
         footer = "Built with [Documenter.jl](https://documenter.juliadocs.org).",
+        # api.md is one deliberate flat reference page; it crossed the default
+        # 200 KiB HTML threshold with the joint/ASR docstrings.
+        size_threshold = 400 * 2^10,
     ),
     pages = [
         "Home" => "index.md",

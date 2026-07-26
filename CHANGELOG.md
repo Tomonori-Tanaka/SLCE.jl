@@ -6,6 +6,84 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — acoustic sum rule: exact translation-invariance constraints (M3 slice 4)
+
+- **ASR as exact linear equality constraints** `A·β = 0` (energy invariance under
+  rigid translations `u_a → u_a + t`), enforced by null-space reparameterization
+  `β = Z·γ` — by construction, never approximately, never as a penalty. The
+  constraint matrix is built **symbolically**: the translation generator
+  `D = Σ_a ∇_{u_a}` applied to every displacement-decorated SALC, expanded in one
+  common unsymmetrized monomial basis across orbits (spin factors as opaque
+  symbols; displacement factors via `SolidHarmonics.solid_harmonic_poly`, an exact
+  coefficient-space rerun of the evaluator's own recurrences, gated against the
+  numeric kernel). `A` lives in design-column coordinates (the `(4π)^{n_spin/2}`
+  evaluator scale included).
+- **Rank policy**: row-normalized `A`, exact connected components, per-component
+  SVD with cut `σ ≤ 1e-10·σ_max` and a **forbidden band** (`σ ∈
+  [1e-12, 1e-8]·σ_max` ⇒ error — ambiguous rank refuses, never guesses); `Z` is
+  orthonormal per component, identity on pure-spin columns. `rank(A)` is gated for
+  exact equality against an **independent numerical translation image** (random
+  points through the production `accumulate_grad!`) in the test suite. A
+  truncation admitting NO translation-invariant displacement content (e.g. pair
+  `(1,1)` splits without on-site partners under `pmax = 1`) is correct but loud
+  (warning at build).
+- **Placement** (`force_cols` discipline): `build_asr(basis)` runs once at
+  `SLCEDataset` construction, stored on `dataset.asr` (`nothing` for pure-spin
+  bases — the structural fast path; carried by slicing/`vcat`);
+  `_assemble_problem` only applies it (each block right-multiplied by `Z` before
+  stacking, the compact force block via `Z[force_cols, :]`). Nothing is
+  persisted: `Z`'s gauge is factorization-dependent, `β` is gauge-invariant, and
+  the public verifier `asr_residual(model)` recomputes `‖Aβ‖/(‖A‖·‖β‖)` from the
+  basis (fingerprint precedent).
+- **`fit(...; asr = true)`** (default ON — no joint users existed, so this is the
+  free moment): the estimator solves in γ; `SLCEFit` records the applied flag and
+  achieved residual (part of the re-assembly contract). Pure-spin fits are
+  **bitwise identical** under either setting (gated). `asr = false` is for the
+  §12 (k) violation demonstration and ablations — an unconstrained joint fit on
+  noisy data demonstrably breaks translation invariance and `Σ_a f_a = 0`.
+- **β-space penalties through `Z`**: `solve_coefficients` gains a `nullspace`
+  kwarg. OLS/Ridge are unchanged (orthonormal `Z` ⇒ γ-space solve ≡ β-penalized
+  constrained solve); AdaptiveRidge/GroupAdaptiveRidge evaluate their unchanged
+  β-space weight maps at `β = Z·γ` and solve the compressed SPD system
+  `X̃'X̃ + λ·Z'·D(β)·Z` (the log-sum MM descent survives restriction to a
+  subspace). `PrecomputedPilot` and the GLMNet L1 estimators reject constrained
+  solves with pointed messages (L1 under `Z` is a generalized lasso; L1 on γ is
+  gauge-dependent).
+- **`refit` re-derives the support null space** `null(A[:, S])` — an
+  unconstrained refit would silently re-break translation invariance in the
+  de-bias step. A support that splits a constraint-coupled column set structurally
+  zeroes survivors (legal, warned); translation/`Σf = 0` gates run post-refit in
+  the test suite.
+- **Diagnostics in the reparameterized space**: `dof` = `p − rank(A) + 1` (free
+  parameters), `effective_dof`/`gcv` whiten the compressed penalty by Cholesky
+  congruence (`Z'DZ` is dense — the diagonal shortcut would be silently wrong),
+  and GCV's `n` now excludes exactly-zero-weight rows (the energy block at
+  `w_T + w_F = 1`; also fixed on the pure-spin `select_fit` path).
+  `cross_validate` fits each fold under the same `asr` setting (kwarg).
+- **Fences**: `select_fit`/`select_support` reject ASR-carrying (joint) bases —
+  their λ path and group-cost model are pure-spin until the channel-split
+  `group_costs` lands. The affine constraint slot (`ASRReparam.beta_p`, for
+  frozen-stage offsets) exists but throws until the staged-fit slice.
+- Review-round hardening (numerical + code review): **cancellation residue in
+  `A` is pruned to exact zeros per row** and the row drops are relative — a
+  `refit` column subselection can no longer promote ~1e-16 roundoff into a
+  full-strength, BLAS-rounding-determined constraint (gated by an
+  empty-a-row's-columns subselection test); `build_asr` refuses a rank-0 result
+  on a displacement-active basis (physically impossible ⇒ broken expansion) and
+  reports **basis-level** structurally-zero columns once, while `refit` warns
+  only about columns its support additionally kills; the constrained IRLS
+  convergence test moved to β (γ's ∞-norm is factorization-gauge-dependent);
+  `_edof_ns` is gated against the dense hat matrix and validates positive
+  weights; the GCV zero-weight-row test uses the assembly's own scale
+  expression (a `wT + wF >= 1` sum test can disagree by one rounding);
+  `vcat` refuses silently disagreeing `asr` fields; an AllImages self-image
+  joint dataset is constructible with `asr = nothing` but `fit`'s default
+  `asr = true` then errors (unconstrained joint fits are an explicit opt-out);
+  the forbidden-band refusal is an `ArgumentError` (package convention); the
+  component-grading and residue-free-row invariants are asserted in the suite.
+- Deferred: a serialized joint prediction fixture (gate (c) touches only
+  pure-spin bases); the recovery-plan-B rank-accounting gate lands with plan B.
+
 ### Added — force design block and three-block co-fit (M3 slice 3)
 
 - **Joint designs**: against a displacement-decorated basis,

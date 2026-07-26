@@ -344,4 +344,149 @@ function grad_Rlm(l::Integer, m::Integer, u::AbstractVector{<:Real})::SVector{3,
     return SVector{3, Float64}(grads[1, idx], grads[2, idx], grads[3, idx])
 end
 
+# ---------------------------------------------------------------------------
+# Monomial coefficients (the ASR constraint builder's symbolic side)
+# ---------------------------------------------------------------------------
+#
+# `solid_harmonic_poly` returns the EXACT monomial expansion of the displacement
+# factor `|u|^{2k} R_{l,m}(u)` as `Dict{(i, j, k′), coeff}` with
+# `x^i y^j z^{k′}`. It reruns the SAME recurrences as `_solid_harmonics_impl!`
+# (the A-recurrence in (z, r²) and the (c_n, s_n) Chebyshev-like recurrence in
+# (x, y)) over coefficient dictionaries instead of Floats, so any change to the
+# evaluator's normalization or recurrence moves this function with it — the
+# agreement gate (evaluated polynomial ≡ kernel value at random points) is the
+# fence. The coefficients are exact small rationals times `_racah_norm`, so the
+# floating error is one rounding per arithmetic step (≪ 1e-14 relative for
+# l ≤ 20).
+
+const _Mono = NTuple{3,Int}
+const _Poly = Dict{_Mono,Float64}
+
+function _poly_axpy!(dest::_Poly, c::Float64, src::_Poly)
+    c == 0.0 && return dest
+    for (m, v) in src
+        dest[m] = get(dest, m, 0.0) + c * v
+    end
+    return dest
+end
+
+# dest = shift-multiply src by the monomial x^i y^j z^k, scaled by c.
+function _poly_monomul(src::_Poly, mono::_Mono, c::Float64 = 1.0)::_Poly
+    out = _Poly()
+    for (m, v) in src
+        out[(m[1] + mono[1], m[2] + mono[2], m[3] + mono[3])] = c * v
+    end
+    return out
+end
+
+function _poly_mul(p::_Poly, q::_Poly)::_Poly
+    out = _Poly()
+    for (mp, vp) in p, (mq, vq) in q
+        m = (mp[1] + mq[1], mp[2] + mq[2], mp[3] + mq[3])
+        out[m] = get(out, m, 0.0) + vp * vq
+    end
+    return out
+end
+
+# ∂p/∂(x, y, z)[axis], exact monomial differentiation.
+function _poly_diff(p::_Poly, axis::Int)::_Poly
+    out = _Poly()
+    for (m, v) in p
+        e = m[axis]
+        e == 0 && continue
+        key = axis == 1 ? (e - 1, m[2], m[3]) :
+              axis == 2 ? (m[1], e - 1, m[3]) : (m[1], m[2], e - 1)
+        out[key] = get(out, key, 0.0) + v * e
+    end
+    return _poly_compact!(out)
+end
+
+# Drop exact-zero entries produced by cancellation. (Collect keys first —
+# mutating a Dict while iterating it is unsupported.)
+function _poly_compact!(p::_Poly)::_Poly
+    for m in collect(keys(p))
+        p[m] == 0.0 && delete!(p, m)
+    end
+    return p
+end
+
+"""
+    solid_harmonic_poly(k, l, m) -> Dict{NTuple{3,Int},Float64}
+
+Exact monomial expansion of the displacement factor `|u|^{2k} · R_{l,m}(u)` (the
+same normalization as [`Rlm`](@ref)): maps `(i, j, k′)` (the exponents of
+`x^i y^j z^{k′}`) to its coefficient. Every monomial has total degree `2k + l`
+(the factor is homogeneous). Used by the ASR constraint builder; gated against
+the numeric kernel by random-point evaluation.
+"""
+function solid_harmonic_poly(k::Integer, l::Integer, m::Integer)::_Poly
+    _validate_lm(l, m)
+    k >= 0 || throw(ArgumentError("need k ≥ 0 (got k=$k)"))
+    n = abs(Int(m))
+    # A_l^n(z, r²) by the homogenized Legendre recurrence, over polynomials.
+    Aprev = _Poly()
+    A = _Poly((0, 0, 0) => _double_factorial_odd(n))
+    for ll = (n + 1):l
+        if ll == n + 1
+            Anew = _poly_monomul(A, (0, 0, 1), 2.0 * n + 1.0)
+        else
+            denom = float(ll - n)
+            Anew = _poly_monomul(A, (0, 0, 1), (2.0 * ll - 1.0) / denom)
+            _poly_axpy!(Anew, -(ll + n - 1.0) / denom, _poly_mul_r2_simple(Aprev))
+        end
+        Aprev = A
+        A = Anew
+    end
+    # (c_n, s_n): real/imag parts of (x + i y)^n.
+    c = _Poly((0, 0, 0) => 1.0)
+    s = _Poly()
+    for _ = 1:n
+        cnew = _poly_monomul(c, (1, 0, 0))
+        _poly_axpy!(cnew, -1.0, _poly_monomul(s, (0, 1, 0)))
+        snew = _poly_monomul(s, (1, 0, 0))
+        _poly_axpy!(snew, 1.0, _poly_monomul(c, (0, 1, 0)))
+        c, s = cnew, snew
+    end
+    K = _racah_norm(l, n)
+    p = m == 0 ? _poly_monomul(A, (0, 0, 0), K) :
+        (m > 0 ? _poly_mul(A, c) : _poly_mul(A, s))
+    if m != 0
+        for key in keys(p)
+            p[key] *= K
+        end
+    end
+    for _ = 1:k
+        p = _poly_mul_r2_simple(p)
+    end
+    return _poly_compact!(p)
+end
+
+# p * (x² + y² + z²) — plain version (used by the recurrence and the radial factor).
+function _poly_mul_r2_simple(p::_Poly)::_Poly
+    out = _Poly()
+    for (m, v) in p
+        for mono in ((2, 0, 0), (0, 2, 0), (0, 0, 2))
+            key = (m[1] + mono[1], m[2] + mono[2], m[3] + mono[3])
+            out[key] = get(out, key, 0.0) + v
+        end
+    end
+    return out
+end
+
+"""
+    poly_eval(p, u) -> Float64
+
+Evaluate a monomial dictionary (as returned by [`solid_harmonic_poly`](@ref)) at
+the Cartesian point `u` — the agreement gate against the numeric kernel.
+"""
+function poly_eval(p::_Poly, u::AbstractVector{<:Real})::Float64
+    _validate_u(u)
+    x, y, z = float(u[1]), float(u[2]), float(u[3])
+    acc = 0.0
+    for (m, v) in p
+        acc += v * x^m[1] * y^m[2] * z^m[3]
+    end
+    return acc
+end
+
 end # module SolidHarmonics

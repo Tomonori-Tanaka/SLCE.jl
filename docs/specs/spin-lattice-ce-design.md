@@ -240,6 +240,91 @@ slots; packed-integer cleverness; per-species row layouts.
   tolerance**, and rank(A) is gated against an independent count. Residual
   gates are *relative* (`‖Aβ‖/(‖A‖‖β‖)`), plus the well-conditioned physical
   form Σ_i f_i = 0 per configuration (§12 k).
+- **ASR amendments (2026-07-26, three-lens design review — numerics /
+  statistics / architecture; reasons recorded per the reopening rule):**
+  1. *Placement split (amends "inside `_assemble_problem`"):* Z is a pure
+     function of the basis; rebuilding it per assembly re-runs the symbolic
+     expansion + factorization ~26× in a `select_support` sweep and ~n_folds×
+     in `cross_validate`, and buries the rank gate in every fit. **Build once
+     at `SLCEDataset` construction and store on `dataset.asr` (the
+     `force_cols` discipline — carried by slicing/`vcat`); `_assemble_problem`
+     only APPLIES it** and returns the reparameterization in its (extended)
+     result so `refit`/GCV/λ-path consumers stay consistent. Never persisted:
+     Z is factorization-gauge-dependent; β is gauge-invariant and remains the
+     only stored coefficient object (fingerprint precedent — recompute, never
+     trust).
+  2. *Z gauge:* per-block **orthonormal** Z (identity on pure-spin columns —
+     structurally skipped via a `nothing` sentinel, giving bitwise identity
+     for pure-spin fits); difference-stencil gauges are the banned
+     relative-coordinate parameterization by stealth. Orthonormality is
+     load-bearing: it makes Ridge-on-β equal Ridge-on-γ verbatim and keeps
+     the IRLS compressed systems (Z'·D(β)·Z, dense only on displacement
+     blocks) well-conditioned.
+  3. *Rank decision (amends the CPQR pin):* per-block **SVD** on
+     row-normalized A with cut σ ≤ 1e-10·σ_max and a **forbidden band**
+     (any σ ∈ [1e-12, 1e-8]·σ_max ⇒ error — ambiguous rank must refuse,
+     never guess); CPQR abandoned entirely — the SVD spectrum IS the
+     ambiguity diagnostic, and the cross-check role is filled by the
+     independent numerically built A (amendment 4), not by a second
+     factorization of the same matrix. Blocks realized as exact
+     connected components of A (gated to respect the (spin content × total
+     disp degree) grading, which D preserves/lowers by one). A is expressed
+     in design-column coordinates (same `(4π)^{n_spin/2}` and future
+     `disp_scale` scaling as the evaluator — a stated invariant with a
+     finite-t consistency gate; the builder must read `spec.disp_scale`
+     the day its ≠1 guard lifts).
+  4. *Gate meaning (amends §12 k reading):* `‖Aβ‖/(‖A‖‖β‖) ≤ 1e-13` is
+     architecturally guaranteed by the reparameterization (‖AZ‖ ~ eps) and
+     passes even if A is WRONG — keep it as a smoke test only. The real
+     acceptance tests are (i) rank(A) equality against an independent
+     numerically built A (random-point evaluation through the production
+     `accumulate_grad!` Gu column sum, SVD rank + subspace angles), with
+     analytic counts on closed fixtures, and (ii) finite-t uniform-translation
+     invariance + per-config Σᵢfᵢ = 0 through the production evaluator —
+     run **after `fit` AND after `refit`/`select_support`**.
+  5. *Support interaction (new mandatory item):* `refit` on a support S must
+     re-derive the null space of `A[:, S]` — reusing the full-basis Z
+     restricted to S is not a null space, and an unconstrained refit silently
+     re-breaks translation invariance in the de-bias step (contaminating
+     every `select_support` point). Homogeneity makes any support feasible
+     (β_{S^c} = 0 ⇒ A[:,S]β_S = 0), but a support splitting a
+     constraint-coupled column set can structurally zero survivors — legal,
+     and surfaced loudly (warn + alive/cost recomputation).
+  6. *Estimator scope:* the "group penalties on β unchanged" pin applies to
+     quadratic/IRLS estimators only (weights evaluated at β = Zγ; solves in
+     γ). L1/GLMNet under Z is a generalized lasso GLMNet cannot solve, and
+     L1-on-γ is gauge-dependent and selects nothing physical — **explicit
+     error when constraints are nontrivial**, message pointing at
+     GroupAdaptiveRidge. `effective_dof`/`gcv` generalize by Cholesky
+     congruence of Z'DZ (the diagonal-whitening shortcut is silently wrong
+     under Z); parametric `dof` becomes q + 1 = p − rank(A) + 1; GCV's n
+     excludes zero-weight rows.
+  7. *Model provenance:* `SLCEFit` records the `asr` flag + achieved residual
+     (refit/GCV re-assembly contract, like torque/force weights); `SLCEModel`
+     and persistence record NOTHING — the public verifier
+     `asr_residual(model)` recomputes ‖Aβ‖/(‖A‖‖β‖) from the basis, and the
+     physical consumers (M4 force constants / dynamical matrix, MC joint
+     ingest) gate on it. Hand-built violating models stay legal (the §12 k
+     violation demonstration requires them). `fit(...; asr = true)` default
+     ON (landing now is the only free moment — no joint users exist);
+     `asr = false` is for the violation demo and ablations.
+  8. *Staged-fit bridge:* the L_S-keyed `sector_mask` DOES straddle
+     constraint rows (e.g. L_S = 0 and L_S = 2 columns of an l=1×l=1×p=1
+     shell share monomial rows), but **if each stage is fitted under its own
+     ASR, the next stage's constraint stays homogeneous**
+     (A_frozen·β_frozen = 0 as a vector). The reparameterization type carries
+     an affine slot (`beta_p`, ≡ 0 in this slice) so the frozen/sector_mask
+     slice adds only the solvability check (−A_frozen β_frozen ∈
+     range(A_free), else throw naming the straddling rows) and the
+     `y ← y − X·beta_p` line.
+  9. *Identifiability payoff (recorded for plan B):* with center-of-mass-free
+     displacement sampling, on-site/self coefficients fall in null(X_F)
+     without ASR (the Φ_ii = −Σ Φ_ij mechanism) and become exactly determined
+     with it; recovery test plan B gains a rank-accounting gate (rank
+     deficiency without ASR = rank(A) on the harmonic block; full rank q with
+     it), and the fitter gains a standing `rank(X̃) < q` residual-flat-direction
+     warning. Rotational (Born–Huang) invariances remain OUT of scope (docs
+     must not claim ASR closes all exact invariances).
 - Hierarchical fit = `fit(...; frozen = ...)` offset + L_S-keyed
   `sector_mask`. The estimator layer (GroupAdaptiveRidge / GCV / select_fit /
   cross_validate) survives verbatim; `group_costs` gains a channel split.

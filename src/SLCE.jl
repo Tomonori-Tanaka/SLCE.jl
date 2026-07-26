@@ -10,7 +10,8 @@ diagnostics, persistence, Sunny export, introspection) is realized; see `SPEC.md
 """
 module SLCE
 
-using LinearAlgebra: norm, det, I, eigen, eigvals, svdvals, Symmetric, Diagonal, dot, cross
+using LinearAlgebra: norm, det, I, eigen, eigvals, svd, svdvals, cholesky, Symmetric,
+    Diagonal, dot, cross
 using StaticArrays
 using Statistics: mean
 using Random: AbstractRNG, default_rng
@@ -51,7 +52,8 @@ include("slce/truncation.jl")     # BasisSpec sugar → dense canonical resoluti
 include("io/provenance.jl")       # DatumProvenance (SLCEDataset stores an identity summary)
 include("slce/model.jl")          # pipeline types + constructors + config validation
 include("basis/sectorbasis.jl")   # sector-table → decor-engine basis construction
-include("fitting/design.jl")     # design-matrix assembly (X_E / X_T)
+include("fitting/asr.jl")        # ASR constraint builder + null-space machinery
+include("fitting/design.jl")     # design-matrix assembly (X_E / X_T / X_F)
 include("fitting/fit.jl")        # fit / refit / predict
 include("fitting/diagnostics.jl")  # coef / intercept / residuals / R² / RMSE
 include("fitting/selection.jl")  # MC-cost group labels/costs, GCV, λ-path + Pareto
@@ -93,6 +95,7 @@ export AbstractSymmetryBackend, NoSymmetry, SpglibBackend
 export BasisSpec, Sector, SLCEBasis, SLCEDataset, SLCEModel, SLCEFit, fit, refit,
     n_salcs, read_setup
 export predict_energy, predict_torque, predict_force, has_torque, has_force
+export asr_residual
 # estimators
 export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, AdaptiveLasso, AdaptiveRidge,
     GroupAdaptiveRidge, PrecomputedPilot
@@ -137,6 +140,7 @@ public has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin
 public spin_decors, spin_ls, rep_scale
 public islinear, solve_coefficients
 public salc_groups, group_costs, cost_weights                        # MC-cost grouping
+public ASRReparam, build_asr                                         # ASR machinery
 public save, load                                                    # TOML persistence
 
 end # module SLCE

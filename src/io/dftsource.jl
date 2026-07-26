@@ -647,9 +647,23 @@ function _joint_dataset(basis::SLCEBasis, data::AbstractVector{TrainingDatum},
             fc = repeat(fsel; inner = 3 * length(fatoms))
         end
     end
+    # Translation-invariance machinery: built once per basis here (the
+    # fit-boundary), applied by `_assemble_problem`. The one recoverable refusal
+    # is the AllImages self-image case (same-site products need a Gaunt
+    # expansion): the dataset is still constructible, but `fit`'s default
+    # `asr = true` will then error rather than silently skip — the user must
+    # write `asr = false` deliberately. Any other builder error propagates.
+    asrrep = try
+        build_asr(basis)
+    catch err
+        (err isa ArgumentError && occursin("self-image", err.msg)) || rethrow()
+        @warn "ASR is unavailable for this basis (AllImages self-image " *
+              "clusters); fits must pass asr = false explicitly" maxlog = 1
+        nothing
+    end
     return SLCEDataset(basis, configs, X_E, energies, X_T, y_T, tc, ident;
                       disps = disps, X_F = X_F, y_F = y_F, force_config = fc,
-                      force_cols = fcols)
+                      force_cols = fcols, asr = asrrep)
 end
 
 # Shortest interatomic distance of the reference crystal under periodic images

@@ -153,6 +153,18 @@ predict_torque
 predict_force
 has_torque
 has_force
+asr_residual
+```
+
+## Acoustic sum rule (translation invariance)
+
+`fit` enforces the ASR by default on displacement-decorated bases (see the
+[fitting guide](guide/fitting.md#The-acoustic-sum-rule-(translation-invariance)));
+the machinery is public but unexported.
+
+```@docs
+SLCE.ASRReparam
+SLCE.build_asr
 ```
 
 ## Diagnostics

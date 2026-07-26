@@ -276,6 +276,43 @@ Easy to break silently — confirm before touching the algorithm.
   yet: `cross_validate`/`select_fit` score energy(+torque) only (documented), and
   `select_support` rejects a force co-fit outright — extending any of them means adding
   force-presence strata AND the channel-split `group_costs` (design record §6).
+- **ASR constraint chain** (`fitting/asr.jl` builder ↔ `basis/SolidHarmonics.jl`
+  `solid_harmonic_poly` ↔ `slce/model.jl` `SLCEDataset.asr`/`ASRReparam` ↔
+  `fitting/fit.jl` `_assemble_problem`/`fit`/`refit` ↔ `fitting/estimators.jl`
+  `solve_coefficients(...; nullspace)` ↔ `fitting/selection.jl` `gcv`/`effective_dof`):
+  the constraint matrix `A` is the translation generator applied to the SAME
+  homogeneous displacement polynomials the evaluator computes —
+  `solid_harmonic_poly` reruns `_solid_harmonics_impl!`'s recurrences over
+  coefficient dictionaries, so changing the displacement kernel's normalization or
+  recurrence moves the poly function with it (the random-point agreement gate is the
+  fence), and `A` carries the evaluator's `(4π)^{n_spin/2}` column scale (a future
+  `disp_scale ≠ 1` must be folded in per degree — the builder asserts against it
+  today). `Z` (orthonormal per connected component, identity on pure-spin columns,
+  SVD rank with the forbidden-band refusal) is built ONCE at dataset construction
+  and stored on `dataset.asr` (carried by slicing/`vcat` like `force_cols`;
+  `nothing` on pure-spin bases — the bitwise-identity fast path is a gate);
+  `_assemble_problem` only APPLIES it, and every consumer that re-derives a solve
+  or a hat matrix — `refit`, `gcv`/`effective_dof` (Cholesky congruence of the
+  dense `Z'DZ`, never the diagonal shortcut), a future constrained λ path — must
+  apply the same reparameterization or silently diverge from `fit`. β (never γ/Z)
+  is the public coefficient space: `SLCEFit.jphi`, the `refit` support rule,
+  persistence, and fixtures are all β-indexed (β is factorization-gauge-invariant;
+  Z is not — never persist or pin Z/γ), and **`refit` must re-derive the null
+  space on its support columns** (`A[:, support]`) — a support splitting a
+  constraint-coupled column set changes the feasible space (survivors may be
+  structurally zeroed, warned). Nothing is persisted: `asr_residual(model)`
+  recomputes `‖Aβ‖/(‖A‖‖β‖)` from the basis (fingerprint precedent — recompute,
+  never trust), and the physical consumers (M4 force constants / dynamical matrix,
+  MC joint ingest) gate on it; hand-built violating models are legal (the gate-(k)
+  violation demo requires them). The `‖Aβ‖` residual is architecturally ~eps under
+  the reparameterization and passes even if `A` is WRONG — the real acceptance
+  gates are the symbolic-vs-numerical rank equality (through `accumulate_grad!`'s
+  `Gu` column sum) and finite-`t` translation invariance + per-config `Σf = 0`
+  through the production evaluator, run after `fit` AND after `refit`
+  (`test/unit/test_asr.jl`). `ASRReparam.beta_p` is the affine slot for the
+  staged-fit slice (frozen-stage offsets) and throws while unused; the staged-fit
+  rule is "each stage fitted under its own ASR keeps the next stage's constraint
+  homogeneous".
 - **Sunny export conversion ↔ the energy reconstruction** (`slce/bilinear.jl` — matrices /
   extraction / gate — plus `interop/sunny.jl` — primitive unfold — and
   `ext/SLCESunnyExt.jl`): `_l1_pair_matrix` / `_l2_onsite_matrix` must satisfy

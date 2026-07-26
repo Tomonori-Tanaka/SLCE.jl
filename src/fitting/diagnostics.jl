@@ -28,11 +28,14 @@ nobs(f::SLCEFit) = length(f.dataset.y_E)
 """
     dof(f::SLCEFit) -> Int
 
-Degrees of freedom consumed by the fit: `length(coef(f)) + 1` — one per SCE coefficient
-plus the intercept `j0`. This is the full parametric count, not an effective / selected
-count, even for a sparse estimator.
+Degrees of freedom consumed by the fit: the number of FREE parameters plus the
+intercept `j0`. Unconstrained, that is `length(coef(f)) + 1`; under the ASR
+constraint (`fit(...; asr = true)` on a joint basis) the `rank(A)` exactly-enforced
+equalities are not free, so `dof = p − rank(A) + 1`. This is the parametric count,
+not an effective / selected count, even for a sparse estimator.
 """
-dof(f::SLCEFit)::Int = length(f.jphi) + 1
+dof(f::SLCEFit)::Int =
+    length(f.jphi) + 1 - (f.asr ? (f.dataset.asr::ASRReparam).rank : 0)
 
 """
     residuals_energy(f::SLCEFit) -> Vector{Float64}

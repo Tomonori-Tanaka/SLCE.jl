@@ -113,6 +113,32 @@ never zero-padded — and the selection layer ([`select_fit`](@ref) /
 [`cross_validate`](@ref) / [`select_support`](@ref)) does not take a `force_weight`
 yet: it scores the energy(+torque) objective only.
 
+## The acoustic sum rule (translation invariance)
+
+A joint model's energy must be invariant under a rigid translation of the whole
+crystal, ``\boldsymbol u_a \to \boldsymbol u_a + \boldsymbol t`` — the acoustic
+sum rule (ASR; equivalently ``\sum_a \boldsymbol f_a = 0``). The site-factorized
+basis does not guarantee this by itself, so `fit` enforces it **exactly** by
+default (`asr = true`): the coefficients are solved in the null space of the
+translation-constraint matrix (`β = Z·γ`, `A·β = 0` by construction — never a
+penalty). Pure-spin bases have no displacement content and are unaffected
+(bitwise). The residual actually achieved is stored on the fit
+(`f.asr_residual`), and any model — including a hand-built or reloaded one — can
+be verified with [`asr_residual`](@ref)`(model)`; downstream physical consumers
+(force constants, Monte-Carlo ingest of joint models) gate on that value rather
+than trusting a flag. `asr = false` fits unconstrained, for ablations only: on
+noisy data the resulting model demonstrably gains energy under rigid
+translations.
+
+Two practical notes. A too-tight truncation can admit **no** translation-invariant
+displacement content at all (e.g. bond pair terms without their on-site
+partners): the fit then warns and constrains every displacement coefficient to
+zero — widen the per-species `pmax` or the displacement sectors. And L1
+estimators (`Lasso`/`ElasticNet`/`AdaptiveLasso`) cannot solve the constrained
+problem (they error, pointing at [`GroupAdaptiveRidge`](@ref)); the quadratic
+and adaptive-ridge estimators work unchanged, with their penalties still defined
+on the physical β.
+
 ## Estimators
 
 The estimator is the regression strategy, dispatched on [`AbstractEstimator`](@ref). Four

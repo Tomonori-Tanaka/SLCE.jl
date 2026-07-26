@@ -333,6 +333,36 @@ capability consumed by both the introspection and the Sunny interop.
   `select_fit` score energy(+torque) only, `select_support` rejects force
   co-fits. Gate (j) at model level + synthetic recovery plan A:
   `test/unit/test_jointdata.jl`.
+- **ASR — exact translation-invariance constraints (M3 slice 4)**: `A·β = 0`
+  enforced by null-space reparameterization `β = Z·γ` (design record §6 +
+  its 2026-07-26 amendments). Builder (`fitting/asr.jl`): translation
+  generator applied symbolically to every displacement-decorated SALC —
+  spin factors opaque symbols, displacement factors expanded to exact
+  monomials by `SolidHarmonics.solid_harmonic_poly` (a coefficient-space
+  rerun of the evaluator recurrences, kernel-gated) — collected in one
+  common monomial basis across orbits, in design-column coordinates.
+  Rank policy: row-normalized, exact connected components, per-component
+  SVD with cut `1e-10·σ_max` and a forbidden band `[1e-12, 1e-8]·σ_max`
+  (ambiguous rank errors); `Z` orthonormal, identity on pure-spin columns;
+  `rank(A)` gated for exact equality against the numerical translation
+  image through `accumulate_grad!`. Built once at `SLCEDataset`
+  construction (`dataset.asr`, the `force_cols` discipline; `nothing` on
+  pure-spin bases — bitwise-identity fast path, gated);
+  `_assemble_problem` applies it per block. `fit(...; asr = true)` default;
+  `SLCEFit` records the applied flag + achieved residual; nothing persisted
+  (`asr_residual(model)` recomputes — the public verifier physical
+  consumers gate on). β-space penalties compress to `Z'·D(β)·Z`
+  (`solve_coefficients(...; nullspace)`; L1/GLMNet and `PrecomputedPilot`
+  reject); `refit` re-derives `null(A[:, S])` on its support;
+  `dof = p − rank(A) + 1`, `effective_dof`/`gcv` whiten by Cholesky
+  congruence, GCV's `n` excludes zero-weight rows;
+  `select_fit`/`select_support` reject joint bases (pure-spin cost model).
+  Gates (k): `test/unit/test_asr.jl` — symbolic ≡ numerical rank +
+  subspace agreement, forbidden band, translation invariance and per-config
+  `Σ_a f_a = 0` at physical `t` after `fit` AND after `refit`, the
+  unconstrained-violation demonstration, zero-nullity truncation warning
+  (`pmax = 1` pair splits), pure-spin bitwise identity, AllImages
+  self-image refusal.
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled

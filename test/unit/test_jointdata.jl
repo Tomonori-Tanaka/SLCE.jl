@@ -101,9 +101,14 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
         end
     end
 
+    # Fits in this file run `asr = false`: the synthetic ground truth is a
+    # deliberately unconstrained random β (this file tests the data layer and
+    # design matrices); the ASR-constrained fits and their gates live in
+    # test/unit/test_asr.jl.
     @testset "three-block co-fit recovery (plan A, OLS)" begin
         for (wT, wF) in ((0.3, 0.0), (0.2, 0.5), (0.0, 0.6), (0.35, 0.65))
-            f = fit(SLCEFit, ds, OLS(); torque_weight = wT, force_weight = wF)
+            f = fit(SLCEFit, ds, OLS(); torque_weight = wT, force_weight = wF,
+                    asr = false)
             @test maximum(abs, f.jphi .- jphi) < 1e-8
             @test abs(f.j0 - 0.25) < 1e-10
             @test f.torque_weight == wT && f.force_weight == wF
@@ -113,10 +118,11 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
                  for _ = 1:(m + 30)]
         dsE = SLCEDataset(basis, [d for d in dense]; use_torque = false,
                           use_force = false)
-        fE = fit(SLCEFit, dsE, OLS())
+        fE = fit(SLCEFit, dsE, OLS(); asr = false)
         @test maximum(abs, fE.jphi .- jphi) < 1e-6
         # refit reproduces the co-fit design (assembles with both weights)
-        f = fit(SLCEFit, ds, OLS(); torque_weight = 0.2, force_weight = 0.5)
+        f = fit(SLCEFit, ds, OLS(); torque_weight = 0.2, force_weight = 0.5,
+                asr = false)
         fr = refit(f)
         @test maximum(abs, fr.jphi .- jphi) < 1e-8
         # exact-fit diagnostics
@@ -178,7 +184,8 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
         # a slice with no force-bearing configs drops the rows but stays joint
         noF = ds[[41, 43, 46]]
         @test isempty(noF.y_F) && !isempty(noF.disps)
-        @test_throws ArgumentError fit(SLCEFit, noF, OLS(); force_weight = 0.5)
+        @test_throws ArgumentError fit(SLCEFit, noF, OLS(); force_weight = 0.5,
+                                       asr = false)
         # partition + vcat rebuilds the dataset bit-identically (both orders)
         a, b = ds[1:35], ds[36:50]
         dd = vcat(a, b)
@@ -265,7 +272,8 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
         @test_throws DimensionMismatch predict_force(model, e, zeros(3, nat + 1))
         @test_throws ArgumentError predict_force(model, e, fill(NaN, 3, nat))
         # force co-fit support selection is explicitly not implemented yet
-        f = fit(SLCEFit, ds, OLS(); torque_weight = 0.2, force_weight = 0.5)
+        f = fit(SLCEFit, ds, OLS(); torque_weight = 0.2, force_weight = 0.5,
+                asr = false)
         @test_throws ArgumentError select_support(f)
     end
 
@@ -308,7 +316,7 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
         @test length(dsO.y_F) == 6 * 3 * 6              # O rows only
         @test dsO.force_config == repeat(collect(1:6); inner = 18)
         @test dsO.y_F[1:18] == vec(dataO[1].forces[:, 2:7])
-        fO = fit(SLCEFit, dsO, OLS(); force_weight = 0.5)
+        fO = fit(SLCEFit, dsO, OLS(); force_weight = 0.5, asr = false)
         @test maximum(abs, fO.jphi .- mO.jphi) < 1e-8
         # nonzero Fe force triggers the exclusion warning
         dataW = [mkdatumO(i == 1 ? 0.5 : 0.0) for i = 1:6]
@@ -329,7 +337,8 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
         @test length(dsT.y_T) == 6 * 3                  # Fe rows only
         @test dsT.torque_config == repeat(collect(1:6); inner = 3)
         @test dsT.y_T[1:3] == dataT[1].torques[:, 1]
-        fT = fit(SLCEFit, dsT, OLS(); torque_weight = 0.3, force_weight = 0.3)
+        fT = fit(SLCEFit, dsT, OLS(); torque_weight = 0.3, force_weight = 0.3,
+                 asr = false)
         @test maximum(abs, fT.jphi .- mO.jphi) < 1e-8
         # nonzero torque targets on a spin-unreferenced atom warn (excluded rows)
         dW = dataT[1]

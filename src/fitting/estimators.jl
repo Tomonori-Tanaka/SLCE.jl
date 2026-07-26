@@ -337,7 +337,7 @@ islinear(::AdaptiveRidge) = true
 islinear(::GroupAdaptiveRidge) = true
 
 """
-    solve_coefficients(est, X, y; groups = nothing) -> Vector{Float64}
+    solve_coefficients(est, X, y; groups = nothing, nullspace = nothing) -> Vector{Float64}
 
 Solve for the SALC coefficients from the (already centered) design matrix `X` and
 target `y`. See [`AbstractEstimator`](@ref) for the `(X, y)` contract.
@@ -348,26 +348,41 @@ configuration's energy row and its torque-component rows share a label. Estimato
 that resample rows (cross-validating [`ElasticNet`](@ref) / [`Lasso`](@ref)) keep
 same-label rows together so the resampling does not leak within-sample structure;
 estimators with a closed-form fit ([`OLS`](@ref) / [`Ridge`](@ref)) ignore it.
+
+`nullspace` (ASR-constrained fits) is the **orthonormal** basis `Z` of the
+constraint null space: the caller passes the reparameterized design `X̃ = X_β·Z`
+and receives γ with `β = Z·γ`. Penalties stay defined on β: quadratic estimators
+whose weights depend on β ([`AdaptiveRidge`](@ref) / [`GroupAdaptiveRidge`](@ref))
+evaluate them at `β = Z·γ` each iteration and solve the compressed SPD system
+`X̃'X̃ + λ·Z'·D(β)·Z`; for [`OLS`](@ref)/[`Ridge`](@ref) orthonormality makes the
+plain γ-space solve already the β-penalized one (`‖β‖ = ‖γ‖`). L1 estimators
+(GLMNet extension) reject it — L1 under `Z` is a generalized lasso GLMNet cannot
+solve, and L1 on γ is factorization-gauge-dependent.
 """
 function solve_coefficients(est::AbstractEstimator, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing)
+                            groups = nothing, nullspace = nothing)
     error("solve_coefficients has no method for $(typeof(est)); load the backend " *
           "package (e.g. `using GLMNet` for Lasso/ElasticNet).")
 end
 
 function solve_coefficients(::OLS, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing)::Vector{Float64}
+                            groups = nothing, nullspace = nothing)::Vector{Float64}
+    # `nullspace` is inert: the QR min-norm γ maps to the min-norm feasible β
+    # (orthonormal Z), so the γ-space OLS IS the constrained OLS.
     return X \ y   # QR-based least squares (more robust than the normal equations)
 end
 
 function solve_coefficients(est::Ridge, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing)::Vector{Float64}
+                            groups = nothing, nullspace = nothing)::Vector{Float64}
+    # `nullspace` is inert: with orthonormal Z, λ‖γ‖² = λ‖Z·γ‖² = λ‖β‖² — the
+    # γ-space ridge is verbatim the β-penalized constrained ridge.
     n = size(X, 2)
     return Symmetric(X' * X + est.lambda * I(n)) \ (X' * y)
 end
 
 function solve_coefficients(est::AdaptiveRidge, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing)::Vector{Float64}
+                            groups = nothing,
+                            nullspace::Union{Nothing,Matrix{Float64}} = nothing)::Vector{Float64}
     # Exact zero only: at lambda = 0 the penalty diagonal is gone and `XtX` may be
     # singular, so route to the QR (min-norm) OLS path. Any lambda > 0 makes
     # `XtX + lambda·Diagonal(w)` SPD below, so the symmetric solve is safe — do NOT
@@ -375,22 +390,32 @@ function solve_coefficients(est::AdaptiveRidge, X::AbstractMatrix, y::AbstractVe
     est.lambda == 0.0 && return solve_coefficients(OLS(), X, y)
     XtX = X' * X
     Xty = X' * y
-    p = size(XtX, 2)
-    # Iteration 0: uniform-weight ridge (numerically Ridge(lambda)). Only the penalty
-    # diagonal changes between iterations; the Gram matrix `XtX` is formed once. With
-    # lambda > 0 and every wⱼ > 0 (epsilon > 0), the shifted matrix is SPD throughout.
-    beta = Symmetric(XtX + est.lambda * I(p)) \ Xty
+    q = size(XtX, 2)
+    nullspace === nothing || size(nullspace, 2) == q || throw(DimensionMismatch(
+        "nullspace has $(size(nullspace, 2)) columns but the design has $q"))
+    # Iteration 0: uniform-weight ridge (numerically Ridge(lambda) — with Z
+    # orthonormal, Z'·I·Z = I, so the same seed serves the constrained loop). Only
+    # the penalty changes between iterations; the Gram matrix `XtX` is formed once.
+    # With lambda > 0 and every wⱼ > 0 (epsilon > 0), the shifted matrix is SPD
+    # throughout (Z full column rank).
+    coefs = Symmetric(XtX + est.lambda * I(q)) \ Xty
+    p = nullspace === nothing ? q : size(nullspace, 1)
     w = Vector{Float64}(undef, p)
     for _ = 1:est.max_iter
-        @. w = 1.0 / (beta^2 + est.epsilon)
-        beta_new = Symmetric(XtX + est.lambda * Diagonal(w)) \ Xty
-        # Relative ∞-norm change; the eps floor only guards the all-zero β case.
+        beta = nullspace === nothing ? coefs : nullspace * coefs
+        @. w = 1.0 / (beta^2 + est.epsilon)     # the β-space weight map, unchanged
+        P = nullspace === nothing ? est.lambda * Diagonal(w) :
+            est.lambda * Symmetric(nullspace' * (w .* nullspace))
+        coefs_new = Symmetric(XtX + P) \ Xty
+        # Relative ∞-norm change ON β (γ's ∞-norm is factorization-gauge-
+        # dependent under Z); the eps floor only guards the all-zero case.
+        beta_new = nullspace === nothing ? coefs_new : nullspace * coefs_new
         rel = mapreduce((a, b) -> abs(a - b), max, beta_new, beta) /
               max(maximum(abs, beta_new), eps(Float64))
-        beta = beta_new
+        coefs = coefs_new
         rel < est.tol && break
     end
-    return beta
+    return coefs
 end
 
 # The group-adaptive-ridge weight map — the ONLY definition of the update
@@ -422,51 +447,71 @@ function _solve_gar(XtX::Matrix{Float64}, Xty::Vector{Float64}, lambda::Float64,
                     column_groups::Vector{Int}, group_weights::Vector{Float64},
                     group_sizes::Vector{Int}, epsilon::Float64, max_iter::Int,
                     tol::Float64;
-                    beta0::Union{Nothing,Vector{Float64}} = nothing)::Vector{Float64}
-    p = length(Xty)
+                    beta0::Union{Nothing,Vector{Float64}} = nothing,
+                    nullspace::Union{Nothing,Matrix{Float64}} = nothing)::Vector{Float64}
+    q = length(Xty)
+    p = nullspace === nothing ? q : size(nullspace, 1)
     w = Vector{Float64}(undef, p)
     normsq = Vector{Float64}(undef, length(group_weights))
+    # Compressed penalty: Diagonal(w) unconstrained, Z'·D·Z under ASR (the weight
+    # map stays in β space — the "group penalties on β unchanged" pin).
+    penalty(wv) = nullspace === nothing ? lambda * Diagonal(wv) :
+                  lambda * Symmetric(nullspace' * (wv .* nullspace))
     # Iteration 0 (cold start): the fixed-weight ridge `wⱼ = v_g` — with unit weights
     # this is numerically Ridge(lambda), matching the AdaptiveRidge initialization. A
-    # warm start replaces it with the caller's `beta0` and enters the loop directly.
-    # With lambda > 0 and every wⱼ > 0 (epsilon > 0), the shifted matrix is SPD
-    # throughout — do NOT widen the callers' `lambda == 0` routing to a tolerance.
-    beta = if beta0 === nothing
+    # warm start replaces it with the caller's `beta0` (γ0 under ASR) and enters the
+    # loop directly. With lambda > 0 and every wⱼ > 0 (epsilon > 0, Z full column
+    # rank), the shifted matrix is SPD throughout — do NOT widen the callers'
+    # `lambda == 0` routing to a tolerance.
+    coefs = if beta0 === nothing
         @inbounds for j = 1:p
             w[j] = group_weights[column_groups[j]]
         end
-        Symmetric(XtX + lambda * Diagonal(w)) \ Xty
+        Symmetric(XtX + penalty(w)) \ Xty
     else
         copy(beta0)
     end
     for _ = 1:max_iter
+        beta = nullspace === nothing ? coefs : nullspace * coefs
         _gar_weights!(w, beta, column_groups, group_weights, group_sizes, epsilon, normsq)
-        beta_new = Symmetric(XtX + lambda * Diagonal(w)) \ Xty
-        # Relative ∞-norm change; the eps floor only guards the all-zero β case.
+        coefs_new = Symmetric(XtX + penalty(w)) \ Xty
+        # Relative ∞-norm change ON β (γ's ∞-norm is factorization-gauge-
+        # dependent under Z); the eps floor only guards the all-zero case.
+        beta_new = nullspace === nothing ? coefs_new : nullspace * coefs_new
         rel = mapreduce((a, b) -> abs(a - b), max, beta_new, beta) /
               max(maximum(abs, beta_new), eps(Float64))
-        beta = beta_new
+        coefs = coefs_new
         rel < tol && break
     end
-    return beta
+    return coefs
 end
 
 function solve_coefficients(est::GroupAdaptiveRidge, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing)::Vector{Float64}
-    length(est.column_groups) == size(X, 2) || throw(DimensionMismatch(
+                            groups = nothing,
+                            nullspace::Union{Nothing,Matrix{Float64}} = nothing)::Vector{Float64}
+    ncols_beta = nullspace === nothing ? size(X, 2) : size(nullspace, 1)
+    length(est.column_groups) == ncols_beta || throw(DimensionMismatch(
         "GroupAdaptiveRidge column_groups length $(length(est.column_groups)) does not " *
-        "match design-matrix column count $(size(X, 2)); the labels were likely built " *
-        "on a different SLCEBasis."))
+        "match the (β-space) design column count $ncols_beta; the labels were likely " *
+        "built on a different SLCEBasis."))
+    nullspace === nothing || size(nullspace, 2) == size(X, 2) ||
+        throw(DimensionMismatch("nullspace has $(size(nullspace, 2)) columns but " *
+                                "the design has $(size(X, 2))"))
     # Exact zero only (see the AdaptiveRidge method above): at lambda = 0 the penalty
     # diagonal is gone and the Gram matrix may be singular — route to QR (min-norm) OLS.
     est.lambda == 0.0 && return solve_coefficients(OLS(), X, y)
     return _solve_gar(Matrix{Float64}(X' * X), Vector{Float64}(X' * y), est.lambda,
                       est.column_groups, est.group_weights, est.group_sizes,
-                      est.epsilon, est.max_iter, est.tol)
+                      est.epsilon, est.max_iter, est.tol; nullspace = nullspace)
 end
 
 function solve_coefficients(est::PrecomputedPilot, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing)::Vector{Float64}
+                            groups = nothing, nullspace = nothing)::Vector{Float64}
+    nullspace === nothing ||
+        throw(ArgumentError("PrecomputedPilot carries a fixed β-space coefficient " *
+                            "vector — an ASR-constrained (γ-space) solve is " *
+                            "undefined for it. Fit with asr = false, or use a " *
+                            "fresh estimator."))
     length(est.beta) == size(X, 2) || throw(DimensionMismatch(
         "PrecomputedPilot coefficient length $(length(est.beta)) does not match " *
         "design-matrix column count $(size(X, 2)); the pilot was likely fit on a " *
