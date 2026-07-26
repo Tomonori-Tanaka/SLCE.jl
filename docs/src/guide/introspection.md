@@ -131,3 +131,61 @@ The spin-only fit reproduces the *energies* it was given about as well as the jo
 one does, and lands on different couplings — which is the whole point: those two
 numbers answer different questions, and only the joint model can tell you which
 part of the coupling came from the lattice.
+
+## Force constants and phonons
+
+[`force_constants`](@ref) differentiates the energy with respect to displacements at
+`u = 0`, **with the spins held fixed** — so the lattice dynamics you get out is the
+lattice dynamics *of that magnetic state*. The derivatives are exact, not finite
+differences: every displacement factor is a homogeneous polynomial, so the constants
+are read off its monomial coefficients.
+
+```@example introspect
+spins = randcfg()
+fcs = force_constants(joint; spins = spins, order = 2)
+
+for ((atoms, shifts), Φ) in sort(collect(fcs.constants); by = k -> (k[1][1], k[1][2]))
+    println("Φ[(", atoms[1], ",0), (", atoms[2], ",", Tuple(shifts[2]), ")]  ‖Φ‖ = ",
+            round(norm(Φ); sigdigits = 4))
+end
+```
+
+Indices follow the lattice-dynamics convention `Φ[(a,0),(b,R)] = ∂²E/∂uₐ(0)∂u_b(R)`,
+anchored so the first index is in the home cell. The reverse ordering is a separate
+key, equal to the transpose.
+
+[`dynamical_matrix`](@ref) folds them into reciprocal space at a wavevector given in
+**fractional reciprocal coordinates**. Pass `masses` to get an `ω²` spectrum; omit it
+for the bare force-constant matrix:
+
+```@example introspect
+D0 = dynamical_matrix(fcs, [0.0, 0.0, 0.0])
+println("eigenvalues of D(0): ", round.(sort(real(eigvals(Hermitian(D0)))); sigdigits = 3))
+```
+
+None of those are zero — and they should be. Three eigenvalues of `D(0)` must vanish:
+those are the acoustic branches, the statement that translating the whole crystal
+costs no energy. They do not here because `joint` above was deliberately fitted with
+`asr = false`. Fit the same data under the acoustic sum rule — the default — and they
+appear:
+
+```@example introspect
+constrained = SLCEModel(fit(SLCEFit, jds, OLS(); asr = true))
+Dc = dynamical_matrix(force_constants(constrained; spins = spins), [0.0, 0.0, 0.0])
+println("asr = true:   ", round.(sort(real(eigvals(Hermitian(Dc)))); sigdigits = 3))
+println("asr_residual: ", round(asr_residual(constrained); sigdigits = 3),
+        "   vs unconstrained ", round(asr_residual(joint); sigdigits = 3))
+```
+
+That is what `fit(...; asr = true)` buys, and [`asr_residual`](@ref) is the direct
+check on any model before you trust its phonons. (Zero acoustic frequencies are not
+the same as *stable* phonons: a negative eigenvalue is a real instability of the
+fitted model, not a bug in the fold.)
+
+The magnetic contribution to the dynamics is the difference between two spin states:
+
+```@example introspect
+D_other = dynamical_matrix(force_constants(joint; spins = randcfg()), [0.0, 0.0, 0.0])
+println("max |ΔD(0)| between two magnetic states: ",
+        round(maximum(abs, D_other .- D0); sigdigits = 4))
+```

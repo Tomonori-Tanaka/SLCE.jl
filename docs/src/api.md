@@ -276,6 +276,20 @@ bilinear_terms
 SLCE.SlotRef
 ```
 
+## Lattice dynamics
+
+The displacement channel's physics deliverables: the exact force constants of a
+fitted model **at a given spin configuration** (that dependence is the point of a
+spin–lattice expansion), and their reciprocal-space form. An acoustic sum rule the
+model actually satisfies shows up here as three zero eigenvalues of `D(0)` — see
+[`asr_residual`](@ref).
+
+```@docs
+ForceConstantSet
+force_constants
+dynamical_matrix
+```
+
 ## Harmonics kernel
 
 The `Harmonics` submodule (public, unexported — call as `SLCE.Harmonics.Zlm` etc.)

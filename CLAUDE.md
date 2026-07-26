@@ -345,6 +345,23 @@ Easy to break silently — confirm before touching the algorithm.
   representable — every other channel must be **reported as skipped**, never silently
   dropped. Change a harmonic normalization or the `(4π)^(N/2)` scale → both the matrix
   formulas and the energy gate move together.
+- **Force constants ↔ the displacement kernel ↔ the ASR** (`slce/forceconstants.jl`,
+  `test/unit/test_forceconstants.jl`): the constants are EXACT derivatives, obtained
+  by reading monomial coefficients off `SolidHarmonics.solid_harmonic_poly` — the same
+  function `fitting/asr.jl` builds `A` from, so a change to the displacement kernel's
+  normalization or recurrence moves the force constants, the ASR matrix, and the
+  evaluator together. Only terms whose displacement degrees sum to `order` contribute
+  (each site factor is homogeneous of degree `2k + l`). Indexing is the
+  lattice-dynamics convention `Φ[(a,0),(b,R)]`, one entry per ORDERED tuple anchored on
+  the home cell — NOT the SALC-member convention, where each undirected instance
+  appears once; the reverse ordering is a separate key equal to the transpose. The
+  acceptance gate is the Γ-restricted sum `Σ_R Φ(R)` against a finite-difference
+  Hessian of the production evaluator (that is what pins the folding convention), and
+  the ASR shows up here PHYSICALLY: an ASR-fitted model has exactly three zero
+  eigenvalues of `D(0)`, an unconstrained one has none. `dynamical_matrix` takes `q` in
+  FRACTIONAL reciprocal coordinates (the package's `reciprocal` carries no 2π, so the
+  phase is written `exp(2πi q·R)` with an integer `R`) and lays rows out atom-major /
+  Cartesian-minor like every other derivative block.
 - **Introspection surfaces ↔ the consumer scale rule ↔ `restrict`**
   (`slce/introspect.jl`, `test/unit/test_introspect.jl`): the scale a consumer applies
   is `(4π)^{n_spin_slots/2}` — one `√(4π)` per SPIN slot, defined ONCE in

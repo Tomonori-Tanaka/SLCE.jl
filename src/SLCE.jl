@@ -70,6 +70,10 @@ include("slce/bilinear.jl")
 # (consumed by downstream packages such as the SLCETools.jl samplers).
 include("slce/introspect.jl")
 
+# --- physics deliverables of the displacement channel: exact force constants at a
+# spin configuration, and their reciprocal-space form.
+include("slce/forceconstants.jl")
+
 # --- external-engine interop: conversion math in core, engine assembly in extensions ---
 # Sunny export (Sunny.System assembled in SLCESunnyExt), consuming the bilinear
 # extraction above.
@@ -120,6 +124,8 @@ export MultipoleTerm, multipole_terms, bilinear_terms
 # The general (channel-decorated) successor of the multipole view, plus the bridge that
 # turns a joint model into one the frozen pure-spin surfaces accept.
 export DecoratedTerm, decorated_terms, restrict
+# lattice dynamics from the displacement channel (spin-configuration dependent)
+export ForceConstantSet, force_constants, dynamical_matrix
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters live in
 # downstream packages as namespaced submodules (e.g. `SLCETools.VASP.read_poscar`), so
 # adding a code touches neither the core nor this export list. The one in-core format

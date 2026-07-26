@@ -381,6 +381,20 @@ capability consumed by both the introspection and the Sunny interop.
   `u = 0` plus a persistence round-trip. Docs: `guide/introspection.md` (scale table +
   the mandatory `restrict ≠ refit` box with a measured comparison, design record §13
   risk 5).
+- **Lattice dynamics — M4 slice 2** (`slce/forceconstants.jl`):
+  `force_constants(model; spins, order = 2)` → `ForceConstantSet` — exact order-`n`
+  displacement derivatives at `u = 0` with the spins fixed (only terms whose
+  displacement degrees sum to `n` survive; contributions read off
+  `SolidHarmonics.solid_harmonic_poly`, shared with the ASR builder). Keys are the
+  lattice-dynamics convention `Φ[(a,0),(b,R),…]`, one per ORDERED index tuple,
+  anchored on the home cell; the reverse ordering is a separate key equal to the
+  transpose. `dynamical_matrix(fcs, q; masses)` = `Σ_R Φ(R) exp(2πi q·R)/√(MₐM_b)`
+  with `q` in fractional reciprocal coordinates, rows atom-major / Cartesian-minor.
+  Gates (`test/unit/test_forceconstants.jl`): Γ sum ≡ finite-difference Hessian,
+  transpose relation, `D(q)` Hermiticity + `D(−q) = conj D(q)` + mass weighting,
+  **three zero eigenvalues of `D(0)` for an ASR model and none for an unconstrained
+  one** (the physical payoff of gate (k)), spin dependence, order 3 ≡ third
+  derivative, and the empty-result cases.
 - **Staged (hierarchical) fitting — M3 slice 6 (closes M3)**: `fit(...; frozen,
   sector_mask)` (`fitting/staged.jl`). `SLCE.sector_columns(basis, selector)` —
   `:all` / `:spin` / `:lattice` / `:coupled` (channel partition) and `:soc_free` /

@@ -6,6 +6,45 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — force constants and the dynamical matrix (M4 slice 2)
+
+- **`force_constants(model; spins, order = 2)` → `ForceConstantSet`** — the exact
+  `order`-th derivatives of the energy with respect to atomic displacements at
+  `u = 0`, **with the spins held at a given configuration**. That dependence is the
+  point of a spin–lattice expansion: evaluate at two magnetic states and the
+  difference is the magnetic contribution to the lattice dynamics.
+
+  Exact, not finite differences. Every displacement site factor `|u|^{2k} R_{lm}(u)`
+  is homogeneous of degree `2k + l`, so only terms whose degrees sum to `order`
+  survive differentiation at the origin, and their contribution is read off the
+  monomial coefficients `solid_harmonic_poly` returns — the same function the ASR
+  builder uses, so the two cannot drift. `order = 3` gives the cubic anharmonic
+  constants (gated against a third finite difference, which is exact for a cubic
+  model: agreement at 1e-16 relative).
+
+  Indexing follows lattice dynamics, not SALC members: `Φ[(a,0),(b,R)] =
+  ∂²E_cell/∂u_a(0)∂u_b(R)`, one entry per ORDERED index tuple, anchored so the first
+  index is in the home cell. The reverse ordering is a separate key equal to the
+  transpose — a property the suite checks, never a storage trick.
+- **`dynamical_matrix(fcs, q; masses = nothing)`** — `D_{aα,bβ}(q) = Σ_R Φ(R)
+  exp(2πi q·R) / √(MₐM_b)`, with `q` in **fractional reciprocal coordinates** and
+  rows/columns atom-major, Cartesian-minor. Hermitian, and `D(−q) = conj(D(q))`.
+  Omit `masses` for the bare force-constant matrix.
+- **The ASR pays off physically here.** A model fitted under the acoustic sum rule
+  has exactly three zero eigenvalues of `D(0)` — the acoustic branches — and
+  vanishing `Σ_{b,R} Φ_{aα,bβ}(R)`. One fitted with `asr = false` has neither, on the
+  same basis and the same data. Both are gated, and both are shown in
+  `guide/introspection.md`. (Zero acoustic frequencies are not the same as *stable*
+  phonons: a negative eigenvalue is a real instability of the fitted model.)
+
+Gates (`test/unit/test_forceconstants.jl`): the Γ-restricted sum `Σ_R Φ(R)` against a
+finite-difference Hessian of the production evaluator, the transpose relation between
+reverse-ordered keys, `D(q)` Hermiticity / conjugation / mass weighting, the acoustic
+modes with an unconstrained model as the teeth, spin dependence (each configuration's
+constants exact for *its* configuration), order 3 against a third derivative, and the
+empty results for pure-spin, clamped-ion-restricted, zero, and under-truncated models.
+
+
 ### Added — the downstream term contract (M4 slice 1)
 
 - **`decorated_terms(model)` → `Vector{DecoratedTerm}`** — the general successor of
