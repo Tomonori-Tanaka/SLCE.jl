@@ -188,12 +188,19 @@ _penalty_diagonal(est::AbstractEstimator, beta::Vector{Float64}) =
     throw(ArgumentError("gcv/effective_dof require a linear estimator " *
                         "(`islinear`); got $(typeof(est))"))
 
-# Numerical-rank dof of the unpenalized smoother (LinearAlgebra.rank-style relative
-# tolerance on the singular values).
+# Numerical-rank dof of the unpenalized smoother. The cut is `min(size(X))·eps·σ₁` —
+# `LinearAlgebra.rank`'s actual default (its docstring: "n is the size of the SMALLEST
+# dimension"), and the same convention `identifiability` (`fitting/diagnostics.jl`)
+# picks with the reasoning written out there: the blocks are whitened by `1/√n`, so the
+# singular values are sample-size-independent while a `max`-based cut GROWS with the row
+# count, and merely adding data could flip a determined direction to "flat". This used
+# to read `maximum(size(X))`, which undercounted the rank of any design with more rows
+# than columns — i.e. every energy-only fit with many configurations, and every co-fit —
+# making `gcv`'s `df` too small and its score optimistically biased.
 function _rank_df(X::Matrix{Float64})::Float64
     s = svdvals(X)
     (isempty(s) || s[1] == 0.0) && return 0.0
-    tolr = maximum(size(X)) * eps(Float64) * s[1]
+    tolr = minimum(size(X)) * eps(Float64) * s[1]
     return Float64(count(>(tolr), s))
 end
 

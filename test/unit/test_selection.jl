@@ -239,6 +239,26 @@ end
         @test isfinite(gcv(fo))
     end
 
+    @testset "the unpenalized rank cut is min(size), not max(size)" begin
+        # `_rank_df` feeds `effective_dof`/`gcv` for every OLS fit and every λ = 0 point
+        # of a λ-path. The fixture above is well conditioned, so `min` and `max` agree
+        # there and it cannot see the convention. Engineer a marginal singular value
+        # that sits ABOVE the package's own documented cut (`min(size)·eps·σ₁`, the
+        # convention `identifiability` picks and reasons about) and watch a `max`-based
+        # cut drop it as soon as the row count exceeds the column count.
+        p = 6
+        for n in (10, 1000)
+            U = qr(randn(MersenneTwister(4), n, p)).Q[:, 1:p]
+            V = qr(randn(MersenneTwister(5), p, p)).Q
+            # last singular value at 5× the min-based tolerance: determined by the
+            # package's convention, flat under a max-based one once n ≫ p
+            svals = [1.0, 0.5, 0.25, 0.1, 0.05, 5 * p * eps(Float64)]
+            Xm = U * Diagonal(svals) * V'
+            @test SLCE._rank_df(Xm) == Float64(p)
+            @test SLCE._rank_df(Xm) == Float64(rank(Xm))   # agrees with LinearAlgebra
+        end
+    end
+
     @testset "gcv in the underdetermined regime and guards" begin
         rng = MersenneTwister(31)
         nconf = 12

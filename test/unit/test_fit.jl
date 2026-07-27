@@ -61,6 +61,25 @@ struct _DummyEstimator <: SLCE.AbstractEstimator end
         @test norm(coef(fλ)) <= norm(coef(f)) + 1e-9
     end
 
+    @testset "Ridge(0) is OLS on a RANK-DEFICIENT design, not garbage" begin
+        # The fixture above is full rank and well conditioned, where the normal
+        # equations are perfectly adequate — so it cannot see the defect this pins.
+        # Without the exact-zero route to the QR path, the symmetric factorization of a
+        # singular `XtX` does not throw: it returns a coefficient vector ~1e16 in norm,
+        # silently, from an estimator documented as "lambda = 0 is OLS". Measured
+        # before the fix: ‖β‖ = 4.3e16 against OLS's 0.48.
+        rng = MersenneTwister(909)
+        Xd = randn(rng, 20, 4)
+        Xd[:, 4] = Xd[:, 2]                       # exact collinearity
+        yd = randn(rng, 20)
+        bo = solve_coefficients(OLS(), Xd, yd)
+        b0 = solve_coefficients(Ridge(lambda = 0.0), Xd, yd)
+        @test b0 == bo                            # the same code path, not merely close
+        @test norm(b0) < 10 * norm(bo)            # teeth: the pre-fix value was 1e16×
+        # and a positive penalty still takes the penalized path
+        @test solve_coefficients(Ridge(lambda = 1.0), Xd, yd) != bo
+    end
+
     @testset "unknown estimator → friendly error" begin
         @test_throws ErrorException solve_coefficients(_DummyEstimator(), ds.X_E, ds.y_E)
     end
