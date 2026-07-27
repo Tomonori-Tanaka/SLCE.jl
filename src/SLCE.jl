@@ -78,6 +78,11 @@ include("slce/rowlayout.jl")
 # spin configuration, and their reciprocal-space form.
 include("slce/forceconstants.jl")
 
+# Re-expansion around a displaced reference (§9d): the same homogeneous-polynomial
+# fact the force constants ride on, used to MOVE the expansion point rather than to
+# differentiate at it.
+include("slce/effective.jl")
+
 # --- external-engine interop: conversion math in core, engine assembly in extensions ---
 # Sunny export (Sunny.System assembled in SLCESunnyExt), consuming the bilinear
 # extraction above.
@@ -130,6 +135,9 @@ export MultipoleTerm, multipole_terms, bilinear_terms
 export DecoratedTerm, decorated_terms, restrict
 # lattice dynamics from the displacement channel (spin-configuration dependent)
 export ForceConstantSet, force_constants, dynamical_matrix
+# the same coefficient set re-expanded around a displaced structure (a relaxed cell, a
+# condensed soft mode) — exact, and deliberately NOT an SLCEModel
+export EffectiveModel, EffectiveTerm, effective_model
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters live in
 # downstream packages as namespaced submodules (e.g. `SLCETools.VASP.read_poscar`), so
 # adding a code touches neither the core nor this export list. The one in-core format

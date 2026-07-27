@@ -399,6 +399,25 @@ Easy to break silently — confirm before touching the algorithm.
   FRACTIONAL reciprocal coordinates (the package's `reciprocal` carries no 2π, so the
   phase is written `exp(2πi q·R)` with an integer `R`) and lays rows out atom-major /
   Cartesian-minor like every other derivative block.
+- **Re-expansion ↔ the same displacement polynomial** (`slce/effective.jl`,
+  `test/unit/test_effective.jl`): `effective_model(model; u0)` is the THIRD consumer of
+  `SolidHarmonics.solid_harmonic_poly`, after the ASR builder and the force constants —
+  it shifts each monomial binomially instead of differentiating it, so a change to the
+  displacement kernel's normalization or recurrence moves all three together. Two
+  things to keep straight. (1) **The output is not a `SLCEModel` and must never be made
+  into one**: the displaced structure's symmetry is the stabilizer of `u0`, generally a
+  proper subgroup, so reference SALCs cannot span the result; `EffectiveModel` carries
+  no `SALCKey`s, is not fittable, and is not persisted. (2) **Monomial variables are
+  per ATOM, not per slot** — displacements are cell-periodic, so an `AllImages`
+  self-bond puts two displacement slots on one variable and their exponents must add.
+  Keying by slot yields the SAME energy (evaluation multiplies either way) but a
+  non-canonical term list: like terms stop merging, coefficients arrive split across
+  duplicates, exact cancellations do not happen, and `atol` prunes halves of a term.
+  Do not let a comment claim more than that. The acceptance gate is the identity
+  `E_eff(δu) ≡ E(u0 + δu)` against the production evaluator, measured against the
+  sample's ENERGY SCALE and never pointwise-relative — a random spin configuration can
+  sit at a zero crossing of the energy, where the pointwise ratio reaches 7e-13 while
+  the absolute error stays at 6e-14.
 - **Introspection surfaces ↔ the consumer scale rule ↔ `restrict`**
   (`slce/introspect.jl`, `test/unit/test_introspect.jl`): the scale a consumer applies
   is `(4π)^{n_spin_slots/2}` — one `√(4π)` per SPIN slot, defined ONCE in

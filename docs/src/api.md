@@ -290,6 +290,26 @@ force_constants
 dynamical_matrix
 ```
 
+## Effective models at a displaced structure
+
+The same fact the force constants ride on — every displacement site factor is a
+homogeneous polynomial — used to MOVE the expansion point instead of differentiating
+at it. `effective_model(model; u0)` rewrites a fitted model as an exact expansion
+around `R + u0`, which reaches a symmetry-broken distorted structure (a relaxed cell,
+a condensed soft mode) with no common-subgroup grid, and is the starting point for
+renormalizing coefficients onto a thermally displaced reference.
+
+The result is deliberately **not** a [`SLCEModel`](@ref): the symmetry of the
+displaced structure is the stabilizer of `u0`, generally a proper subgroup, so the
+reference SALCs cannot span it.
+
+```@docs
+EffectiveModel
+EffectiveTerm
+effective_model
+predict_energy(::EffectiveModel, ::AbstractMatrix{<:Real}, ::AbstractMatrix{<:Real})
+```
+
 ## Sampler row tables
 
 The contract a sampler builds its gather programs against: which `(channel, k, l, m)`

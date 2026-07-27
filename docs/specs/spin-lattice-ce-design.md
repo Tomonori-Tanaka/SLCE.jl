@@ -996,11 +996,25 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
   - **M5-0 — decision record.** The strain convention (§9e), the target
     ensemble (§8), the reference-geometry protocol (§9a), the B₁/B₂ output
     pin (§7), the ASR precondition (§9d), and gates (q)–(w). *Complete.*
-  - **M5-1 — `effective_model(model; u0)`.** Convention-INDEPENDENT, so it
-    could have started before M5-0 and can start now: subgroup-basis output,
-    gate `E_shifted(δu) ≡ E(u₀ + δu)` to 1e-13 (§9d). One coupling only — it
-    must REFUSE a strain argument, since the affine pattern u_i = ε·R_i is not
-    cell-periodic and must never go through the periodic evaluator.
+  - **M5-1 — `effective_model(model; u0)`. Complete 2026-07-27**
+    (`slce/effective.jl`). Convention-independent, as predicted. Realized as the
+    unsymmetrized decorated-monomial form rather than a subgroup-projected
+    basis — the record allowed either, and the monomial form needs no subgroup
+    analysis while still being exact. The strain refusal is implemented as a
+    `strain` keyword that throws with the §9d explanation. Two amendments the
+    implementation forced:
+    (i) **the gate's "1e-13 relative" has to be scale-relative, not
+    pointwise.** A random spin configuration can sit at a zero crossing of the
+    energy, where no method has pointwise relative accuracy: on the M5-1 fixture
+    |E| spans four orders of magnitude, the pointwise ratio reaches 7e-13 and
+    the absolute error never exceeds 6e-14 (3e-15 against the sample's energy
+    scale). Judge every future exactness gate of this shape the same way.
+    (ii) **degree-1 generation is the sharp signature of the shift**, not the
+    degree-0 content the record emphasizes: on that fixture the reference
+    expansion carries degrees {0, 2} and the re-expansion carries {0, 1, 2},
+    while the spin-only terms are RENORMALIZED in place rather than added to.
+    The renormalization, not the new terms, is what the finite-T template
+    (M5-5) inherits.
   - **M5-2 — clamped-ion strain deliverables.** `exchange_strain_derivatives`
     / `magnetoelastic_constants` / `magnon_phonon_vertices`. The true consumer
     of the convention. Name BOTH meanings of the strain derivative at a

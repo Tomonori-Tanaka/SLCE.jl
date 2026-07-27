@@ -395,6 +395,33 @@ capability consumed by both the introspection and the Sunny interop.
   **three zero eigenvalues of `D(0)` for an ASR model and none for an unconstrained
   one** (the physical payoff of gate (k)), spin dependence, order 3 ≡ third
   derivative, and the empty-result cases.
+- **Effective models at a displaced structure — M5 slice 1** (`slce/effective.jl`):
+  `effective_model(model; u0, atol = 0.0)` → `EffectiveModel` — the same coefficient
+  set re-expanded around `R + u0`, EXACTLY (design record §9d). Every displacement
+  site factor is homogeneous, so the shift `u → u0 + δu` is a finite linear map on
+  the coefficients, realized by binomially expanding each monomial of
+  `SolidHarmonics.solid_harmonic_poly` (the same function the force constants and the
+  ASR builder read) and multiplying the shifted polynomials across a term's
+  displacement slots. The result is deliberately **not** a `SLCEModel`: the displaced
+  structure's symmetry is the stabilizer of `u0`, generally a proper subgroup, so the
+  reference SALCs cannot span it — `EffectiveModel` is the unsymmetrized
+  decorated-monomial form the design record permits, one `EffectiveTerm` per (spin
+  factors) × (displacement monomial), evaluated by
+  `predict_energy(em, e, δu)`. **Variables are per ATOM, not per slot** (displacements
+  are cell-periodic, so an `AllImages` self-bond puts two slots on one variable);
+  keying by slot would give the same energy but a non-canonical term list. Gates
+  (`test/unit/test_effective.jl`): the identity `E_eff(δu) ≡ E(u0 + δu)` at small AND
+  large `u0` measured against the sample's ENERGY SCALE (a random configuration can
+  sit at a zero crossing, where pointwise relative accuracy does not exist —
+  measured 3e-15 scale-relative against 7e-13 pointwise), `u0 = 0` reproducing the
+  original surface, `δu = 0` being the `u0`-frozen and NOT the clamped-ion point, a
+  central difference of the re-expanded surface reproducing the model's analytic
+  `predict_force` at `u0`, the degree structure (lower triangular: `{0,2} → {0,1,2}`,
+  never above the original maximum, and degree 1 is precisely the `u0` signature),
+  the spin-only coefficients being RENORMALIZED rather than added to (the SCP
+  template), canonical/sorted/reproducible terms, the same-atom merge, `atol`
+  pruning breaking exactness on purpose, and the refusal surface — including
+  `strain`, which throws rather than accepting the non-cell-periodic affine pattern.
 - **Staged (hierarchical) fitting — M3 slice 6 (closes M3)**: `fit(...; frozen,
   sector_mask)` (`fitting/staged.jl`). `SLCE.sector_columns(basis, selector)` —
   `:all` / `:spin` / `:lattice` / `:coupled` (channel partition) and `:soc_free` /

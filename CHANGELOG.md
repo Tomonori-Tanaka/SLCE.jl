@@ -6,6 +6,53 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — effective models at a displaced structure (M5 slice 1)
+
+- **`effective_model(model; u0, atol = 0.0)` → `EffectiveModel`** (with
+  `EffectiveTerm` and a `predict_energy(em, e, δu)` method). The same fitted
+  coefficient set re-expanded around the displaced reference `R + u0`, satisfying
+  `predict_energy(em, e, δu) == predict_energy(model, e, u0 .+ δu)` exactly.
+
+  This is an exact change of expansion point, not a Taylor truncation: every
+  displacement site factor `|u|^{2k} R_{lm}(u)` is a homogeneous polynomial, so the
+  shift is a finite linear map on the coefficients — **lower triangular in total
+  degree**, which is where the degree-0 and degree-1 content that the reference
+  expansion does not carry comes from. It is built by binomially shifting each
+  monomial of `SolidHarmonics.solid_harmonic_poly` (the same function the force
+  constants and the ASR builder read) and multiplying the shifted polynomials across a
+  term's displacement slots.
+
+  Use it to reach a symmetry-broken distorted structure — a relaxed cell, a condensed
+  soft mode — with no common-subgroup grid, and as the starting point for
+  renormalizing coefficients onto a thermally displaced reference.
+
+- **The result is deliberately not a `SLCEModel`.** The displaced structure's symmetry
+  is the stabilizer of `u0` inside the reference group, generally a proper subgroup, so
+  the reference SALCs cannot span it. `EffectiveModel` is the unsymmetrized
+  decorated-monomial form instead: one term per (spin factors) × (displacement
+  monomial), evaluable and differentiable, carrying no `SALCKey`s, not fittable and not
+  persisted.
+
+- **`δu = 0` is the `u0`-frozen point, not the clamped-ion one**, and that is the
+  point of the utility rather than a wart. The re-expansion renormalizes the spin-only
+  couplings in place (it does not add new ones) and generates the reference forces the
+  displaced structure carries.
+
+- A homogeneous strain is refused rather than silently accepted: the affine pattern
+  `u_i = ε·R_i` is not cell-periodic and must never go through a periodic evaluator, so
+  a `strain` keyword exists purely to throw with that explanation instead of failing as
+  a `MethodError`.
+
+- Gates (`test/unit/test_effective.jl`) run against the production evaluator: the
+  exactness identity at small and large `u0`, `u0 = 0` reproducing the original
+  surface, a central difference of the re-expanded surface reproducing the model's
+  analytic `predict_force` at `u0`, the degree structure, the same-atom variable merge
+  through an `AllImages` self-bond, `atol` pruning breaking exactness on purpose, and
+  the refusal surface. Exactness is measured against the sample's **energy scale**, not
+  pointwise: a random spin configuration can sit at a zero crossing of the energy,
+  where the pointwise relative error reaches 7e-13 while the absolute error never
+  exceeds 6e-14 (3e-15 scale-relative).
+
 ### Added — the sampler row-table contract (M4 slice 3a)
 
 - **`SLCE.row_layout(model)` → `SLCE.RowLayout`** (public, unexported), with
