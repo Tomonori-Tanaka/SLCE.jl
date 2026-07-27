@@ -304,6 +304,57 @@ end
         end
     end
 
+    @testset "N = 3, EQUAL l: the axis-relabelling convention has no shape to lean on" begin
+        # The engine relabels tensor axes through the connecting site permutation
+        # (`permutedims(·, invperm(σ))`). Every fixture above pins that convention by
+        # SHAPE alone: the 1- and 2-body gates only ever see involutions, for which
+        # `σ` and `invperm(σ)` are the same map, and the [1,1,2] comparison next door
+        # catches a swap as a `DimensionMismatch` because its axes have different
+        # lengths. Neither is an argument about the numbers. On the C3v triangle the
+        # connecting permutations include a genuine 3-cycle, and with l = 2 on every
+        # site the two conventions have identical shapes — so the wrong one produces
+        # a differently-scaled invariant rather than an error. Only comparing against
+        # the independent pure-spin engine sees it (measured: 5.269 → 2.635 on the
+        # first SALC).
+        #
+        # Note an invariance check would NOT catch this: the mutated basis is still
+        # invariant, just not the same basis.
+        xt3, st3 = _mx_triangle_c3v()
+        wc3 = SLCE._build_wig_cache(st3, 2)
+        cs3 = build_clusters(xt3, build_neighbor_list(xt3, 2.2), st3; nbody = 3)
+        O3 = cs3.by_body[3][1]
+        pre = [[findfirst(==(a), view(st3.map_sym, :, g)) for a = 1:3]
+               for g = 1:SLCE.n_ops(st3)]
+        @test any(p -> p[p] != 1:3, pre)               # teeth: a real 3-cycle is present
+        old3 = _orbit_salcs(xt3, st3, 3, 1, O3, [2], SLCE.LSUM_UNCAPPED, false, wc3)
+        old222 = [s for s in old3 if SLCE.spin_ls(s.key) == [2, 2, 2]]
+        new222 = _orbit_salcs_decors(xt3, st3, 3, 1, O3, [spin_decors([2, 2, 2])],
+                                     true, wc3)
+        @test length(new222) == length(old222) > 0
+        @test [s.key for s in old222] == [s.key for s in new222]
+        for (a, b) in zip(old222, new222)
+            @test same_members(a.members, b.members)
+        end
+        # and the mixed label with equal l per channel is invariant (the projector
+        # side of the same convention, which the idempotency guard also covers)
+        lab = [SiteDecor(; spin = 2, disp = (0, 1)) for _ = 1:3]
+        ss = _orbit_salcs_decors(xt3, st3, 3, 1, O3, [lab], true, wc3)
+        @test !isempty(ss)
+        for _ = 1:3
+            e = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:3])
+            u = randn(rng, 3, 3) * 0.3
+            v0 = [evaluate_salc(s, e, u) for s in ss]
+            @test maximum(abs, v0) > 1e-6                    # teeth: not the zero map
+            for g in eachindex(pre)
+                R = Matrix(st3.ops[g].rotation_cart)
+                eg = Matrix(det(R) * R * e[:, pre[g]])       # axial spin action
+                ug = Matrix(R * u[:, pre[g]])                # polar displacement action
+                @test [evaluate_salc(s, eg, ug) for s in ss] ≈ v0 atol = 1e-10
+            end
+            @test [evaluate_salc(s, -e, u) for s in ss] ≈ v0 atol = 1e-12
+        end
+    end
+
     @testset "gate (o): channel-inversion pin on the production Wigner" begin
         # Production's single polar cache gives D_polar(l, −I) = (−1)^l I; the
         # channel actions follow from `rep_scale`: SPIN +I for every l (axial),
