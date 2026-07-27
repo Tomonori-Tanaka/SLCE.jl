@@ -48,9 +48,9 @@ end
 # Sector admission of an orbit: body order in range, every edge within the
 # sector's species-pair radius (same relative band as `candidate_clusters`).
 function _sector_admits(rule::SectorRule, N::Int,
-                        gates::Vector{Tuple{Int,Int,Float64}})::Bool
+                        gates::Vector{Tuple{Int,Int,Float64}}, tol::Float64)::Bool
     rule.nbody[1] <= N <= rule.nbody[2] || return false
-    fac = (1 + _SAME_DIST_RTOL)^2
+    fac = (1 + tol)^2
     for (spa, spb, gate2) in gates
         gate2 <= rule.cutoff[spa, spb]^2 * fac || return false
     end
@@ -64,12 +64,12 @@ end
 # per-species caps.
 function _orbit_salcs_sectors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
                               orbit_id::Int, O::ClusterOrbit, spec::BasisSpec,
-                              gates::Vector{Tuple{Int,Int,Float64}},
+                              gates::Vector{Tuple{Int,Int,Float64}}, tol::Float64,
                               wcache::_WigCache)::Vector{SALC}
     lsumN = spec.lsum[N]
     soc_by_label = Dict{Vector{SiteDecor},Bool}()
     for rule in spec.sectors
-        _sector_admits(rule, N, gates) || continue
+        _sector_admits(rule, N, gates, tol) || continue
         for label in _sector_orbit_labels(rule, N, O.species, spec.lmax, spec.pmax,
                                           lsumN)
             soc_by_label[label] = get(soc_by_label, label, false) | rule.soc
@@ -130,7 +130,7 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup,
         (N, orbit_id, O) = work[w]
         gates = _orbit_edge_gates(crystal, O, cart, dmin2, use_minimage)
         parts[w] = _orbit_salcs_sectors(crystal, spacegroup, N, orbit_id, O, spec,
-                                        gates, wcache)
+                                        gates, neighbors.tol, wcache)
     end
     salcs = isempty(parts) ? SALC[] : reduce(vcat, parts)
     sort!(salcs; by = s -> s.key)

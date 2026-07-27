@@ -51,6 +51,30 @@ using LinearAlgebra
         end
     end
 
+    @testset "the same-distance band travels on the list, not as a constant" begin
+        # `build_neighbor_list`'s `tol` used to be accepted and then contradicted:
+        # every downstream "is this edge inside the radius" decision read a hard-coded
+        # 1e-8 instead, so a caller who widened the band got a list built one way and
+        # clusters admitted another. The band now lives on the list.
+        crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        nl = build_neighbor_list(crystal, 2.0, MinimumImage())
+        @test nl.tol == 1e-8                              # the documented default
+        d = nl.pairs[1].distance                          # the minimum-image bond
+        @test d ≈ 1.2
+        # a per-body radius that misses the bond by a relative 1e-4 — far above the
+        # default band and far below a widened one
+        M = fill(d / (1 + 1e-4), 1, 1)
+        tight = candidate_clusters(crystal, nl, 2; cutoff = [M])
+        @test isempty(tight[2])
+        wide = build_neighbor_list(crystal, 2.0, MinimumImage(); tol = 1e-3)
+        @test wide.tol == 1e-3
+        @test length(wide.pairs) == length(nl.pairs)      # the list itself is unchanged
+        @test !isempty(candidate_clusters(crystal, wide, 2; cutoff = [M])[2])
+        # a relative band outside [0, 1) is not a tolerance
+        @test_throws ArgumentError SLCE.NeighborList(2.0, nl.pairs, 1.5)
+        @test_throws ArgumentError SLCE.NeighborList(2.0, nl.pairs, -1e-9)
+    end
+
     @testset "first site anchored in the home cell" begin
         # single atom: its 2-body "bonds" are self-pairs (i == j), kept only under
         # AllImages — MinimumImage would (correctly) drop them, leaving nothing to test.

@@ -18,14 +18,33 @@ struct NeighborPair
 end
 
 """
-    NeighborList(cutoff, pairs)
+    NeighborList(cutoff, pairs, tol)
 
-All directed neighbor pairs within `cutoff` (Å). Built by
-[`build_neighbor_list`](@ref).
+All directed neighbor pairs within `cutoff` (Å), built by
+[`build_neighbor_list`](@ref), together with the relative same-distance tolerance
+`tol` the list was built with.
+
+`tol` travels *with* the list because it is not only a build-time detail: every
+consumer that re-decides "is this edge inside a radius" — `candidate_clusters`'s
+edge admissibility and the per-sector re-admission in `build_salc_basis` — must
+use the same band, or a degenerate shell is admitted by one and split by the
+other. Reading the field is the only way those stay in step when a caller passes
+a non-default `tol`.
 """
 struct NeighborList
     cutoff::Float64
     pairs::Vector{NeighborPair}
+    tol::Float64
+
+    function NeighborList(cutoff::Real, pairs::Vector{NeighborPair}, tol::Real)
+        # `cutoff` is the largest radius the list was BUILT with, so 0 is legitimate
+        # (an all-zero per-species matrix admits nothing) — only NaN is not.
+        cutoff >= 0 || throw(ArgumentError("`cutoff` must be ≥ 0; got $cutoff"))
+        0 <= tol < 1 ||
+            throw(ArgumentError("`tol` is a *relative* band and must lie in [0, 1); " *
+                                "got $tol"))
+        return new(Float64(cutoff), pairs, Float64(tol))
+    end
 end
 
 """
@@ -93,7 +112,7 @@ build_neighbor_list(crystal::Crystal, cutoff::Real, ::AllImages;
     (isfinite(cutoff) ||
          throw(ArgumentError("AllImages needs a finite cutoff; got $cutoff " *
                              "(use MinimumImage for the full Wigner–Seitz cell)"));
-     build_neighbor_list(crystal, cutoff))
+     build_neighbor_list(crystal, cutoff; tol = tol))
 
 # Shared validation for the per-species-pair matrix methods.
 function _check_cutoff_matrix(crystal::Crystal, M::AbstractMatrix{<:Real})
@@ -113,7 +132,7 @@ function build_neighbor_list(crystal::Crystal, cutoff::AbstractMatrix{<:Real},
     all(isfinite, cutoff) ||
         throw(ArgumentError("AllImages needs finite cutoffs; the matrix has Inf " *
                             "entries (use MinimumImage for the full Wigner–Seitz cell)"))
-    return _build_nl_allimages(crystal, Float64.(cutoff))
+    return _build_nl_allimages(crystal, Float64.(cutoff), Float64(tol))
 end
 
 build_neighbor_list(crystal::Crystal, cutoff::AbstractMatrix{<:Real}, ::MinimumImage;
@@ -192,16 +211,21 @@ function _build_nl_minimage(crystal::Crystal, cutmat::Matrix{Float64}, rtol::Flo
             end
         end
     end
-    return NeighborList(maximum(cutmat), pairs)
+    return NeighborList(maximum(cutmat), pairs, rtol)
 end
 
 """
-    build_neighbor_list(crystal, cutoff) -> NeighborList
+    build_neighbor_list(crystal, cutoff; tol = $(_SAME_DIST_RTOL)) -> NeighborList
 
 Enumerate every directed atom pair `(i, j, shift)` with interatomic distance
 `≤ cutoff` (Å), generalizing a fixed image grid to a cutoff-driven one. This is the
 [`AllImages`](@ref) enumeration; for plain-PBC SCE fitting use the three-argument
 form with [`MinimumImage`](@ref).
+
+Pair admission here is exact (`d ≤ cutoff`, no band). `tol` is recorded on the
+returned list for the *downstream* same-distance decisions — cluster-edge
+admissibility and per-sector re-admission — which need one shared band; see
+[`NeighborList`](@ref).
 
 # Notes
 Along each periodic direction `d` the image range is `N_d = ceil(cutoff / spacingᵈ)`
@@ -211,14 +235,16 @@ projection bound `|n_d + Δf_d| ≤ cutoff/spacingᵈ` guarantees this box enclo
 every in-cutoff image (valid for triclinic cells too). Self-pairs (`i == j` at zero
 shift) are excluded; both `(i,j,R)` and `(j,i,−R)` appear (directed list).
 """
-function build_neighbor_list(crystal::Crystal, cutoff::Real)::NeighborList
+function build_neighbor_list(crystal::Crystal, cutoff::Real;
+                             tol::Real = _SAME_DIST_RTOL)::NeighborList
     cutoff > 0 || throw(ArgumentError("`cutoff` must be positive"))
     isfinite(cutoff) || throw(ArgumentError("`cutoff` must be finite"))
     nkd = length(crystal.species_labels)
-    return _build_nl_allimages(crystal, fill(Float64(cutoff), nkd, nkd))
+    return _build_nl_allimages(crystal, fill(Float64(cutoff), nkd, nkd), Float64(tol))
 end
 
-function _build_nl_allimages(crystal::Crystal, cutmat::Matrix{Float64})::NeighborList
+function _build_nl_allimages(crystal::Crystal, cutmat::Matrix{Float64},
+                             rtol::Float64)::NeighborList
     lat = crystal.lattice
     A = lat.vectors
     nat = n_atoms(crystal)
@@ -248,5 +274,5 @@ function _build_nl_allimages(crystal::Crystal, cutmat::Matrix{Float64})::Neighbo
             end
         end
     end
-    return NeighborList(cmax, pairs)
+    return NeighborList(cmax, pairs, rtol)
 end

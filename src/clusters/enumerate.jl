@@ -98,7 +98,7 @@ function candidate_clusters(
     # Edge admissibility (see the docstring). MinimumImage compares each edge to its
     # atom-pair minimum-image distance; AllImages to the radial cutoff. Tolerances are
     # relative so a degenerate shell at the boundary is never split.
-    fac = (1 + _SAME_DIST_RTOL)^2
+    fac = (1 + neighbors.tol)^2          # the band the list itself was built with
     use_minimage = selection isa MinimumImage
     dmin2 = use_minimage ? _dmin2_matrix(neighbors, nat) : Matrix{Float64}(undef, 0, 0)
     # AllImages edge cutoff with the same relative tolerance as the tie band (so a
