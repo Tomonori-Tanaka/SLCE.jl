@@ -71,6 +71,30 @@ Easy to break silently — confirm before touching the algorithm.
   `xyz`. The co-fit whitens the (centered) energy block by `√((1−w)/n_E)` and the
   torque block by `√(w/n_T)`; `j0` stays an energy-only quantity.
 
+- **Invariance layers — what a fitted model does and does NOT guarantee.** Two
+  independent layers, and this package implements one and a half. **Layer 1**
+  (space-group symmetry) is the SALC projection, and it is verifiably the *same*
+  space as the textbook Cartesian force-constant reduction (identical subspace,
+  all principal angles zero, on both a P4/mmm and a triclinic fixture) — so no
+  symmetry deficit versus ALM/hiPhive, and **no numerical advantage either: never
+  claim the irreducible basis conditions better**, because irreducible ↔ Cartesian
+  is an orthogonal transform and the singular spectrum is identical (measured cond
+  ratio 1.000000). **Layer 2** (affine invariance: uniform motions with the cell
+  held fixed) is *not* a space-group property and cannot be projected out at
+  basis-construction time — which is why `build_asr` is a separate constraint on
+  coefficients. Of the three affine families only `u → u + t` (ASR) is
+  implemented; **Born–Huang rotational (`ε_antisym`) and equilibrium/vanishing-stress
+  (`ε_sym`) are NOT**, and they are independent of each other and of the Huang
+  conditions (`rank[Huang; Q] = 21 = 15 + 6`). Benign at harmonic order with
+  relaxed (`σ ≈ 0`) training data — the `ε_sym` six *are* `σ = 0` — but not
+  automatic at anharmonic orders, and load-bearing in the M5 strain channel where
+  `ε` is an explicit model variable. Read `docs/design-notes.md` §15 before adding
+  any constraint layer: it records why it must sit next to `build_asr` rather than
+  in the SALC builder, and the truncation-boundary hazard (the condition couples
+  order `n` to `n+1`, so at the top retained order it degenerates to
+  `L·Φ⁽ⁿ⁾ = 0` and over-constrains — kernels `1,1,3,6,15` generic / `1,0,1,0,1`
+  fully symmetric, i.e. odd order is killed outright).
+
 ## Coupled ("linked") code sites — change one, check all
 
 - `basis/Harmonics.jl` (`Zlm`, `grad_Zlm`) ↔ the on-sphere central-difference and
@@ -523,6 +547,8 @@ experimental work you do not want on `main` yet.
 - `STYLE_GUIDE.md` — package-specific style deltas.
 - `SPEC.md` — realized architecture, types, public API.
 - `docs/design-notes.md` — why the rebuild diverges from Magesty (the refinements).
+  **§15 is scoping, not history**: which invariance layers a fitted model satisfies,
+  which it does not, and the two design constraints on ever adding the missing ones.
 - `CHANGELOG.md` — what landed in the v0 slice.
 - `examples/heisenberg_chain.jl` — runnable end-to-end (recovers `J`);
   `examples/kagome_threebody.jl` — 3-body / multi-term SALCs, energy+torque co-fit.

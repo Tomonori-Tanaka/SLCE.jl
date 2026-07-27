@@ -522,3 +522,112 @@ per-permutation-orbit filter (`_admit_assignment`, checked on the canonical
 representative — species are stabilizer-invariant) makes the per-site
 `lmax`/`pmax` decision exactly where `_enumerate_ls` would have made it,
 keeping `block` indices aligned between the pure-spin and decor engines.
+
+## 15. Invariance layers: what the SALC projection does and does not enforce
+
+There are **two independent layers** of invariance in a lattice-dynamics model,
+and this package implements one and a half of them. Confusing the layers is the
+single easiest way to over-claim what a fitted `SLCEModel` guarantees.
+
+**Layer 1 — space-group symmetry. Implemented by the SALC projection, and it is
+the standard construction, not a variant.** Verified: the symmetry-adapted space
+of harmonic force constants reachable through
+`force_constants(model; order = 2)` is *bit-for-subspace* the same as the
+textbook Cartesian reduction — impose covariance
+`Φ(g·pair) = D(g) Φ(pair) D(g)ᵗ` plus the transpose relation
+`Φ^{αβ}((a,0),(b,R)) = Φ^{βα}((b,0),(a,−R))` and take the null space. The union of
+the two spaces has the same dimension as each, and every principal-angle cosine is
+`1.000000000000`, on both fixtures below (a displacement-only sector,
+`Sector(disp = (degree = 2,), nbody = 2, cutoff = c)` ∪ its `nbody = 1` partner,
+`SpglibBackend`, pair set taken from `force_constants` so both sides use exactly
+the same index tuples):
+
+| fixture | space group | SALCs | SLCE image | Cartesian null space | union |
+|---|---|---|---|---|---|
+| `Crystal(Lattice(3.0·I), [1/6 −1/6; 0 0; 0 0], [1,1], ["Fe"])`, `c = 1.1` | P4/mmm (#123), 16 ops | 4 | 4 | 4 | **4** |
+| `Crystal(Lattice([3.0 0.4 −0.2; 0 3.3 0.5; 0 0 2.9]), [0 0.37; 0 0.21; 0 0.44], [1,1], ["Fe"])`, `c = 3.0` | P-1 (#2), 2 ops | 12 | 12 | 12 | **12** |
+
+Consequence, and it cuts both ways:
+
+- The SALC basis has **no symmetry-handling deficit** relative to ALM / hiPhive /
+  phonopy-style Cartesian reduction. It is a different gauge of the same space.
+- It has **no numerical advantage either, and this must never be claimed.**
+  Singular values are invariant under an orthogonal change of basis, and the
+  angular part of the irreducible basis (`3 ⊗ 3 = D⁰ ⊕ D¹ ⊕ D²`, real spherical,
+  Frobenius-orthonormal) *is* orthogonal — measured cond ratio
+  (Cartesian frame / irreducible frame) `= 1.000000` on an ASR + Born–Huang
+  system. The full SALC map additionally mixes orbit members and carries radial
+  factors, so it is orthogonal *times a diagonal*; a diagonal does move the
+  condition number, but that is column scaling, which equilibration fixes in any
+  basis. Any apparent conditioning win is a normalization artifact.
+
+**Layer 2 — affine invariance. This is NOT a space-group property, and only the
+translation half is implemented.** The relevant operations are uniform motions of
+all atoms *with the cell held fixed*:
+
+| operation | condition | in this package |
+|---|---|---|
+| `u → u + t` | acoustic sum rule | **`build_asr`** (+ `asr_residual`) |
+| `u → u + ε_antisym·R` | Born–Huang rotational | **not implemented** |
+| `u → u + ε_sym·R` | equilibrium / vanishing stress | **not implemented** |
+
+None of the three follows from the SALC projection, and that is not an oversight
+in the projection: a rigid rotation of the whole crystal by an arbitrary
+continuous angle is not an operation of the crystal's space group, so it cannot
+be projected out at basis-construction time. That is exactly why the ASR lives as
+a *separate* linear constraint on coefficients (`ASRReparam`) rather than inside
+`build_salc_basis`. **O(3)-equivariance of the displacement expansion is not
+physical rotational invariance** — the SALC basis is invariant under the
+*crystal's* point group and says nothing about the energy cost of a rigid
+rotation.
+
+The two missing families are genuinely independent of each other and of the
+15 Huang (pair-exchange) conditions: in the harmonic Cartesian setting
+`rank[Huang; Q] = 21 = 15 + 6`, where `Q` is the rigid-rotation quadratic form.
+The minimal witness needs no rank computation — simple cubic, nearest neighbours,
+`Φ_d = 1`: the Huang residual is identically zero while `Q = 4·1 ≠ 0`.
+
+**When the gap is benign, and when it is not.**
+
+- **Harmonic order, training data from a relaxed structure: benign.** The six
+  `ε_sym` conditions *are* the vanishing-stress conditions — for central-force
+  models `Q_ij = σ̃_ij − δ_ij tr σ̃` holds exactly (verified to `1e-14`), and that
+  map is invertible, so `Q = 0 ⇔ σ = 0`. A DFT relaxation to `σ ≈ 0` already
+  enforces them; nothing needs to be imposed.
+- **Anharmonic orders: not automatic.** The rotational condition ties `Φ⁽ⁿ⁾` to
+  `Φ⁽ⁿ⁺¹⁾`, so it is not satisfied order by order.
+- **The strain channel (M5), where `ε` is an explicit model variable: this is
+  where it bites.** There the affine field is the model's own coordinate, so the
+  layer-2 conditions become statements about the fitted couplings rather than
+  about the training geometry.
+
+**If it is ever implemented**, three constraints on the design, in decreasing
+order of how easy they are to get wrong:
+
+1. It goes **next to `build_asr`**, as a second constraint layer feeding the same
+   `ASRReparam` mechanism (or a generalization of it) — never into the SALC
+   builder, for the reason above.
+2. **The truncation boundary over-constrains.** Because the condition couples
+   order `n` to `n + 1`, at the top retained order the `Φ⁽ⁿ⁺¹⁾` term is absent and
+   the constraint degenerates to `L·Φ⁽ⁿ⁾ = 0`, whose kernel is only the
+   SO(3)-invariant subspace: dimensions `1, 1, 3, 6, 15` for `n = 2…6` in the
+   generic index-symmetry type and `1, 0, 1, 0, 1` in the fully symmetric
+   (on-site) type — i.e. **at odd order the fully symmetric part is forced to
+   vanish entirely.** This is the exact, channel-resolved form of ALAMODE's
+   `ICONST = 3` warning. Either impose from the top order downward
+   (Esfarjani–Stokes, PRB 77, 144112) or exclude the top order.
+3. The physical acceptance gate already exists in spirit: an ASR-fitted model has
+   exactly three zero eigenvalues of `dynamical_matrix(model, 0)`. The rotational
+   analogue is that a rigid rotation costs zero energy — testable directly
+   through the evaluator at finite `ω`, the same way `test_asr.jl` tests finite-`t`
+   translation invariance. There is no `rotational_residual` today; that is the
+   shape it would take.
+
+Cross-reference: the derivation and the numerics behind this note live outside
+this repo, in the phonon paper's working document
+(`~/Documents/research/papers/writing/SphericalTensorForceConstants/literature.md`,
+§7 seventh and eighth status updates). The spin-side counterpart — that in a
+SOC sector the lattice's axial `l = 1` block does not vanish but *transfers* to
+the spin channel, `𝓡_U E = −𝓡_S E`, block diagonal in `L_S` — is derived in the
+SLCE paper and gated here by `test_sectorbasis.jl`; it is a **diagnostic**, not
+an imposed constraint.
