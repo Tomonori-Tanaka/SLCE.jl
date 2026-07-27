@@ -6,6 +6,15 @@ d0-consistency / codebase reality). Amendments are integrated in place; the
 review reports are archived in the session record. One post-D0 pin was made at
 review time: the displacement-kernel normalization (§3, 4π-free), forced by the
 scale rule already ratified in D0.
+**Revision 2 (2026-07-27): the M5 strain convention pinned** (§9), after a
+second three-lens review (numerical correctness / implementation cost /
+adversarial). This closes §13 risk 2 and settles the last decision M5 could not
+start without. Four acceptance conditions the review surfaced are recorded with
+it — the B₁/B₂ output convention (§7), the grid reference-geometry protocol
+(§9a), the target ensemble and the move's action on `u` (§8), and the ASR
+precondition of the strain deliverables (§9d) — plus one correction: the
+existing rigid-rotation gate is first order only and does NOT close §9b hole
+(i) (§9b, §12 q).
 
 Companions: `spin-lattice-ce.md` (feasibility study, code-verified mapping onto
 the existing packages) and `spin-lattice-ce-d0.md` (the full D0 discussion
@@ -446,8 +455,29 @@ slots; packed-integer cleverness; per-species row layouts.
   strain deliverables computed by direct ε-substitution are clamped-ion
   values; measured B₁/B₂ and elastic constants are relaxed-ion (internal-strain
   tensor Λ via the force-constant inverse). v0 ships clamped-ion WITH the
-  docstring caveat; the relaxed-ion correction is a later utility. Phonon-band
-  tooling (phonopy writer) lives in SLCETools.
+  docstring caveat — and the caveat rides in the RETURN VALUE
+  (`(; B1, B2, ion = :clamped)`), not only in prose, so the numbers cannot be
+  quoted without it: the clamped-vs-relaxed difference is routinely a factor
+  ~2 and can flip signs, which makes a bare clamped-ion B₂ compared against
+  experiment a wrong published number. The relaxed-ion correction is a later
+  utility (§9d for how to invert Φ safely). Phonon-band tooling (phonopy
+  writer) lives in SLCETools.
+- **The B₁/B₂ OUTPUT convention is pinned, and it is not the strain measure**
+  (review 2026-07-27). Measure-independence across the Seth–Hill family (§9e)
+  covers only the ε-LINEAR content, and the actual B₁/B₂ ambiguities live
+  entirely outside that family: tensor vs engineering shear (factor 2 on B₂),
+  `α²` vs `α² − 1/3` (shifts B₁ against the volume-magnetostriction constant),
+  `Σ_{i<j}` vs `Σ_{i≠j}` (another factor 2), the overall sign of `E_me`, and
+  clamped vs relaxed ion. **None of these is pinned anywhere in the repo
+  today** — gate (e2) tests span and independence and says so explicitly
+  ("C2 is the fit gauge — no B₁/B₂ normalization or sign convention is pinned
+  here"). So the measure pin must not be read as making B₁/B₂ safe. Pin, in
+  the `magnetoelastic_constants` docstring AND as a numeric gate (§12 u):
+  `E_me = B₁ Σ_i ε_ii(α_i² − 1/3) + 2B₂ Σ_{i<j} ε_ij α_i α_j`, TENSOR shear
+  `ε_ij` (engineering γ = 2ε is I/O only), the `Σ_{i<j}` range, the overall
+  sign, and the clamped-ion qualifier — gated against an INDEPENDENTLY
+  hand-derived closed form on the (e2) fixture, never against the evaluator's
+  own output (the (4π) precedent, §12 l).
 - **Later-phase deliverable — multipole readout** (d0 §2e, added 2026-07-25):
   a recoupling post-processing (6j-class, never touching the projector) that
   decomposes each invariant into conjugate-irrep pairs
@@ -475,14 +505,39 @@ slots; packed-integer cleverness; per-species row layouts.
   coef-factored programs, ~1 sweep cost) — serves the strain outer move and
   doubles as the active-learning hot-swap hook.
 - Strain: **outer-loop full-energy Metropolis move** over a K(ε) grid +
-  elastic term — never inside the sweep layer (§9). **Ensemble pins
-  (review):** (i) the acceptance rule must carry the correct configurational
-  measure for a cell change (the N ln(V′/V) scaled-coordinate Jacobian) and a
-  +PV term if the target is constant pressure — write the target ensemble
-  down before implementing; (ii) **no double counting**: each grid point's fit
-  has its own j0(ε) which already contains lattice elastic energy — the
-  explicit elastic term (V/2)εᵀCε is used ONLY if j0(ε) is referenced out;
-  pick one source and gate it (§12 l).
+  elastic term — never inside the sweep layer (§9). **The target ensemble,
+  written down (2026-07-27, discharging the "write it down first" pin).**
+  Isothermal–isobaric (NPT), configurational (no kinetic term), fixed N, T and
+  HYDROSTATIC P, cell parameterized by the canonical strain (§9e), atoms at
+  fixed SCALED coordinates:
+
+  > `w(ε, {s}, {ê}) ∝ V(ε)^{N_mobile} · exp[ −β( E(ε, u, ê) + P·V(ε) ) ]`,
+  > `V(ε) = V₀ det(I + ε)`; the observable is `G(T, P)`.
+
+  Three preconditions the `N ln(V′/V)` Jacobian silently assumes, each a
+  classic bug if left implicit: (i) **the move must rescale the displacements
+  affinely**, `u_i → (F′F⁻¹)·u_i`, together with the reference — at fixed
+  Cartesian `u` the configurational measure is unchanged and the Jacobian is
+  **1**, not `(V′/V)^N`; (ii) **N is the number of atoms with active
+  displacement DoF**, not `n_atoms` — clamped species (pmax = 0 ligands) have
+  no configurational integral, and a centre-of-mass-free sampler uses N − 1;
+  (iii) the exponent is `N ln(V′/V)` for a proposal uniform in V and
+  `(N+1) ln(V′/V)` for one uniform in ln V. Two docstring obligations:
+  constant-strain (fixed cell) is a DIFFERENT ensemble giving `F(T, ε)` with
+  neither Jacobian nor PV term — magnetostriction needs the former, and the
+  constant-strain and constant-stress specific heats differ; and v0 is
+  hydrostatic-only on purpose, because `P·V(ε)` is a state function with no
+  measure ambiguity while general applied stress is work-conjugate to the
+  strain measure (2nd Piola–Kirchhoff ↔ Green–Lagrange, Biot stress ↔ Biot),
+  so a general `σ_ext` would re-open §9e part (1). Also: `j0` is per training
+  cell and is normally dropped from the sweep energy as a constant — the strain
+  move is precisely where it stops being constant, so `set_coefficients!` must
+  carry `j0` and the strain `ΔE` must include `n_cells · Δj0`.
+  **No double counting**: each grid point's fit has its own j0(ε) which already
+  contains lattice elastic energy — the explicit elastic term (V/2)εᵀCε is used
+  ONLY if j0(ε) is referenced out; pick one source and gate it (§12 l). The
+  sharper half of the same hazard — whether j0(ε) also already contains the
+  internal relaxation — is pinned by the reference-geometry protocol in §9a.
 - Observable signature breaks ONCE to a struct view: `MCView` (spins, disps,
   strain, energy) + per-channel `counts`; accessors so the next field is not
   another break; configurational-only specific heat documented.
@@ -512,6 +567,22 @@ Settled resolution, split by physics:
   `StrainedModels`. `disp_scale` is frozen at its η = 0 value so coefficients
   are interpolated in ONE normalization. Then `model_at(sm, ε)` + MC
   `set_coefficients!` work as specced. Covers FeRh's ~1% volume jump.
+  **Reference-geometry protocol (review 2026-07-27) — the sharper double
+  count.** The geometry that defines `u = 0` at a grid point must be exactly
+  the geometry `j0(ε)` represents. v0 pins **affinely scaled, internally
+  UNRELAXED** references: `u = 0` is the affine image of the η = 0 reference,
+  `j0(ε)` is the clamped-ion cold curve, the internal relaxation is supplied
+  exactly once by the MC's own displacement DoF, and grid points compose. If
+  the DFT grid points were computed with internally relaxed coordinates
+  instead, `j0(ε)` would already contain that relaxation and the MC would
+  relax a second time — elastic response too soft, magnetostriction wrong,
+  **and every gate green**. Nonzero reference forces at η ≠ 0 are expected
+  and are exactly the p = 1 internal-strain content (§1: reference forces are
+  real physics). Related: a fixed plane-wave cutoff across a volume grid puts
+  a systematically V-dependent basis-set error into `j0`, and `−∂j0/∂V` **is**
+  the pressure driving the MC strain move (Pulay stress) — require consistent
+  converged cutoffs across the grid and gate `−dj0/dV` against the DFT stress
+  reported at each point (§12 s).
 - **(b) Symmetry-breaking strain: an explicit global strain channel** (rank-2
   symmetric = l = 0 ⊕ l = 2, polar, T-even, translation-invariant, projected
   in the UNSTRAINED group) — keys ε-invariant by construction, ε-dependence
@@ -521,7 +592,25 @@ Settled resolution, split by physics:
   (i) *rotational invariance* — point-group projection does not imply the
   Huang/rotational sum rules relating the strain block to the low-order force
   constants; v0 ships a rigid-rotation-residual diagnostic, not the
-  constraint; (ii) *identifiability* — a homogeneous strain is the affine
+  constraint. **Correction (review 2026-07-27): the diagnostic that exists
+  today does not close this, and must not be read as closing it.** Gate (e2)'s
+  rotation kill (`test/unit/test_sectorbasis.jl:409-413`) feeds `u = W·d` with
+  antisymmetric `W` — the LINEAR part of a rotation only. A rigid rotation is
+  `u = (exp W − I)d`, and the second-order piece `½W²d = ω(ω·d) − |ω|²d` is a
+  strain-like shell contraction that survives; the linear kill passes by the
+  point-group argument `T_1g ⊗ (E_g ⊕ T_2g) ⊅ A_1g` that the test's own comment
+  states, so it is vacuous as a rotational-invariance check. The diagnostic must
+  be evaluated at FINITE ω, `u_i = (exp W − I)d_i`, and reported relative to a
+  strain-energy scale (§12 q). What a rotation-blind measure would buy, stated
+  precisely so the hole is not overclaimed either way: no rotation-carrying
+  columns in the strain channel, an exact `l = 0 ⊕ l = 2` split with no spurious
+  axial piece, a single-valued lattice-pair → strain map, and mixed `u`–ε
+  rotational conditions that become *statable*. What it does NOT buy: the pure-Φ
+  Born–Huang conditions, the mixed conditions themselves (statable ≠ enforced),
+  or the Huang conditions at a stressed reference. Internal displacements rotate
+  too, so `δE = 0` still demands `Σ_i (∂E/∂u_i)·W(d_i + u_i) = 0` for every
+  antisymmetric `W`, and no strain measure touches that; (ii) *identifiability*
+  — a homogeneous strain is the affine
   displacement field, so the strain channel overlaps the disp channel's span
   and `TrainingDatum` carries no strain observable; the channel is
   identifiable only from cross-reference energy differences (i.e. K(ε)-style
@@ -549,16 +638,130 @@ Settled resolution, split by physics:
   evaluator — it is extracted analytically, cluster by cluster, via the
   relative substitution u_i − u_j = ε·d_ij (this is what
   `exchange_strain_derivatives` does), and it is origin-well-defined ONLY
-  under exact ASR (§6) — a testable coupling. SCP-style thermal contraction
+  under exact ASR (§6) — a testable coupling. **The mechanism, and what it
+  obliges (review 2026-07-27):** the affine field is u_i = ε·(R_i + t), so an
+  origin shift `t` adds the uniform translation ε·t to every displacement and
+  `∂E/∂t = ε : (Σ_i ∇_i E)`. The extracted strain response is therefore
+  origin-independent **iff** `Σ_i ∇_i E ≡ 0`, i.e. exactly `A·β = 0`. Two
+  consequences: (α) the strain deliverables must **hard-error**, not warn, on
+  `asr_residual(model)` above tolerance — for a violating model the answer is
+  not inaccurate but *undefined*, the origin being unbounded — and the
+  tolerance must be TIGHTER than the 1e-10 used elsewhere, because the strain
+  path samples `Σ_i ∇_i E` weighted by |R_i| and so amplifies a residual by
+  ~R_cut/d_NN; (β) the origin-shift invariance itself has no gate today and
+  needs one (§12 t) — gate (e2)'s translation kill exercises only the shell
+  with the centre clamped (pmax Fe = 0), so it never touches the ASR coupling
+  this claim is about. The later relaxed-ion correction `Λ = −Φ⁻¹Ξ` inherits
+  the same discipline: under exact ASR `Φ` is singular with a null space of
+  exactly the three known translations, so project onto the acoustic complement
+  using those analytically known vectors — never a numerical rank cut, and
+  never a near-singular inverse of a not-quite-ASR `Φ`, where three near-zero
+  eigenvalues get inverted. SCP-style thermal contraction
   (⟨uu⟩ → J_eff(T); ⟨Φ_spin⟩ → magnetic-state-dependent force constants) is
   the finite-T deliverable template. Caveat inherited: a distorted minimum
   must lie inside the truncated polynomial's validity region.
 
 The K(ε) pipeline, explicitly: per grid point ε = ηI, build the strained
 reference Crystal → basis (identical keys, d_NN-scaled cutoffs) → dataset (own
-reference_id) → fit → entry in `StrainedModels`. **The strain convention
-(metric, Voigt order, shear factor) is pinned once and persisted before the
-first strained artifact exists** (§13 risk 2).
+reference_id) → fit → entry in `StrainedModels`.
+
+### 9e. Strain convention — PINNED 2026-07-27 (closes §13 risk 2)
+
+Three parts. Only the first is a physics choice; the other two are the
+discipline that makes it cheap to revisit.
+
+**(1) The measure is Biot, `E^(1) = U − I`.** The canonical strain is a
+symmetric `ε` with the deformation DEFINED as `F := I + ε`, hence `U = I + ε`,
+`R = I`, and the affine substitution `u_i − u_j = ε·d_ij` is exact *by
+definition* rather than a linearization. Say **Seth–Hill m = 1** in the docs,
+never "infinitesimal strain": the family is `E^(m) = (1/m)(U^m − I)` with
+`E^(0) = ln U` (Green–Lagrange m = 2, Biot m = 1, Hencky m = 0), and naming the
+member settles every higher-order question at once instead of leaving
+"infinitesimal, redefined" hanging. Biot beats Hencky here because the
+substitution is then exactly LINEAR in the label: `exchange_strain_derivatives`
+/ `magnetoelastic_constants` come off the monomial coefficients in closed form
+with no `d exp` chain rule, and gate (e2)'s exactness assertion
+(`test/unit/test_sectorbasis.jl:391`) stays literally true.
+
+**Switch conditions to Hencky, written down now so this is not re-litigated
+from scratch.** Move to `h = ln U`, `u = (exp h − I)·d`, when EITHER holds:
+(i) *the grid stops being isotropic* (§9c c/a paths, or the §9b global strain
+channel) — under Biot the labels stop composing additively, `tr(ε)/3 ≠
+(1/3) ln det U` at O(ε²), the `l = 0 ⊕ l = 2` split stops being exactly
+volumetric/isochoric, and the incremental-vs-total chain rule in
+`exchange_strain_derivatives` becomes a live factor-injection site; Hencky
+makes all four exact. (ii) *any O(ε²) deliverable is planned* — third-order
+elastic constants, second-order magnetoelastic constants, or an MC sampling
+strains large enough that the SHAPE of `J(ε)` matters and not just its slope at
+0. The polynomial machinery is indifferent either way: SALC projection,
+`solid_harmonic_poly`, the ASR builder and `force_constants` all see a plain
+Cartesian `u` and never the strain label, so the switch costs one symmetric 3×3
+`exp` per strain change plus the `d exp` chain rule in the derivative
+deliverables.
+
+**(2) ONE object is stored — the symmetric right stretch `U`. Every label is a
+derived function.** `ε := U − I`, `V := V₀ det U`, `η_log := (1/3) ln det U`,
+and the Voigt vector are functions, never independently persisted fields.
+Three independent reasons, each sufficient: `η_log` carries only the volumetric
+part and so cannot label a §9b or §9c grid point (it does not survive v0);
+`tr(ε)/3 ≠ η_log` at O(ε²) but agrees EXACTLY on the v0 isotropic grid, so a
+two-label design hides its own inconsistency until §9c lands; and a mistaken
+conversion in the MC acceptance is not rounding-error-sized (a 16³ cell at
+η = 3% misplaces the Jacobian by ~5 kT, i.e. a factor ~250 in acceptance).
+Deriving everything from `U` is also what makes the Biot→Hencky switch in (1) a
+one-function change.
+
+`η_log` survives only as the **interpolation abscissa** of the volume grid — an
+internal, documented modelling choice, neither a label nor persisted. It is the
+better variable on physics grounds (`J ~ V^{−n}` is near-linear in `ln V`), and
+it is a genuine CHOICE rather than a coordinate change: a spline in η is a
+different function from a spline in `ln(1+η)` pulled back. Gate it on its own
+terms — leave-one-out on the grid against a directly fitted extra point — and
+not by appeal to the label.
+
+**(3) Voigt is an I/O view only**, order `1..6 = xx, yy, zz, yz, zx, xy`,
+engineering shear factor 2 (`γ₄ = 2ε₂₃`), applied to strain and never to
+stress; compliances then carry 2 and 4. Never canonical storage. For the day
+stress becomes a training target (§10 radar): **VASP prints stress as
+`XX YY ZZ XY YZ ZX`**, a different order — the adapter reorder is a bug waiting
+in SLCETools, not a hypothetical.
+
+**Persistence** (§11). Required fields, no `get(d, …, default)` fallback, an
+unrecognized value an `ArgumentError` naming the known tags:
+`strain_convention = "biot-v1: eps symmetric, F = I + eps"`, `voigt_order`,
+`voigt_shear_factor`. No strained artifact exists yet, so a mandatory tag costs
+nothing and needs no back-read branch — the only moment that will ever be true.
+The second tooth matters more than the tag: store each grid point's actual
+strained lattice vectors (`_crystal_doc` already writes them) and **recompute**
+the label from the geometry on load, comparing at a tight tolerance. That is
+the package's own recompute-never-trust discipline (fingerprints, `asr_residual`)
+and it turns a mistagged *or untagged* file from silent absorption into a loud
+failure, which a tag alone cannot do. It also bounds the blast radius of a wrong
+pin: the coefficients were fitted to geometries, never to labels, so a convention
+error is a re-derivation and never a re-fit.
+
+**The derive-from-geometry helper is where rotation can enter, and the only
+place.** `strain_between(ref, deformed)` must polar-decompose `F = A′A⁻¹ = R·U`,
+keep `U`, discard `R` explicitly, and REPORT `‖R − I‖` instead of silently
+symmetrizing. An externally standardized cell is the live case: spglib's setting
+differs from ours by an arbitrary rotation, and `crystal_fingerprint`
+deliberately treats a symmetry-transformed description as a different reference.
+Writing `ε := sym(F) − I` naively injects a spurious isotropic compression
+`θ²/2` — at θ = 5° that is 3.8e-3, the same order as FeRh's volume jump. Guard
+`eigmin(I + ε) > tol` on every construction and every MC proposal; assert
+symmetry with a RELATIVE `isapprox` and **throw** rather than symmetrize, since
+silent symmetrization is exactly how a caller's rotation disappears.
+
+**What symmetrizing does and does not discard.** `∂J/∂ε` is symmetrized because
+strain *is* the symmetric part; the antisymmetric response is a different
+quantity (rotational magnetoelasticity) and it is not lost information — under
+SOC the rotation law `𝓡_U E = −𝓡_S E` (§6, and the theory paper) fixes it to
+minus the axial response of the spin channel. So it is a **testable identity,
+not a truncation**, and gate (r) below turns it into one. Note the O_h fixture
+of gate (e2) cannot see it: cubic symmetry forbids l = 2 single-ion anisotropy,
+so `𝓡_S E = 0` there and the residual vanishes for a reason that does not
+generalize. The identity has teeth only on a fixture with l = 2 anisotropy
+(D₄h-class).
 
 ## 10. Extension contract (D-9: occupation channel, ratified)
 
@@ -591,7 +794,11 @@ applications?
 ## 11. Persistence
 
 Schema **v5**: decor table + L_S in keys; factors + slot→site maps; spec
-sectors + soc + disp_scale (+ strain convention when it lands). **Transparent
+sectors + soc + disp_scale. The strain fields land with M5 as specified in §9e
+(`strain_convention` / `voigt_order` / `voigt_shear_factor`, required with no
+default fallback, plus the per-grid-point strained lattice vectors from which
+the label is RECOMPUTED and compared on load). No strained artifact exists yet,
+so they are mandatory from birth and need no back-read branch. **Transparent
 back-read of v4 in the loader, NO migrate-once tool** — the v4→v5 map is total
 and value-preserving (per-site `l` → `SiteFactor(SPIN, k = 0, l)` decor,
 `L_S := Lf`, `isotropy → soc = false`). Gate: v4-loaded models reproduce
@@ -693,13 +900,63 @@ NO time reversal — on Σl_spin-odd inputs it happily returns T-odd invariants
 Σl_spin-even inputs (or after teaching the oracle T-parity); it also lacks
 translation folding, a strain slot, and spin-side Sym^p.
 
+Strain gates (M5, added 2026-07-27 with the §9e pin):
+
+- **(q) rigid rotation at FINITE ω** — `u_i = (exp W − I)d_i`, residual reported
+  relative to a strain-energy scale. Replaces the linear-`W` kill as the §9b
+  hole-(i) diagnostic, which it is not (§9b): the linear test passes by a point-
+  group argument and never sees the `½W²d` contraction. Run it on a fixture
+  where the linear kill is NOT symmetry-forced.
+- **(r) the SOC rotation law as a two-sided identity** — `𝓡_U E ≡ −𝓡_S E` on a
+  fitted model, on a D₄h-class fixture that HAS l = 2 single-ion anisotropy. Two
+  reasons this is the right shape: it is the first implementation-level check of
+  the theory paper's "the rotation rules are transferred, not absent", and it
+  turns the antisymmetric part of the strain-derivative tensor from discarded
+  content into a measured quantity. The O_h fixture of gate (e2) is blind to it
+  — cubic forbids l = 2 anisotropy, so both sides vanish there.
+- **(s) `−dj0/dV` vs the DFT stress** at each grid point — validates the
+  interpolation, the single-source rule (§8) and the grid's basis-set
+  consistency (§9a) in one test.
+- **(t) origin-shift invariance of the strain deliverables** — recompute with
+  every `R_i` shifted by a random `t` and require agreement; currently ungated,
+  and the precondition that makes it hold is exact ASR (§9d). Pair it with the
+  hard-error on `asr_residual` at the tighter strain-path tolerance.
+- **(u) the B₁/B₂ output convention** against an independently HAND-DERIVED
+  closed form (§7) — shear factor, summation range, trace subtraction, sign.
+  Never against the evaluator's own output.
+- **(v) strain-label round trip** — `U` → persisted geometry → recomputed label,
+  plus the refusal surface: unknown convention tag, missing tag, and a
+  geometry/label mismatch each error loudly (§9e).
+- **(w) interpolation abscissa** — leave-one-out on the volume grid against a
+  directly fitted extra point. The abscissa is a modelling choice, not a
+  coordinate change, so it needs a gate of its own (§9e part 2).
+
 ## 13. Residual risks and mitigations
 
 1. K(ε) symmetry breaking — RESOLVED by §9 (volume-only grid with key-stability
    pins / global strain channel with its two stated holes / path-specific
    fallback / renormalization with the corrected closure statement).
-2. Strain convention unpinned — pin + persist before the first strained
-   artifact (CASM alone ships three metrics; do not import ambiguity).
+2. Strain convention unpinned — **RESOLVED 2026-07-27 by §9e**: Biot
+   (Seth–Hill m = 1), one stored object `U` with every label derived, Voigt as
+   an I/O view, a mandatory persisted tag AND a recompute-from-geometry check
+   on load. Residual exposure after the pin is NOT the artifacts (coefficients
+   were fitted to geometries, so a wrong pin is a re-derivation, never a
+   re-fit) but (i) published constants and (ii) deliverable docstring
+   semantics — which is why §7's B₁/B₂ output pin and gate (u) carry more of
+   the risk than the measure choice does.
+   **Measure-independence is narrower than it looks, and the elastic-constant
+   case never closes.** ε-linear content (B₁/B₂, dJ/dε, the internal-strain
+   response, the reference stress) is Seth–Hill-independent unconditionally.
+   Second-order elastic constants coincide across measures only at a
+   STRESS-FREE reference, differing otherwise by a term linear in the reference
+   stress. In a spin–lattice model that reference stress is a function of the
+   spin configuration, so a cell can be stress-free for at most one magnetic
+   state — and the flagship deliverable is the magnetic-state DIFFERENCE of
+   force constants. Therefore: record the measure AND the spin state with any
+   elastic-constant output, and never argue "the reference is stress-free so
+   it does not matter". Everything strain-quadratic and beyond (third-order
+   elastic constants, second-order magnetoelastic constants, the interpolated
+   J across the grid at O(Δη²)) is measure-dependent by construction.
 3. `reduce_cell` scale migration — the emission and census migrate to
    `DecoratedTerm`; covered by the extended (4π) gate (§12 l).
 4. soc-vs-sector_mask drift — gates (f)/(n) MUST run on mixed specs.
@@ -734,14 +991,48 @@ translation folding, a strain slot, and spin-side Sym^p.
   SLCEMonteCarlo joint programs, disp move, MCView, `set_coefficients!`;
   checkpoint bump; GPU port + precision/memory re-measure. Gates (b)/(l)
   + the (4π) pin + re-run (a).
-- **M5 — strain + finite-T utilities.** Pin the strain convention;
-  `StrainedModels` + volume grid (d_NN-scaled cutoffs, key-equality
-  assertion) + the single-source elastic-energy rule + outer MC move (target
-  ensemble written down first); `exchange_strain_derivatives` /
-  `magnetoelastic_constants` (clamped-ion, documented) /
-  `magnon_phonon_vertices`; `effective_model(model; u0)` (subgroup-basis
-  output, §9d gate). Global strain channel (§9b) only after its two holes
-  are resolved AND a felt need exists.
+- **M5 — strain + finite-T utilities.** Sliced, with the convention decision
+  discharged up front (M5-0 done 2026-07-27):
+  - **M5-0 — decision record.** The strain convention (§9e), the target
+    ensemble (§8), the reference-geometry protocol (§9a), the B₁/B₂ output
+    pin (§7), the ASR precondition (§9d), and gates (q)–(w). *Complete.*
+  - **M5-1 — `effective_model(model; u0)`.** Convention-INDEPENDENT, so it
+    could have started before M5-0 and can start now: subgroup-basis output,
+    gate `E_shifted(δu) ≡ E(u₀ + δu)` to 1e-13 (§9d). One coupling only — it
+    must REFUSE a strain argument, since the affine pattern u_i = ε·R_i is not
+    cell-periodic and must never go through the periodic evaluator.
+  - **M5-2 — clamped-ion strain deliverables.** `exchange_strain_derivatives`
+    / `magnetoelastic_constants` / `magnon_phonon_vertices`. The true consumer
+    of the convention. Name BOTH meanings of the strain derivative at a
+    nonzero grid point — intra-model incremental vs grid finite-difference —
+    and make their agreement an acceptance gate; it is the best end-to-end
+    check the K(ε) design admits, catching a wrong shear factor, a mislabelled
+    η and basis truncation in one test.
+  - **M5-3 — `StrainedModels` + volume grid.** d_NN-scaled cutoffs (note BOTH
+    cutoff surfaces scale: `BasisSpec.cutoff` and every `SectorRule.cutoff`),
+    key-equality assertion, `disp_scale` frozen — assert the freeze now even
+    though `disp_scale ≠ 1` is still refused, so it stays true the day that
+    guard lifts. The invariant is a SIMILARITY statement (A_i = s_i·A_0,
+    fractional positions unchanged ⇒ identical space group, clusters, orbits
+    and `SALCKey` set), which is why it is stated in the linear stretch and
+    not in any label.
+  - **M5-4 — MC.** `set_coefficients!` (an M4 leftover, convention-free, and
+    the longest independent pole — pull it forward and land it alongside M5-1)
+    + the outer strain move + gate (l)'s strain half + the checkpoint strain
+    field. **Blocker found 2026-07-27:** `SLCEMonteCarlo/src/hamiltonian.jl`
+    prunes programs on coefficient VALUES (`filter(t -> t.coef != 0.0, …)` at
+    :756/:781, and the `w == 0.0` skips in `_push_term_programs!`), so a
+    coefficient that is exactly zero at one grid point and nonzero at another
+    has no entry to rewrite — reachable, since sparse estimators and `refit`
+    produce exact zeros routinely. The fix (gate the skip on `folded` rather
+    than on `coef·folded`, keeping `sent_w` materialized) touches §12 gate
+    (a)'s byte-equality contract; decide explicitly between a
+    `keep_zero_terms` arm and a loud refusal in `set_coefficients!`.
+  - **M5-5 — finite-T.** SCP-style ⟨uu⟩ → J_eff(T), ⟨Φ_spin⟩ →
+    magnetic-state-dependent force constants (§9d template).
+  Global strain channel (§9b) only after its two holes are resolved AND a felt
+  need exists — and note §9b hole (i) is wider than the record said before
+  Revision 2.
 - Docs land with each milestone. `guide/migration.md` carries the dropped-noun
   table: **JointDatum, JointBasisSpec, SectorSpec, SectorRule,
   SectorConstraint/GreyGroup/SpinIsotropic, SiteLabel, JointTerm, spin_mode,
