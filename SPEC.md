@@ -76,8 +76,10 @@ capability consumed by both the introspection and the Sunny interop.
   constants `N1 = √(3/4π)`, `A2 = √(15/16π)`, `B2 = √(5/16π)` are defined once here
   (used by `slce/bilinear.jl` and downstream consumers).
 - Validated by: closed-form standard solid harmonics (`l ≤ 2`), gradient tangency
-  + on-sphere central difference, and bit-for-bit agreement with Magesty's
-  `TesseralHarmonics` (oracle).
+  + on-sphere central difference, and agreement with Magesty's `TesseralHarmonics`
+  (oracle) to `atol = 1e-13, rtol = 1e-12` on values and `1e-12 / 1e-11` on
+  gradients — *not* bit-for-bit, as this line used to claim: the two use different
+  Legendre primitives, so the last few ulp differ by construction.
 
 ### basis — `SolidHarmonics` submodule (joint spin–lattice M1)
 - The displacement-channel kernel: real solid harmonics `Rₗₘ(u)` evaluated as

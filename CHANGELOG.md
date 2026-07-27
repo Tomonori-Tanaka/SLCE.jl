@@ -6,6 +6,95 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — whole-package review
+
+A nine-agent review over the whole package (a critical reviewer and a
+software-engineering reviewer among them). Everything below was verified
+independently before it was acted on, and every source fix carries a gate that
+was mutation-tested — a gate that passes both before and after the violation is
+worse than none.
+
+**Numbers that were wrong.**
+
+- **`Ridge(lambda = 0)` was not OLS.** It solved the normal equations, squaring
+  the condition number for no benefit; `λ = 0` now routes to the pivoted-QR OLS
+  path exactly. Both docstrings had it backwards (`OLS` claimed normal
+  equations, `Ridge` claimed a QR) and now say what the code does.
+- **`_rank_df` used `maximum(size(X))` in the rank tolerance** where
+  `LinearAlgebra.rank`'s documented default is `minimum(size(X))`. On a tall
+  design (`n ≫ p`) this inflates the cut by `n/p` and silently under-counts the
+  degrees of freedom feeding GCV.
+- **`Crystal` did not deliver the `[0, 1)` it documented.** `mod(-1e-18, 1.0)`
+  is `1.0` in Float64 — the exact result falls below the float resolution near 1
+  and rounds up. `build_neighbor_list`'s `AllImages` image box is exactly tight
+  and its derivation needs `|Δf| < 1` *strictly*, so a coordinate stored at
+  `1.0` drops the shell sitting on the cutoff sphere: measured 102 pairs against
+  a brute force of 104 on a triclinic cell.
+- **`dynamical_matrix`'s phase convention had no gate**, so the `2π` scale was
+  free. Now gated by periodicity in reciprocal-lattice vectors. (The *sign* of
+  the phase is not observable in the spectrum — `D` and `conj(D) = Dᵀ` share
+  eigenvalues — so the scale is the real content.)
+- **A spin component just outside `[-1, 1]` reached the Legendre recursion**,
+  which has that as a hard domain, and threw a `DomainError` from inside the
+  threaded design assembly naming neither the configuration nor the atom.
+  Tightening the unit-norm `atol` does *not* close this: measured, `‖e‖ − 1 =
+  5e-9` clears a `1e-8` band and still throws. The boundary now checks the
+  components, which closes it and rejects nothing the tolerance was meant to
+  allow.
+
+**Invariants that could be bypassed.**
+
+- **`SALCBasis` and `SLCEBasis` were plain structs**, so the exactly-field-typed
+  call reached the default constructor and skipped every check — which
+  persistence and `restrict` actually do. Both now validate in *inner*
+  constructors, as `STYLE_GUIDE.md` already required. `SALCBasis` additionally
+  derives its `fingerprint` from the keys instead of accepting one, so the
+  summary cannot drift from what it summarizes.
+- **A space group was taken on faith.** No integrality of the fractional
+  rotations, no `|det W| = 1`, no Cartesian orthogonality, no closure, no
+  duplicate check, and `map_sym` columns were *documented* as permutations
+  without being verified to be one. Downstream a `SpaceGroup` is consumed as a
+  group — orbits reduce by stabilizer counting, SALCs project with `(1/|G|)
+  Σ_g` — so a merely plausible list of matrices does not fail, it produces wrong
+  multiplicities and a non-idempotent projector. `_validate_ops` now checks all
+  of it, with the full pairwise closure running up to 192 operations (48 point
+  ops × 4 centerings, i.e. every conventional setting) and that cap stated
+  rather than silent.
+- **The neighbour list's `tol` was public and then contradicted**: every
+  downstream "is this edge inside a radius" decision read a hard-coded constant,
+  so a caller who widened the band got a list built one way and clusters
+  admitted another. The band now travels on the `NeighborList`.
+
+**Gates that could not fail.**
+
+- Four `same_members` calls in `test_mixedsalc.jl` were bare expressions with no
+  `@test` — the anti-drift comparison they belong to was reporting success
+  without asserting anything.
+- `runtests.jl` accepted an unknown `TEST_MODE` by running zero tests and
+  reporting success, and the threaded-vs-serial gates were vacuous at one
+  thread. Both now refuse.
+- **The decor engine's axis-relabelling convention had no value-level gate.**
+  See `test/unit/test_mixedsalc.jl` — the short version is that the existing
+  fixtures pinned it by *shape* only, and an invariance check cannot catch it
+  either (the wrong convention yields a differently-scaled invariant, not a
+  non-invariant).
+- **Two test fixtures declared a group that is not one**: `_triangle_c3v` and
+  `_mx_triangle_c3v` put a 3-fold rotation in a *cubic* box, where its
+  fractional matrix is not integral. Harmless only by accident — every cluster
+  in those fixtures sits inside one cell, so no lattice shift is ever rotated.
+  Both moved to a hexagonal cell, geometry and every assertion count unchanged.
+
+**Documentation that had drifted.** The README was two milestones behind (no
+mention of displacements, forces, the ASR, or the phonon deliverables); the
+oracle harmonics agreement was described as "bit-for-bit" when it is
+`atol = 1e-13, rtol = 1e-12`; the design record named an ASR solver
+(column-pivoted QR) that is not the one implemented (per-component SVD), listed
+two convenience presets as public API that were never built, and declared M3
+closed on a gate (c) that does not exist — now recorded as not run, the way gate
+(m) was, rather than quietly carried. `EffectiveTerm.coef` and
+`force_constants(...; order = 1)` gained the convention statements they were
+missing.
+
 ### Added — effective models at a displaced structure (M5 slice 1)
 
 - **`effective_model(model; u0, atol = 0.0)` → `EffectiveModel`** (with

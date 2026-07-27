@@ -529,11 +529,19 @@ There are **two independent layers** of invariance in a lattice-dynamics model,
 and this package implements one and a half of them. Confusing the layers is the
 single easiest way to over-claim what a fitted `SLCEModel` guarantees.
 
+> **On the numbers in this section.** Every figure below — the principal-angle
+> cosines, the condition-number ratio, `rank[Huang; Q] = 21`, the `1e-14`
+> stress-condition residual — was measured externally, in the phonon paper's
+> scratch scripts, and **none of them is gated by a test in this repository.**
+> They are a record of those experiments, not a guarantee the suite maintains.
+> The one physical consequence that *is* gated here is the acoustic-zero check on
+> `dynamical_matrix` (`test/unit/test_forceconstants.jl`).
+
 **Layer 1 — space-group symmetry. Implemented by the SALC projection, and it is
-the standard construction, not a variant.** Verified: the symmetry-adapted space
-of harmonic force constants reachable through
-`force_constants(model; order = 2)` is *bit-for-subspace* the same as the
-textbook Cartesian reduction — impose covariance
+the standard construction, not a variant.** The symmetry-adapted space of
+harmonic force constants reachable through
+`force_constants(model; spins, order = 2)` is *bit-for-subspace* the same
+as the textbook Cartesian reduction — impose covariance
 `Φ(g·pair) = D(g) Φ(pair) D(g)ᵗ` plus the transpose relation
 `Φ^{αβ}((a,0),(b,R)) = Φ^{βα}((b,0),(a,−R))` and take the null space. The union of
 the two spaces has the same dimension as each, and every principal-angle cosine is

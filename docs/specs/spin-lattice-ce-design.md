@@ -208,8 +208,12 @@ slots; packed-integer cleverness; per-species row layouts.
 - `soc` (truncation axis, defines model support) ≠ `sector_mask`/`frozen`
   (staging axis, defines fit stages). Never merged. The L_S = 0 mask correctly
   freezes the L_S = 0 columns of `soc = true` sectors too.
-- Sector selectors `:all / :soc_free / :soc / :spin / :lattice / :coupled` and
-  presets `soc_free(spec)`, `force_constant_spec(crystal; ...)` are public API.
+- Sector selectors `:all / :soc_free / :soc / :spin / :lattice / :coupled` are
+  public API (implemented, `fitting/staged.jl`). **The convenience presets
+  `soc_free(spec)` and `force_constant_spec(crystal; ...)` were never built and
+  are not public API** — a spec that would use them is written out as a `Sector`
+  table, which is one line longer and states its truncation explicitly. Recorded
+  here rather than deleted because two other documents cite this line.
 - Per-species knobs: `lmax = 0` (spin-inactive species), `pmax = 0` (clamped
   species) — ligands are `lmax = 0, pmax > 0`.
 - `disp_scale` (u/d_NN scaling) is fixed in the basis and persisted (precedent:
@@ -245,8 +249,12 @@ slots; packed-integer cleverness; per-species row layouts.
   applied to the explicit homogeneous polynomials, collected in ONE common
   unsymmetrized monomial basis across orbits (real M3 machinery, not a
   one-liner); A is symmetric-redundant ⇒ the null space comes from a
-  **rank-revealing (column-pivoted) QR on row-normalized A with a pinned
-  tolerance**, and rank(A) is gated against an independent count. Residual
+  **rank-revealing factorization of row-normalized A with a pinned tolerance**,
+  and rank(A) is gated against an independent count. *(Implemented as a
+  per-component SVD, `fitting/asr.jl` — not the column-pivoted QR this line
+  originally named. SVD returns the orthonormal null basis `Z` directly, which
+  the reparameterization needs, and its singular values are what the pinned
+  tolerance cuts on; pivoted QR would need a second step for both.)* Residual
   gates are *relative* (`‖Aβ‖/(‖A‖‖β‖)`), plus the well-conditioned physical
   form Σ_i f_i = 0 per configuration (§12 k).
 - **ASR amendments (2026-07-26, three-lens design review — numerics /
@@ -813,7 +821,8 @@ MC program arrays byte-equal — exercised at M2 through the *unmigrated* MC's
 pure-spin `multipole_terms` path, and re-run after M4); (b) spin-only MC
 bit-identity (l044 8³ fixed seeds, incremental-energy + config hash,
 multitask + GPU); (c) l044 predictions oracle via serialized full-digit
-fixtures (no co-loading); (d) span equivalence old vs p = 0-restricted new
+fixtures (no co-loading) — **not implemented; see the M3 entry in §14 for what
+was closed without it**; (d) span equivalence old vs p = 0-restricted new
 basis; (i) u = 0 bitwise degeneracy.
 
 New-physics exact gates: (e) cubic single-site l=2×p=2: exactly 2 invariants
@@ -982,8 +991,14 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
   gates" for the per-gate homes.**
 - **M3 — data + fit.** TrainingDatum/DatumProvenance/dataset pinning (force
   sign pinned per §6); force design block + three-block co-fit; ASR null-space
-  (common-monomial-basis collection + rank-revealing QR); hierarchical
-  frozen/sector_mask. Gates (c)/(j)/(k).
+  (common-monomial-basis collection + per-component SVD); hierarchical
+  frozen/sector_mask. Gates (j)/(k) run in the unit suite. **Gate (c) was NOT
+  run** — it needs serialized full-digit l044 prediction fixtures that do not
+  exist in this repository, and M3 was closed without it. Handled the way gate
+  (m) was: recorded, not quietly dropped. What stands in its place is internal —
+  the plan-A/plan-B synthetic recovery batteries (`test/unit/test_recovery.jl`)
+  and the oracle suite's fit parity against Magesty on the pure-spin path — so
+  M3 has no external prediction-level comparison at production scale.
 - **M4 — downstream contract + MC.** `DecoratedTerm` + scale rule +
   `multipole_terms` throw + `restrict`; deliverables that need the term
   contract: `bilinear_terms`, `force_constants`/`ForceConstantSet`,
