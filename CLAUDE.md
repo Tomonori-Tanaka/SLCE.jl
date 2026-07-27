@@ -236,6 +236,19 @@ Easy to break silently — confirm before touching the algorithm.
   The convention is enforced by code only on the field-derived path (`SpinDatum` /
   `TrainingDatum(field = ...)` compute the cross product); a caller passing `torques`
   directly bypasses that funnel, so the `TrainingDatum` docstring restates it there.
+  **Both sides are gated, independently, and the gates do not cancel.** Model side:
+  `test_torque.jl` "predict_torque = −e × ∇E (finite differences, anisotropic)" builds its
+  reference from `predict_energy` by central differences — an energy surface carries no
+  torque convention, so flipping `predict_torque` (or `_design_torque`, caught by the
+  `torque_weight = 1` recovery test in the same file) turns it red. Training side:
+  `test_dftsource.jl` "torque convention: τ = m × B, closed form" pins a hand-written
+  literal with the wrong sign named explicitly in the comment. A SIMULTANEOUS flip of both
+  sides is a **gauge**, not a bug — `J` and `predict_energy` come out bit-identical — and it
+  cannot pass anyway, since it would have to edit both a closed-form literal and an
+  energy-derived reference. What is genuinely NOT gated here, and is the one thing to think
+  about by hand, is the semantics of the external file: whether VASP's `lambda*MW_perp`
+  block is `+B` or `−B`. That single bit is anchored only by SLCETools' `test/oracle/`
+  (parsers vs Magesty), i.e. against a prior implementation rather than against physics.
   **DFT-code I/O is confined to `AbstractDFTSource` adapters in the SLCETools.jl package**
   (`SLCETools.VASP`), which produce `TrainingDatum`s (rotating moments / field from the `SAXIS`
   frame by `Rz(α)·Ry(β)` — spin channels only: displacements/forces stay in the lattice
@@ -391,7 +404,7 @@ Easy to break silently — confirm before touching the algorithm.
   `_bilinear_terms` extraction (in `slce/bilinear.jl`), so its numerics move with the
   Sunny coupled-site above.
   Add or rename a `MultipoleTerm` field → update the gate and the `SLCETools.jl` consumers
-  (`sce_bridge.jl`).
+  (`mfa/bridge.jl` — renamed from `sce_bridge.jl`; grep the package, not this name alone).
 - `solve_coefficients(est, X, y; groups)` receives a **column-centered** `X` (⇒ the
   solver adds no intercept; `j0` is recovered analytically in `fit`). Every estimator —
   in-tree or in an extension — must honor this. `groups` (optional) labels rows from the
@@ -428,7 +441,12 @@ Easy to break silently — confirm before touching the algorithm.
   `salc_groups`/`group_costs` assume sorted
   `SALCBasis.keys` and canonical (v4) members; the entry key `(atoms, shifts, ls, index)`
   mirrors what the SLCEMonteCarlo adjacency merge folds — change either representation
-  and re-check the brute-force union test and the cross-package entry-count script.
+  and re-check the brute-force union test (`test_selection.jl` "group_costs: brute-force
+  union, additivity, validation"). The cross-package half — that `Σ_{g alive} c_g` really
+  equals SLCEMonteCarlo's contraction-entry count — has been confirmed **by hand once**, on
+  l044; there is no script and SLCEMonteCarlo references neither `salc_groups` nor
+  `group_costs`. Deliberately left manual: a mismatch costs prediction accuracy in the
+  cost-weighted selection, not correctness of any fitted number.
 - **`fit` ↔ `refit` share `_assemble_problem`** (`fitting/fit.jl`): the `(X, y, xbar, ybar,
   groups)` centering/whitening assembly lives in one helper so the two build identical
   designs — change the centering or whitening there and **both** move together (the oracle
