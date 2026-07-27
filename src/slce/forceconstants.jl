@@ -83,7 +83,17 @@ respect to atomic displacements at `u = 0`.
 ```
 
 `order = 2` gives the harmonic force constants (feed them to
-[`dynamical_matrix`](@ref)); `order = 3` the cubic anharmonic ones, and so on. They
+[`dynamical_matrix`](@ref)); `order = 3` the cubic anharmonic ones, and so on.
+
+!!! note "`order = 1` is the energy gradient, i.e. MINUS the force"
+    `order = 1` is legal and returns `∂E/∂u` at `u = 0` — the residual
+    (Hellmann–Feynman) gradient of the reference structure. It is the negative of
+    [`predict_force`](@ref), which returns `f = −∂E/∂u`:
+    `Σ_shifts Φ⁽¹⁾ ≈ −predict_force(model, spins, zeros(3, n_atoms))`. Sign
+    conventions for this quantity live in exactly two other places in the package, so
+    the relation is gated rather than merely asserted here.
+
+They
 are exact, not finite differences — every displacement factor is a polynomial whose
 coefficients `SLCE.SolidHarmonics.solid_harmonic_poly` returns — and they
 **depend on `spins`**, which is what a spin–lattice expansion is for: evaluate at two

@@ -72,6 +72,31 @@ end
         @test occursin("order = 2", sprint(show, fcs))
     end
 
+    @testset "order = 1 is ∂E/∂u, i.e. MINUS predict_force" begin
+        # `order >= 1` is explicitly permitted and was covered by nothing (the file
+        # tested orders 2 and 3 and the order-0 refusal). A user asking for "the
+        # forces" at order 1 gets them negated; the sign convention `f = −∂E/∂u` lives
+        # in exactly two other places in the package, each with its own gate, so this
+        # third entrance needs one too.
+        # The file's main fixture carries displacement DEGREE 2 only, so its order-1
+        # set is empty and the relation would hold vacuously. Build a degree-1 basis:
+        # that content is exactly the reference-force channel this is about.
+        b1 = SLCEBasis(cr, BasisSpec(cr; lmax = 1, pmax = 1, sectors = [
+            Sector(spin = [1, 1], disp = (degree = 1,), nbody = 2, cutoff = 1.1),
+            Sector(disp = (degree = 1,), nbody = 1:2, cutoff = 1.1)]))
+        m1 = SLCEModel(b1, 0.0, randn(rng, n_salcs(b1)))
+        f1 = force_constants(m1; spins = e, order = 1)
+        @test f1.order == 1
+        g = zeros(3, nat)
+        for ((atoms, _), T) in f1.constants
+            g[:, atoms[1]] .+= T
+        end
+        @test maximum(abs, g) > 1e-6        # teeth: a real gradient, not all zeros
+        @test isapprox(g, -predict_force(m1, e, zeros(3, nat)); atol = 1e-10)
+        # and it is genuinely the OPPOSITE sign, not a coincidence of symmetry
+        @test !isapprox(g, predict_force(m1, e, zeros(3, nat)); atol = 1e-6)
+    end
+
     @testset "the R labels are real bond vectors, not bookkeeping" begin
         # `Σ_R Φ(R)`, the transpose relation and the Γ acoustic-mode gate are all blind
         # to the lattice shifts themselves: multiplying every stored `R` by 2 leaves all

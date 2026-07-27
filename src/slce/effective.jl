@@ -43,6 +43,19 @@ stored. Both are sorted, so a term is identified by its content.
 A term with an empty `disps` is displacement-independent: those are the couplings of
 the `u0`-frozen spin model. A term with an empty `spins` is spin-independent: pure
 lattice content, including the reference forces that a displaced structure carries.
+
+!!! warning "`coef` already carries the `(4π)` scale — do not apply it again"
+    This is the OPPOSITE convention from the package's other two public term views,
+    and the difference is deliberate rather than an oversight.
+    [`MultipoleTerm`](@ref)`.coef` and [`DecoratedTerm`](@ref)`.coef` are the raw
+    fitted `jϕ`, with the consumer scale left to the caller (`(4π)^(body/2)`) or
+    shipped beside it (`DecoratedTerm.scale`). `EffectiveTerm.coef` has
+    `(4π)^{n_spin_slots/2}` — and the SALC's `folded` weight, and the shifted
+    polynomial's coefficient — **already folded in**.
+
+    It has to be: one `EffectiveTerm` merges contributions from many SALCs, so there
+    is no "raw `jϕ`" to hand back. Re-applying `SLCE._slot_scale` to a term from here
+    double-counts `4π` per spin slot.
 """
 struct EffectiveTerm
     coef::Float64

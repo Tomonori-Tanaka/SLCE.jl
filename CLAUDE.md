@@ -452,6 +452,16 @@ Easy to break silently — confirm before touching the algorithm.
   reload. Its gate is bitwise equality with the joint model at `u = 0`, and the
   `restrict ≠ refit` warning (docstring + `guide/introspection.md`, design record §13
   risk 5) is mandatory documentation, not a nicety.
+  **`EffectiveTerm` (`slce/effective.jl`) is the third public term view and takes the
+  OPPOSITE convention**: its `coef` has the `(4π)^{n_spin_slots/2}` scale, the SALC's
+  `folded` weight, and the shifted polynomial coefficient ALREADY folded in, because
+  one term merges contributions from many SALCs and there is no raw `jϕ` to hand back.
+  A consumer migrating from `decorated_terms` and re-applying `_slot_scale`
+  double-counts `4π` per spin slot. Say so in any new term-view docstring; the scale
+  expression itself is also written out longhand in five kernels
+  (`salc.jl` ×2, `asr.jl`, `forceconstants.jl`, `effective.jl`) rather than routed
+  through `_slot_scale`, and is equivalent only because `SiteDecor` admits at most one
+  SPIN factor per site.
 - **Fitted-model introspection ↔ the per-term scale convention** (`slce/introspect.jl`,
   `test/unit/test_introspect.jl`): `multipole_terms` is the **public, stable** view downstream
   packages (the `SLCETools.jl` mean-field samplers) read instead of `model.basis.salc_basis.salcs` /

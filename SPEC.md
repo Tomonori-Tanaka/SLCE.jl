@@ -407,7 +407,13 @@ capability consumed by both the introspection and the Sunny interop.
   reference SALCs cannot span it — `EffectiveModel` is the unsymmetrized
   decorated-monomial form the design record permits, one `EffectiveTerm` per (spin
   factors) × (displacement monomial), evaluated by
-  `predict_energy(em, e, δu)`. **Variables are per ATOM, not per slot** (displacements
+  `predict_energy(em, e, δu)`. **`EffectiveTerm.coef` takes the OPPOSITE scale
+  convention from the other two public term views**: `MultipoleTerm.coef` and
+  `DecoratedTerm.coef` are the raw fitted `jϕ` (scale left to the consumer, or shipped
+  in `DecoratedTerm.scale`), while `EffectiveTerm.coef` has `(4π)^{n_spin_slots/2}`,
+  the SALC `folded` weight and the shifted polynomial coefficient already folded in —
+  necessarily, since one term merges contributions from many SALCs and there is no raw
+  `jϕ` to return. Re-applying `_slot_scale` to it double-counts `4π` per spin slot. **Variables are per ATOM, not per slot** (displacements
   are cell-periodic, so an `AllImages` self-bond puts two slots on one variable);
   keying by slot would give the same energy but a non-canonical term list. Gates
   (`test/unit/test_effective.jl`): the identity `E_eff(δu) ≡ E(u0 + δu)` at small AND
