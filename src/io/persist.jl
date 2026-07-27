@@ -314,7 +314,7 @@ function _basis_from_doc(d)::SLCEBasis
     end
     allunique(keyvec) ||
         throw(ArgumentError("loaded SALC keys are not injective (duplicate design-matrix columns)"))
-    sb = SALCBasis(salcs, keyvec, hash(keyvec))
+    sb = SALCBasis(salcs, keyvec)
     return SLCEBasis(crystal, sg, sb, spec)
 end
 

@@ -219,7 +219,7 @@ function restrict(model::SLCEModel, channel::Symbol)::SLCEModel
     _basis_has_disp(basis) || return model         # already the p = 0 view
     keep = findall(is_pure_spin, basis.salc_basis.keys)
     ks = basis.salc_basis.keys[keep]
-    sb = SALCBasis(basis.salc_basis.salcs[keep], ks, hash(ks))
+    sb = SALCBasis(basis.salc_basis.salcs[keep], ks)
     b2 = SLCEBasis(basis.crystal, basis.spacegroup, sb, _spin_spec(basis.spec))
     return SLCEModel(b2, model.j0, model.jphi[keep], ks)
 end

@@ -285,17 +285,31 @@ struct SLCEBasis
     spacegroup::SpaceGroup
     salc_basis::SALCBasis
     spec::BasisSpec
+
+    # Inner, so the field-wise call (persistence, `restrict`) cannot skip the check:
+    # a spec whose species table disagrees with the crystal indexes `lmax` / `cutoff`
+    # by a stale species id, which mislabels basis functions instead of failing.
+    function SLCEBasis(crystal::Crystal, spacegroup::SpaceGroup,
+                       salc_basis::SALCBasis, spec::BasisSpec)
+        _check_spec_species(crystal, spec)
+        return new(crystal, spacegroup, salc_basis, spec)
+    end
 end
 
-function SLCEBasis(crystal::Crystal, spec::BasisSpec;
-                 backend::AbstractSymmetryBackend = NoSymmetry(), tol::Real = 1e-5,
-                 images::AbstractImageSelection = MinimumImage())::SLCEBasis
+function _check_spec_species(crystal::Crystal, spec::BasisSpec)
     length(spec.lmax) == length(crystal.species_labels) ||
         throw(ArgumentError("spec covers $(length(spec.lmax)) species, crystal has " *
                             "$(length(crystal.species_labels))"))
     isempty(spec.species_labels) || spec.species_labels == crystal.species_labels ||
         throw(ArgumentError("spec species labels $(spec.species_labels) do not match " *
                             "the crystal's $(crystal.species_labels)"))
+    return nothing
+end
+
+function SLCEBasis(crystal::Crystal, spec::BasisSpec;
+                 backend::AbstractSymmetryBackend = NoSymmetry(), tol::Real = 1e-5,
+                 images::AbstractImageSelection = MinimumImage())::SLCEBasis
+    _check_spec_species(crystal, spec)   # fail before the symmetry analysis, not after
     sg = analyze_symmetry(backend, crystal; tol = tol)
     # The neighbor list is built at the per-pair superset radius (element-wise max
     # over body orders); each body order's own radii then trim edges per cluster in

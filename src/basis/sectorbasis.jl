@@ -138,5 +138,5 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup,
     allunique(keyvec) ||
         error("duplicate SALC keys in the sector union — key-union invariant " *
               "violated (this is a bug; please report the spec)")
-    return SALCBasis(salcs, keyvec, hash(keyvec))
+    return SALCBasis(salcs, keyvec)
 end

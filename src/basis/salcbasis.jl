@@ -868,6 +868,5 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::Cl
     end
     salcs = isempty(parts) ? SALC[] : reduce(vcat, parts)
     sort!(salcs; by = s -> s.key)
-    keyvec = SALCKey[s.key for s in salcs]
-    return SALCBasis(salcs, keyvec, hash(keyvec))
+    return SALCBasis(salcs, SALCKey[s.key for s in salcs])
 end

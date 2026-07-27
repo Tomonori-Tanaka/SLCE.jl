@@ -84,3 +84,48 @@ using Random
         @test SLCEDataset(basis, tilt, energies) isa SLCEDataset
     end
 end
+
+# The basis containers carry contracts every downstream consumer reads without
+# re-checking: `SALCBasis` addresses design-matrix columns by key, and `SLCEBasis`
+# indexes `spec.lmax` / `spec.cutoff` by the crystal's species ids. Both used to be
+# plain structs, so the field-wise call bypassed the validating outer constructor —
+# which persistence and `restrict` actually take. These pin the inner constructors.
+@testset "basis constructor validation" begin
+    lat = Lattice(Matrix(3.0 * I(3)))
+    cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+    spec = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], soc = false)
+    basis = SLCEBasis(cr, spec)
+    sb = basis.salc_basis
+    good = sb.salcs
+    keys = sb.keys
+    @test length(good) >= 2                     # teeth: the permutations below are real
+
+    @testset "SALCBasis" begin
+        @test SLCE.SALCBasis(good, keys).fingerprint == sb.fingerprint
+        # the fingerprint is derived, so it cannot be supplied out of sync
+        @test_throws MethodError SLCE.SALCBasis(good, keys, hash(keys))
+        @test_throws MethodError SLCE.SALCBasis(good, keys, zero(UInt64))
+        @test_throws DimensionMismatch SLCE.SALCBasis(good, keys[1:end-1])
+        # keys must mirror the SALCs, in order
+        shuffled = copy(keys); shuffled[1], shuffled[2] = shuffled[2], shuffled[1]
+        @test_throws ArgumentError SLCE.SALCBasis(good, shuffled)
+        # reversed: mirrors nothing and is not sorted
+        @test_throws ArgumentError SLCE.SALCBasis(reverse(good), reverse(keys))
+        # a strictly-decreasing pair that DOES mirror its SALCs is caught by the sort check
+        rs = reverse(good)
+        @test_throws ArgumentError SLCE.SALCBasis(rs, SLCE.SALCKey[s.key for s in rs])
+        # duplicate column
+        dup = [good[1], good[1]]
+        @test_throws ArgumentError SLCE.SALCBasis(dup, SLCE.SALCKey[s.key for s in dup])
+    end
+
+    @testset "SLCEBasis field-wise call cannot skip the species check" begin
+        two = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2, 2], soc = false)
+        @test_throws ArgumentError SLCEBasis(cr, basis.spacegroup, sb, two)
+        @test_throws ArgumentError SLCEBasis(cr, two)                # outer, fails early
+        named = BasisSpec(["Ni"]; nbody = 2, cutoff = 1.5, lmax = [2], soc = false)
+        @test_throws ArgumentError SLCEBasis(cr, basis.spacegroup, sb, named)
+        # the honest field-wise call still works — this rejects nothing legitimate
+        @test SLCEBasis(cr, basis.spacegroup, sb, spec) isa SLCEBasis
+    end
+end

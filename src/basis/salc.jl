@@ -214,16 +214,38 @@ struct SALC
 end
 
 """
-    SALCBasis
+    SALCBasis(salcs, keys)
 
 An ordered list of [`SALC`](@ref)s (sorted by key), the matching `keys` vector
 (used to address design-matrix columns), and a structural `fingerprint`
 (`hash` of the sorted keys; gauge-independent).
+
+The constructor enforces the column-addressing contract every consumer relies on
+— `keys[i] == salcs[i].key`, strictly increasing (hence sorted and injective) —
+and *derives* `fingerprint`, so it cannot drift from the keys it summarizes.
+There is no field-wise constructor: an unchecked basis would misaddress
+coefficients rather than fail.
 """
 struct SALCBasis
     salcs::Vector{SALC}
     keys::Vector{SALCKey}
     fingerprint::UInt64
+
+    function SALCBasis(salcs::Vector{SALC}, keys::Vector{SALCKey})
+        length(salcs) == length(keys) || throw(DimensionMismatch(
+            "SALCBasis: $(length(salcs)) SALCs but $(length(keys)) keys"))
+        for i in eachindex(keys)
+            salcs[i].key == keys[i] || throw(ArgumentError(
+                "SALCBasis: keys[$i] does not mirror salcs[$i].key — design-matrix " *
+                "columns are addressed by key, never by construction order"))
+            i == 1 && continue
+            keys[i - 1] == keys[i] && throw(ArgumentError(
+                "SALCBasis: duplicate key at column $i (duplicate design-matrix column)"))
+            keys[i - 1] < keys[i] || throw(ArgumentError(
+                "SALCBasis: keys are not sorted at column $i — column order is key order"))
+        end
+        return new(salcs, keys, hash(keys))
+    end
 end
 
 Base.length(b::SALCBasis) = length(b.salcs)
