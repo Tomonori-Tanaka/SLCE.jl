@@ -72,6 +72,27 @@ end
         @test occursin("order = 2", sprint(show, fcs))
     end
 
+    @testset "the R labels are real bond vectors, not bookkeeping" begin
+        # `Σ_R Φ(R)`, the transpose relation and the Γ acoustic-mode gate are all blind
+        # to the lattice shifts themselves: multiplying every stored `R` by 2 leaves all
+        # of this file's other assertions green while producing a completely wrong
+        # dispersion. The periodicity gate above cannot see it either — it constrains
+        # the phase, not the labels. Pin the labels geometrically instead: every key
+        # must describe a pair that really sits inside the cutoff the basis was built
+        # with.
+        A = cr.lattice.vectors
+        pos = cartesian_positions(cr)
+        cut = 1.1                                     # the fixture's sector cutoff
+        ds = Float64[]
+        for ((atoms, shifts), _) in fcs.constants
+            d = norm(pos[:, atoms[2]] .+ A * shifts[2] .- pos[:, atoms[1]])
+            push!(ds, d)
+            @test d <= cut * (1 + 1e-8)
+        end
+        @test !isempty(ds)
+        @test maximum(ds) > 0.5      # teeth: real bonds present, not an on-site-only set
+    end
+
     @testset "index ordering: Φ[(a,0),(b,R)] = Φ[(b,0),(a,−R)]ᵀ" begin
         # the reverse ordering is a SEPARATE key, related by transposition — the
         # relation is a property to check, never a storage shortcut
@@ -91,6 +112,16 @@ end
         @test real(dynamical_matrix(fcs, [0.0, 0.0, 0.0])) ≈ _gamma_sum(fcs, nat)
         # a nonzero q must actually change the matrix (the phase factor is live)
         @test !isapprox(Dq, dynamical_matrix(fcs, [0.0, 0.0, 0.0]))
+        # PERIODICITY IN A RECIPROCAL LATTICE VECTOR. Everything above this line is
+        # invariant under rescaling the phase argument — Hermiticity, D(−q) = conj D(q)
+        # and "the phase is not constant" all survive `cis(2π q·R) → cis(α q·R)` for any
+        # α, which is why the documented convention ("q in FRACTIONAL reciprocal
+        # coordinates, phase exp(2πi q·R)") used to rest on nothing executable: the
+        # mutation α = 1 passed all 77 assertions in this file. D(q + G) = D(q) for
+        # integer G holds if and only if q is fractional AND the phase is exactly 2π.
+        for G in ([1, 0, 0], [0, -1, 0], [2, 1, -3])
+            @test dynamical_matrix(fcs, q .+ G) ≈ Dq
+        end
         # mass weighting divides by √(MₐM_b) entrywise
         masses = [55.845, 26.982]
         Dm = dynamical_matrix(fcs, q; masses = masses)

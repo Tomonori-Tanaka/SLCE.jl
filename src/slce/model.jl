@@ -738,6 +738,18 @@ end
 # checks). Enforce it once at the data boundary so malformed DFT input fails loudly
 # here instead of silently biasing the design matrix / prediction. `label` carries the
 # config index into the message; `atol` is the unit-norm tolerance.
+#
+# Two distinct conditions, and conflating them is what let a bad config through. The
+# `atol` band is a TOLERANCE — a column off unit norm by `δ` evaluates a factor that is
+# not homogeneous of degree 0, biasing its design entry by `O(l·δ)`; that is the error
+# the caller declares acceptable by using this boundary. The component bound is a HARD
+# PRECONDITION of the kernel: `Zlm` reaches `LegendrePolynomials.dnPl`, whose domain is
+# `|z| ≤ 1`, so a column with `|e_z| > 1` throws a `DomainError` from inside the
+# threaded design assembly naming neither the config nor the atom. Note that tightening
+# `atol` does NOT close that — measured, `‖e‖ − 1 = 5e-9` passes a `1e-8` band and still
+# throws — because any `δ > 0` can push `e_z` past 1 near a pole. Only the component
+# bound does, and it rejects nothing harmless: a column off norm by `1e-7` whose
+# largest component is `0.8` is still accepted.
 function _validate_config(c::AbstractMatrix{<:Real}, nat::Int; atol::Real = 1e-6,
                           label::AbstractString = "spin config")
     size(c, 1) == 3 ||
@@ -750,6 +762,12 @@ function _validate_config(c::AbstractMatrix{<:Real}, nat::Int; atol::Real = 1e-6
             throw(ArgumentError("$label column $a is not finite ($(Tuple(u)))"))
         abs(norm(u) - 1) <= atol ||
             throw(ArgumentError("$label column $a is not a unit vector (‖e‖ = $(norm(u)))"))
+        maximum(abs, u) <= 1 || throw(ArgumentError(
+            "$label column $a has a component outside [-1, 1] " *
+            "($(Tuple(u)), ‖e‖ = $(norm(u))) — the harmonic kernel's Legendre " *
+            "recursion is defined only for |e_z| ≤ 1, so this would throw from inside " *
+            "the design assembly. Normalize the column (`u ./= norm(u)`) rather than " *
+            "widening `atol`, which cannot fix it"))
     end
     return nothing
 end

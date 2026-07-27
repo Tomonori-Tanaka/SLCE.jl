@@ -66,4 +66,21 @@ using Random
         @test_throws ArgumentError SLCEDataset(basis, nearly, energies)         # default 1e-6
         @test nobs(fit(SLCEFit, SLCEDataset(basis, nearly, energies; atol = 1e-3), OLS())) == length(good)
     end
+
+    @testset "a component outside [-1,1] is refused, and atol cannot license it" begin
+        # The kernel's Legendre recursion has the HARD domain |e_z| ≤ 1, so this used
+        # to pass the boundary and throw a DomainError from inside the threaded design
+        # assembly, naming neither the config nor the atom. Tightening `atol` does not
+        # help: ‖e‖ − 1 = 5e-9 clears a 1e-8 band and still throws.
+        pole = deepcopy(good); pole[1][:, 1] = [0.0, 0.0, 1 + 5e-9]
+        @test abs(norm(pole[1][:, 1]) - 1) < 1e-8          # inside any sane atol band
+        @test_throws ArgumentError SLCEDataset(basis, pole, energies)
+        @test_throws ArgumentError SLCEDataset(basis, pole, energies; atol = 1e-3)
+        @test_throws ArgumentError predict_energy(model, pole[1])
+        # ... while an off-norm column whose components all sit inside the domain is
+        # still accepted, so this rejects nothing the tolerance was meant to allow
+        tilt = deepcopy(good); tilt[1][:, 1] = [0.6, 0.8, 0.0] .* (1 + 1e-7)
+        @test maximum(abs, tilt[1][:, 1]) < 1
+        @test SLCEDataset(basis, tilt, energies) isa SLCEDataset
+    end
 end

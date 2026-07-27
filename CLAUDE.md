@@ -119,6 +119,21 @@ Easy to break silently — confirm before touching the algorithm.
   applied in exactly two places — `_design_force` and `predict_force` — and gate (j)
   at model level (`test/unit/test_jointdata.jl`) fences both against the energy
   surface by finite differences; change either sign site and re-check it.
+- **The fractional wrap ↔ the AllImages image box ↔ `crystal_fingerprint`**
+  (`geometry/crystal.jl` inner constructor ↔ `geometry/neighborlist.jl` ↔
+  `io/dftsource.jl` `_fp_quant`): `Crystal` wraps periodic coordinates into a
+  **half-open `[0, 1)`**, and that is a precondition, not a nicety. `mod` alone does not
+  deliver it — `mod(-1e-18, 1.0) === 1.0`, because the exact result falls below the
+  float resolution near 1 — so the constructor snaps `>= 1.0` back to `0.0`. The
+  `AllImages` box `nrange = ceil(cutoff·‖b_d‖)` is exactly tight and its derivation
+  needs `|Δf_d| < 1` **strictly**; with a coordinate at `1.0` it silently drops the
+  shell sitting on the cutoff sphere (measured 102 pairs against a brute force of 104
+  on a triclinic cell). `_fp_quant`'s single `-= 1.0` fold covers the same boundary from
+  the I/O side and is now defence in depth rather than the only guard — both halves are
+  pinned (`test_geometry.jl`'s wrap testset, `test_dftsource.jl`'s fingerprint one), so
+  removing the snap turns the geometry side red and removing the fold turns the I/O side
+  red. `MinimumImage` survives a `1.0` only by the slack of `_sufficient_range`'s `+1`,
+  i.e. by luck, not by its stated argument.
 - **Image selection ↔ neighbor list ↔ cluster edges** (`geometry/neighborlist.jl`,
   `clusters/enumerate.jl`, `slce/model.jl`): `SLCEBasis` threads one `images` value to
   **both** `build_neighbor_list` and `candidate_clusters`/`build_clusters`; they must

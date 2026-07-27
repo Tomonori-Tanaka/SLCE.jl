@@ -38,7 +38,18 @@ struct Crystal
         fr = Matrix{Float64}(frac_positions)
         @inbounds for a = 1:nat, d = 1:3
             if lattice.pbc[d]
+                # `mod` alone does NOT deliver the documented half-open [0, 1): for a
+                # tiny negative input the exact result is below the float resolution
+                # near 1, so it rounds UP to exactly 1.0 — verified,
+                # `mod(-1e-18, 1.0) === 1.0` (and likewise at -1e-17). The snap is not
+                # cosmetic: `build_neighbor_list`'s AllImages image box
+                # (`nrange = ceil(cutoff·‖b_d‖)`, neighborlist.jl) is exactly tight and
+                # its derivation needs |Δf_d| < 1 STRICTLY, so a coordinate at 1.0
+                # silently drops the shell sitting on the cutoff sphere (measured: 102
+                # pairs against a brute force of 104 on a triclinic cell). `_fp_quant`
+                # in io/dftsource.jl documents the same boundary from the other side.
                 fr[d, a] = mod(fr[d, a], 1.0)
+                fr[d, a] >= 1.0 && (fr[d, a] = 0.0)
             end
         end
         return new(lattice, fr, collect(Int, species), collect(String, species_labels))

@@ -78,6 +78,16 @@ keyset(nl) = Set((p.i, p.j, p.shift[1], p.shift[2], p.shift[3]) for p in nl.pair
         lat = Lattice(Matrix(3.0 * I(3)))
         crystal = Crystal(lat, reshape([1.4, -0.2, 2.5], 3, 1), [1], ["Fe"])
         @test all(0.0 .<= crystal.frac_positions .< 1.0)
+        # The half-open end is where `mod` alone fails: a tiny negative input rounds up
+        # to exactly 1.0 (`mod(-1e-18, 1.0) === 1.0`), and the AllImages image box is
+        # derived assuming |Δf| < 1 strictly. Clean coordinates in every other fixture
+        # is why nothing caught it.
+        for x in (-1e-18, -1e-17, -5e-16, -0.0)
+            c = Crystal(lat, reshape([x, 0.5, 0.5], 3, 1), [1], ["Fe"])
+            @test 0.0 <= c.frac_positions[1, 1] < 1.0
+            @test mod(x, 1.0) >= 1.0 || c.frac_positions[1, 1] == mod(x, 1.0)
+        end
+        @test mod(-1e-18, 1.0) === 1.0        # pins WHY the snap is needed, not a typo
     end
 
     @testset "directed list contains both (i,j,R) and (j,i,-R)" begin

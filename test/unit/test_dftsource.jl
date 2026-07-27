@@ -212,10 +212,16 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
                                           ["Fe", "eO"])) !=
               crystal_fingerprint(Crystal(lat, [0.0 0.5; 0.0 0.0; 0.0 0.0], [1, 2],
                                           ["Fee", "O"]))
-        # the fractional wrap boundary folds: mod(-1e-17, 1.0) == 1.0 stores as 1.0,
-        # but must fingerprint as 0.0
+        # The fractional wrap boundary. `mod(-1e-17, 1.0) === 1.0`, so this coordinate
+        # USED to be stored as 1.0 and `_fp_quant`'s `-= 1.0` fold was load-bearing.
+        # `Crystal`'s constructor now snaps that to 0.0 (the [0,1) postcondition its
+        # docstring always claimed, and which the AllImages image box is derived from),
+        # so the fold here is defence in depth rather than the only thing standing
+        # between two fingerprints of the same crystal. Both halves are pinned so a
+        # regression on either side is visible.
         crW = Crystal(lat, [-1e-17 0.5; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-        @test crW.frac_positions[1, 1] == 1.0               # the hazard is real
+        @test crW.frac_positions[1, 1] == 0.0               # snapped at construction
+        @test mod(-1e-17, 1.0) === 1.0                      # ... and the raw hazard is real
         @test crystal_fingerprint(crW) == fp
         # -0.0 in the lattice folds; sub-quantum (< 1e-10) noise folds
         @test crystal_fingerprint(Crystal(Lattice([3.0 0.0 0.0; -0.0 3.0 0.0;
