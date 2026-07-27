@@ -594,12 +594,32 @@ The minimal witness needs no rank computation — simple cubic, nearest neighbou
   models `Q_ij = σ̃_ij − δ_ij tr σ̃` holds exactly (verified to `1e-14`), and that
   map is invertible, so `Q = 0 ⇔ σ = 0`. A DFT relaxation to `σ ≈ 0` already
   enforces them; nothing needs to be imposed.
+  **In a spin–lattice model that escape is narrower than it looks, and it is worth
+  being explicit about why** (added 2026-07-27, from the M5-0 review): the reference
+  stress is a function of the spin configuration, `σ = σ(ê)`. A cell relaxed in one
+  magnetic state is *stressed* in every other, so the data enforce the six conditions
+  for that one state and for no other — while the flagship deliverable of the joint
+  expansion is precisely the magnetic-state DIFFERENCE of the force constants
+  (`force_constants` at two configurations). The same fact is why second-order
+  elastic constants are Seth–Hill-measure-independent only at a stress-free
+  reference and therefore never unconditionally so here; see design record §13
+  risk 2.
 - **Anharmonic orders: not automatic.** The rotational condition ties `Φ⁽ⁿ⁾` to
   `Φ⁽ⁿ⁺¹⁾`, so it is not satisfied order by order.
-- **The strain channel (M5), where `ε` is an explicit model variable: this is
-  where it bites.** There the affine field is the model's own coordinate, so the
-  layer-2 conditions become statements about the fitted couplings rather than
-  about the training geometry.
+- **The strain channel, where `ε` is an explicit model variable: this is where it
+  bites.** There the affine field is the model's own coordinate, so the layer-2
+  conditions become statements about the fitted couplings rather than about the
+  training geometry. **Which part of M5 that is, precisely** (sharpened
+  2026-07-27): NOT the v0 strain work. In design record §9a the K(ε) grid is a
+  family of separately fitted models and `ε` is a *label* of a grid point, never a
+  fit coordinate; in §9e it is pinned as a Biot measure applied to build geometries.
+  The layer-2 conditions bite as a *constraint* question only in §9b, the explicit
+  global strain channel — which is exactly why §9b is gated on resolving its
+  rotational-invariance hole first. For the v0 deliverables (`force_constants`,
+  `exchange_strain_derivatives`, `magnetoelastic_constants`) the missing layer
+  shows up as a **diagnostic on a derived quantity**: the symmetrized `∂J/∂ε` that
+  gets reported is unaffected, while the antisymmetric part it drops is the
+  rotational content, which a fitted model is free to get wrong.
 
 **If it is ever implemented**, three constraints on the design, in decreasing
 order of how easy they are to get wrong:
@@ -617,11 +637,14 @@ order of how easy they are to get wrong:
    `ICONST = 3` warning. Either impose from the top order downward
    (Esfarjani–Stokes, PRB 77, 144112) or exclude the top order.
 3. The physical acceptance gate already exists in spirit: an ASR-fitted model has
-   exactly three zero eigenvalues of `dynamical_matrix(model, 0)`. The rotational
-   analogue is that a rigid rotation costs zero energy — testable directly
-   through the evaluator at finite `ω`, the same way `test_asr.jl` tests finite-`t`
-   translation invariance. There is no `rotational_residual` today; that is the
-   shape it would take.
+   exactly three zero eigenvalues of
+   `dynamical_matrix(force_constants(model; spins), [0, 0, 0])` (`dynamical_matrix`
+   takes a `ForceConstantSet` and a three-component fractional `q`, not a model and
+   a scalar). The rotational analogue is that a rigid rotation costs zero energy —
+   testable directly through the evaluator at **finite** `ω`, the same way
+   `test_asr.jl` tests finite-`t` translation invariance. There is no
+   `rotational_residual` today; that is the shape it would take, and design record
+   §12 gate (q) now reserves it.
 
 Cross-reference: the derivation and the numerics behind this note live outside
 this repo, in the phonon paper's working document
@@ -629,5 +652,15 @@ this repo, in the phonon paper's working document
 §7 seventh and eighth status updates). The spin-side counterpart — that in a
 SOC sector the lattice's axial `l = 1` block does not vanish but *transfers* to
 the spin channel, `𝓡_U E = −𝓡_S E`, block diagonal in `L_S` — is derived in the
-SLCE paper and gated here by `test_sectorbasis.jl`; it is a **diagnostic**, not
-an imposed constraint.
+SLCE paper; it is a **diagnostic**, not an imposed constraint.
+
+**Correction (2026-07-27): that transfer is NOT gated by `test_sectorbasis.jl`, and
+reading it as gated is the trap this section exists to prevent.** What that test
+asserts (`:409-413`) is `evaluate_salc(s, e, ucfg(W)) < 1e-12` for antisymmetric
+`W` — the LINEAR part of a rotation only, on an O_h fixture, and its own comment
+says the kill is "an exact O_h statement". Both sides of the identity vanish there
+for a reason that does not generalize: cubic symmetry forbids `l = 2` single-ion
+anisotropy, so `𝓡_S E = 0` and hence `𝓡_U E = 0`. The identity acquires content
+only where a rank-two on-site anisotropy is allowed (a D₄h-class fixture), which is
+design record §12 gate (r); the finite-`ω` half is gate (q). Until those exist,
+the honest statement is that the transfer is derived and unverified in code.
