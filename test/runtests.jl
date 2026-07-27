@@ -10,6 +10,24 @@ using SLCE: build_neighbor_list, build_clusters, build_salc_basis, evaluate_salc
 
 const TEST_MODE = get(ENV, "TEST_MODE", "default")
 
+# A misspelled TEST_MODE used to select NO branch below and exit green with a total of
+# zero assertions — verified: `TEST_MODE=untit` printed "Total 0 | tests passed". CI
+# sets this value from YAML, so a typo there silently deletes the entire suite.
+const _TEST_MODES = ("default", "all", "unit", "aqua", "jet")
+TEST_MODE in _TEST_MODES || error(
+    "TEST_MODE=\"$TEST_MODE\" is not one of $(join(_TEST_MODES, ", ")) — refusing to " *
+    "run zero tests and report success")
+
+# Several gates compare a threaded result against a SERIAL reference; at one thread
+# `Threads.@threads` *is* the serial reference, so those testsets pass while asserting
+# nothing (test_threading.jl's design builders, the deterministic basis builds in
+# test_salc.jl / test_nbody.jl / test_sectorbasis.jl). This used to be a `@warn` that
+# scrolled past 39k assertions, plus a line in CI.yml. Make it refuse instead.
+if Threads.nthreads() == 1 && get(ENV, "SLCE_ALLOW_SINGLE_THREAD", "0") != "1"
+    error("run the suite with `-t N` for N > 1 (CI pins 4): the threaded-vs-serial " *
+          "gates are vacuous at one thread. Set SLCE_ALLOW_SINGLE_THREAD=1 to override.")
+end
+
 @testset "SLCE.jl" begin
     if TEST_MODE in ("default", "all", "unit")
         include("unit/testutils.jl")     # shared helpers (rand_unit / randcfg /

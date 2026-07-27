@@ -523,9 +523,9 @@ Easy to break silently — confirm before touching the algorithm.
 
 | Command | Purpose |
 |---|---|
-| `julia --project -e 'using Pkg; Pkg.test()'` | unit + Aqua (default) |
-| `TEST_MODE=all julia --project -e 'using Pkg; Pkg.test()'` | unit + Aqua + JET |
-| `TEST_MODE=jet julia --project -e 'using Pkg; Pkg.test()'` | JET type-stability |
+| `julia -t 4 --project -e 'using Pkg; Pkg.test()'` | unit + Aqua (default) |
+| `TEST_MODE=all julia -t 4 --project -e 'using Pkg; Pkg.test()'` | unit + Aqua + JET |
+| `TEST_MODE=jet julia -t 4 --project -e 'using Pkg; Pkg.test()'` | JET type-stability |
 | `julia --project=test/oracle test/oracle/runtests.jl` | from-scratch numerics vs pinned Magesty |
 | `julia --project=test/sunny test/sunny/runtests.jl` | real `Sunny.System` energy vs SCE (extension) |
 | `julia --project=test/glmnet test/glmnet/runtests.jl` | GLMNet Lasso / elastic-net solve (extension) |

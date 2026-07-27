@@ -158,7 +158,7 @@ end
         @test all(s.key.L_S == s.key.Lf for s in new1)
         for (a, b) in zip(old1, new1)
             @test a.key == b.key
-            same_members(a.members, b.members)
+            @test same_members(a.members, b.members)
         end
         old2 = _orbit_salcs(xtalB, sgB, 2, 1, O2, [2], SLCE.LSUM_UNCAPPED, false, wcB)
         new2 = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
@@ -166,7 +166,7 @@ end
                                    true, wcB)
         @test [s.key for s in old2] == [s.key for s in new2]
         for (a, b) in zip(old2, new2)
-            same_members(a.members, b.members)
+            @test same_members(a.members, b.members)
         end
         # Review-blocker shapes: ls = [1,1,2] on the Cs triangle SPLITS into two
         # ordering orbits sharing one sorted label (block indices must match the
@@ -185,7 +185,7 @@ end
             @test length(new3) == length(old112) > 0
             @test [s.key for s in old112] == [s.key for s in new3]
             for (a, b) in zip(old112, new3)
-                same_members(a.members, b.members)
+                @test same_members(a.members, b.members)
             end
         end
     end
@@ -221,7 +221,7 @@ end
         subset = [s for s in sall if s.key.L_S == 0]
         @test [s.key for s in s0] == [s.key for s in subset]
         for (a, b) in zip(s0, subset)
-            same_members(a.members, b.members)
+            @test same_members(a.members, b.members)
         end
         @test length(s0) < length(sall)
         # the (L_S = 1, Lf = 0) SALC IS the chirality twist: Φ ∝ (ê₁×ê₂)·(u₁×u₂)
