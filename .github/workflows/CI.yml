@@ -63,6 +63,72 @@ jobs:
             echo "::endgroup::"
           done
 
+  downstream:
+    name: downstream — ${{ matrix.pkg }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pkg: SLCEMonteCarlo.jl
+            devs: SLCE.jl
+          - pkg: SLCETools.jl
+            devs: SLCE.jl
+          - pkg: SLCEDynamics.jl
+            devs: SLCE.jl SLCEMonteCarlo.jl
+    steps:
+      # Each dependent package's OWN CI pins it against SLCE's main branch, but it
+      # only fires when THAT repo is pushed. Nothing fired when SLCE changed — which
+      # is how SLCEDynamics' main sat broken against the `isotropy` -> `soc` rename
+      # and the `MCView` contract for days, on an unmerged branch nobody was told
+      # about. This job closes that: the dependents are run against the SLCE commit
+      # being pushed, here, now.
+      #
+      # A DELIBERATE breaking change turns this job red until the matching
+      # downstream commit lands. That red is the signal, not a nuisance — CLAUDE.md
+      # already says "a downstream rename is not done when SLCE's own tests are
+      # green", and this is that sentence made executable. Do not delete the job to
+      # get a green tick; land the downstream commit.
+      - uses: actions/checkout@v4
+        with:
+          path: SLCE.jl
+      - uses: actions/checkout@v4
+        with:
+          repository: Tomonori-Tanaka/SLCEMonteCarlo.jl
+          path: SLCEMonteCarlo.jl
+      - uses: actions/checkout@v4
+        with:
+          repository: Tomonori-Tanaka/SLCEDynamics.jl
+          path: SLCEDynamics.jl
+      - uses: actions/checkout@v4
+        with:
+          repository: Tomonori-Tanaka/SLCETools.jl
+          path: SLCETools.jl
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.12"
+      - uses: julia-actions/cache@v2
+      # The dev list travels as an environment variable and is split in Julia. Do not
+      # "simplify" this by interpolating the paths into the `-e` string: the matrix
+      # value would land inside a shell-quoted Julia string containing its own
+      # quotes, which is a nesting hazard for no benefit.
+      - name: Develop the path dependencies and instantiate
+        env:
+          DEVS: ${{ matrix.devs }}
+        run: |
+          julia --project=${{ matrix.pkg }} -e '
+            using Pkg
+            Pkg.develop([PackageSpec(path = p) for p in split(ENV["DEVS"])])
+            Pkg.instantiate()'
+      # Default TEST_MODE (unit + Aqua) on Linux only: this is the compatibility
+      # smoke, and each dependent's own CI carries the full TEST_MODE=all matrix
+      # across both operating systems. Threads still matter — the dependents'
+      # serial-vs-parallel gates are vacuous at one thread.
+      - name: Run the dependent's suite against this SLCE
+        run: julia --project=${{ matrix.pkg }} -e 'using Pkg; Pkg.test()'
+        env:
+          JULIA_NUM_THREADS: "4"
+
   docs:
     name: documentation build
     runs-on: ubuntu-latest
