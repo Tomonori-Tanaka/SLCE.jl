@@ -656,10 +656,21 @@ existing torque FD); (k) ASR: relative residual `‖Aβ‖/(‖A‖‖β‖)` �
 rank(A) vs independent count, uniform-translation invariance gated *relative
 to the largest intermediate term* at a physically sized t, and Σ_i f_i = 0 per
 configuration; (m) spin-less limit vs the JPSJ 95, 053601 force-constant code
-— **an external oracle with no acquisition path in the repo family today**:
-obtaining/vendoring it (oracle-env pattern: `test/oracle/Project.toml` +
-`[sources]`) is an explicit milestone action item, and the gate runs at M4
-with the force-constant deliverables (see §14 ordering note).
+— **DROPPED by user decision, 2026-07-27.** It was the one gate resting on an
+external oracle with no acquisition path in the repo family, and acquiring it was
+never going to be worth the cost. Recorded here rather than deleted, because what
+the drop costs has to stay visible: the displacement basis keeps every INTERNAL
+gate — its dimension against the independent symbolic route ((g) count ≡ projector
+rank, `CountingOracle`), its derivatives against the production evaluator ((j) FD
+forces, (k) ASR residual + rank + finite-`t` translation invariance + `Σ_i f_i = 0`),
+the Γ-restricted sum `Σ_R Φ(R)` against a finite-difference Hessian, and the
+physical ASR signature that `D(0)` has exactly three zero eigenvalues when fitted
+under the constraint and none without. What it no longer has is a **second
+implementation** to agree with: nothing checks our spherical-tensor force-constant
+convention against the community's, so a shared-convention error (a normalization,
+an ordering, a factor absorbed consistently on both sides of our own FD gate) would
+survive. Treat any future disagreement with published force constants as evidence
+about the convention, not about the fit.
 
 MC gates: (l) ΔE ≡ total-energy diff for spin/disp/strain moves (the strain
 case also pins the j0(ε)-vs-elastic-term single-source rule, §8); serial ≡
@@ -719,7 +730,7 @@ translation folding, a strain slot, and spin-side Sym^p.
 - **M4 — downstream contract + MC.** `DecoratedTerm` + scale rule +
   `multipole_terms` throw + `restrict`; deliverables that need the term
   contract: `bilinear_terms`, `force_constants`/`ForceConstantSet`,
-  `dynamical_matrix`, `to_sunny`; acquire the JPSJ oracle and run gate (m);
+  `dynamical_matrix`, `to_sunny`;
   SLCEMonteCarlo joint programs, disp move, MCView, `set_coefficients!`;
   checkpoint bump; GPU port + precision/memory re-measure. Gates (b)/(l)
   + the (4π) pin + re-run (a).
@@ -735,5 +746,7 @@ translation folding, a strain slot, and spin-side Sym^p.
   table: **JointDatum, JointBasisSpec, SectorSpec, SectorRule,
   SectorConstraint/GreyGroup/SpinIsotropic, SiteLabel, JointTerm, spin_mode,
   isotropy** (each → its replacement). The flagship tutorials (B₁/B₂
-  rederivation, dJ/dr no-DMI, force-constant Si vs JPSJ) are part of M2–M5
-  exit criteria, not an afterthought.
+  rederivation, dJ/dr no-DMI, force constants for Si) are part of M2–M5
+  exit criteria, not an afterthought. The Si tutorial keeps its place; what
+  it lost with gate (m) is the external comparison column — it gates on the
+  internal battery above (FD Hessian, acoustic zeros of `D(0)`) instead.

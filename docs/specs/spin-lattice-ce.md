@@ -163,8 +163,12 @@ determinism discipline.
 
 ## Unit tests with known answers (theory note §7 series)
 
-1. Spin-less limit → spherical-tensor force-constant basis (external
-   cross-check vs the JPSJ 95, 053601 code).
+1. Spin-less limit → spherical-tensor force-constant basis. The external
+   cross-check against the JPSJ 95, 053601 code was **dropped by user decision
+   (2026-07-27)**; the limit is gated internally instead — counting oracle for the
+   basis dimension, finite-difference forces and the Γ-restricted `Σ_R Φ(R)` vs an
+   FD Hessian for the derivatives, and the three zero eigenvalues of `D(0)` under
+   the ASR. See design record §12 gate (m) for what the drop does and does not cover.
 2. Displacement-less limit → current SCE basis (automatic: it *is* this
    package; pin bit-identity of the spin-only path across the change).
 3. Cubic single-site `Z_2 ⊗ [u⊗u]` → exactly 2 invariants (`B_1`, `B_2`).
