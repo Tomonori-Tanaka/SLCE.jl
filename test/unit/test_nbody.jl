@@ -9,16 +9,25 @@ using Random
 # (no Spglib): identity + two 3-fold rotations + three mirrors, permuting the three
 # sites as S₃. This exercises the N ≥ 3 machinery — coupling-path mixing and, for
 # unequal-l multisets like (1,1,2), l-ordering mixing (multi-term SALCs).
-function _triangle_c3v(; L = 6.0, r = 1.2)
-    c = SVector{3,Float64}(0.5, 0.5, 0.5)
+#
+# The cell is HEXAGONAL. It used to be a cubic box, but a 3-fold rotation is not an
+# operation of a cubic lattice — its fractional matrix is not integral — so that
+# fixture declared a group that maps the lattice off itself. It happened to be
+# harmless (every cluster here sits inside one cell, so no lattice shift is ever
+# rotated), but `_validate_ops` refuses it, correctly. In the hexagonal basis the
+# same geometric C3v is exactly integral, and the triangle, its side r√3, and the
+# neighbour shells are all unchanged.
+function _triangle_c3v(; a = 6.0, c = 6.0, r = 1.2)
+    lat = Lattice(SMatrix{3,3,Float64}([a -a/2 0; 0 a*√3/2 0; 0 0 c]))
+    ctr = SVector{3,Float64}(0.5, 0.5, 0.5)             # the C3 axis passes here
     ang = deg2rad.([90.0, 210.0, 330.0])
-    offs = [SVector{3,Float64}(r * cos(a), r * sin(a), 0.0) for a in ang]
-    frac = hcat([c + o / L for o in offs]...)
-    crystal = Crystal(Lattice(Matrix(L * I(3))), frac, [1, 1, 1], ["Fe"])
-    cz(θ) = SMatrix{3,3,Float64}([cos(θ) -sin(θ) 0; sin(θ) cos(θ) 0; 0 0 1])
-    M1 = SMatrix{3,3,Float64}([-1.0 0 0; 0 1 0; 0 0 1])      # mirror fixing atom 1
-    rots = [SMatrix{3,3,Float64}(I), cz(2π / 3), cz(4π / 3), M1, cz(2π / 3) * M1, cz(4π / 3) * M1]
-    trans = [(SMatrix{3,3,Float64}(I) - R) * c for R in rots]
+    offs = [SVector{3,Float64}(r * cos(t), r * sin(t), 0.0) for t in ang]
+    frac = hcat([ctr + lat.reciprocal * o for o in offs]...)
+    crystal = Crystal(lat, frac, [1, 1, 1], ["Fe"])
+    C3 = SMatrix{3,3,Float64}([0 -1 0; 1 -1 0; 0 0 1])  # +120° about z, exact here
+    M1 = SMatrix{3,3,Float64}([-1 1 0; 0 1 0; 0 0 1])   # mirror x → −x, fixes atom 1
+    rots = [SMatrix{3,3,Float64}(I), C3, C3 * C3, M1, C3 * M1, C3 * C3 * M1]
+    trans = [(SMatrix{3,3,Float64}(I) - R) * ctr for R in rots]
     sg = _assemble_spacegroup(crystal, rots, trans, "C3v", 0; tol = 1e-6)
     return crystal, sg
 end

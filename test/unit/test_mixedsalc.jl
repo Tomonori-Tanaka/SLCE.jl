@@ -35,17 +35,20 @@ function _mx_triangle_cs(; L = 8.0)
     return crystal, _assemble_spacegroup(crystal, rots, trans, "Cs", 0; tol = 1e-6)
 end
 
-function _mx_triangle_c3v(; L = 6.0, r = 1.2)
-    c = SVector{3,Float64}(0.5, 0.5, 0.5)
+# Hexagonal, not the cubic box it used to be: a 3-fold rotation has no integral
+# fractional matrix in a cubic lattice, so the old ops were not lattice symmetries
+# (see the same note on `_triangle_c3v` in test_nbody.jl). The geometry is unchanged.
+function _mx_triangle_c3v(; a = 6.0, c = 6.0, r = 1.2)
+    lat = Lattice(SMatrix{3,3,Float64}([a -a/2 0; 0 a*√3/2 0; 0 0 c]))
+    ctr = SVector{3,Float64}(0.5, 0.5, 0.5)
     ang = deg2rad.([90.0, 210.0, 330.0])
-    offs = [SVector{3,Float64}(r * cos(a), r * sin(a), 0.0) for a in ang]
-    frac = reduce(hcat, [c + o / L for o in offs])
-    crystal = Crystal(Lattice(Matrix(L * I(3))), frac, [1, 1, 1], ["Fe"])
-    cz(θ) = SMatrix{3,3,Float64}([cos(θ) -sin(θ) 0; sin(θ) cos(θ) 0; 0 0 1])
-    M1 = SMatrix{3,3,Float64}([-1.0 0 0; 0 1 0; 0 0 1])
-    rots = [SMatrix{3,3,Float64}(I), cz(2π / 3), cz(4π / 3), M1, cz(2π / 3) * M1,
-            cz(4π / 3) * M1]
-    trans = [(SMatrix{3,3,Float64}(I) - R) * c for R in rots]
+    offs = [SVector{3,Float64}(r * cos(t), r * sin(t), 0.0) for t in ang]
+    frac = reduce(hcat, [ctr + lat.reciprocal * o for o in offs])
+    crystal = Crystal(lat, frac, [1, 1, 1], ["Fe"])
+    C3 = SMatrix{3,3,Float64}([0 -1 0; 1 -1 0; 0 0 1])
+    M1 = SMatrix{3,3,Float64}([-1 1 0; 0 1 0; 0 0 1])
+    rots = [SMatrix{3,3,Float64}(I), C3, C3 * C3, M1, C3 * M1, C3 * C3 * M1]
+    trans = [(SMatrix{3,3,Float64}(I) - R) * ctr for R in rots]
     return crystal, _assemble_spacegroup(crystal, rots, trans, "C3v", 0; tol = 1e-6)
 end
 
