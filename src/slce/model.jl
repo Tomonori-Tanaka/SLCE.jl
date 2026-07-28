@@ -813,6 +813,18 @@ end
 _basis_has_disp(basis::SLCEBasis)::Bool =
     any(>(0), basis.spec.pmax) || any(s -> any(has_disp, s.key.decors), salcs(basis))
 
+# The spin-channel mirror, keyed off the spec for the same reason. It is NOT
+# `is_soc_free` and the two must never be confused: `is_soc_free` asks whether a
+# label's total spin rank `L_S` vanishes, which most ordinary `soc = false` spin
+# labels satisfy, so using it as a "has no spin" test would let a spin-carrying
+# model silently skip its spin argument and evaluate at a fabricated state.
+function _basis_has_spin(basis::SLCEBasis)::Bool
+    spec = basis.spec
+    declared = isempty(spec.sectors) ? any(>(0), spec.lmax) :
+               any(r -> r.spin_mode !== :none, spec.sectors)
+    return declared || any(s -> any(has_spin, s.key.decors), salcs(basis))
+end
+
 # SALC columns with displacement content — the only columns with a nonzero force
 # derivative (`∂Φ/∂u ≡ 0` for a pure-spin SALC), i.e. the compact column set of the
 # stored force design block `X_F`.

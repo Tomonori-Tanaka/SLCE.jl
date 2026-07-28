@@ -68,6 +68,7 @@ end
         include("unit/test_introspect.jl")
         include("unit/test_rowlayout.jl")
         include("unit/test_forceconstants.jl")
+        include("unit/test_latticeonly.jl")
         include("unit/test_effective.jl")
         include("unit/test_threading.jl")
     end

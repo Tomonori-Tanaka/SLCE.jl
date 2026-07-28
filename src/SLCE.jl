@@ -14,7 +14,7 @@ using LinearAlgebra: norm, det, I, eigen, eigvals, svd, svdvals, cholesky, Symme
     Diagonal, dot, cross
 using StaticArrays
 using Statistics: mean
-using Random: AbstractRNG, default_rng
+using Random: AbstractRNG, default_rng, MersenneTwister
 import TOML
 import Tables
 # Extend the StatsAPI generics rather than shadow them, so `coef` / `fit` / `nobs` /
@@ -143,7 +143,8 @@ export EffectiveModel, EffectiveTerm, effective_model
 # adding a code touches neither the core nor this export list. The one in-core format
 # is Magesty's EMBSET training set — code-agnostic (it carries exactly what a
 # spin-only TrainingDatum stores), kept here for legacy-data reuse.
-export AbstractDFTSource, TrainingDatum, DatumProvenance, SpinDatum, read_configs
+export AbstractDFTSource, TrainingDatum, DatumProvenance, SpinDatum,
+       LatticeDatum, read_configs
 export crystal_fingerprint
 export EmbsetFile, read_embset
 

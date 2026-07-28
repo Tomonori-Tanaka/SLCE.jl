@@ -126,16 +126,33 @@ function TrainingDatum(; energy::Real, directions::AbstractMatrix{<:Real},
     mags = collect(Float64, magmoms)
     fld = _mat(field)
     trq = _mat(torques)
+    # Same derivation as the SpinDatum constructor — the two construction paths of one
+    # type must not disagree on the load-bearing torque_qualified gate (a mismatch
+    # silently drops hand-built configs' torque rows in a mixed batch). A nonzero
+    # field qualifies; explicitly passed torques qualify (the caller owns the
+    # convention, per the docstring); an all-zero field does not (assert a converged
+    # unconstrained run via an explicit provenance).
+    c = fld !== nothing && any(!iszero, fld)
+    qual = c || trq !== nothing
     if provenance === nothing
-        # Same derivation as the SpinDatum constructor — the two construction paths
-        # of one type must not disagree on the load-bearing torque_qualified gate
-        # (a mismatch silently drops hand-built configs' torque rows in a mixed
-        # batch). A nonzero field qualifies; explicitly passed torques qualify (the
-        # caller owns the convention, per the docstring); an all-zero field does
-        # not (assert a converged unconstrained run via an explicit provenance).
-        c = fld !== nothing && any(!iszero, fld)
-        provenance = DatumProvenance(; constrained = c,
-                                     torque_qualified = c || trq !== nothing)
+        provenance = DatumProvenance(; constrained = c, torque_qualified = qual)
+    elseif qual && !provenance.torque_qualified
+        # The evidence for qualification is the same whoever built the provenance —
+        # and a JOINT datum has no choice but to build one by hand, because the
+        # displacement channel requires `reference_id`/`reference_fingerprint`. Before
+        # this upgrade the two requirements collided: stamping the reference silently
+        # dropped the auto-qualification, and a datum carrying displacements AND
+        # torques then failed the dataset build with "pass use_torque = false" — the
+        # exact opposite of what the caller was trying to do. Upgrade only; an
+        # explicit `torque_qualified = true` is never revoked, and withholding
+        # torques from the fit is `use_torque = false`'s job, at the dataset level.
+        provenance = DatumProvenance(; constrained = provenance.constrained || c,
+                                     torque_qualified = true,
+                                     reference_id = provenance.reference_id,
+                                     reference_fingerprint =
+                                         provenance.reference_fingerprint,
+                                     setup_id = provenance.setup_id,
+                                     soc = provenance.soc)
     end
     if fld !== nothing && trq === nothing
         # Derive the torque target τ_a = m_a × B_a (the physical / Landau–Lifshitz
@@ -331,10 +348,19 @@ function SpinDatum(energy::Real, moments::AbstractMatrix{<:Real},
         ti = cross(mi, Bi)                  # τ = m × B  (physical / LL torque)  [eV]
         torq[1, i] = ti[1]; torq[2, i] = ti[2]; torq[3, i] = ti[3]
     end
-    if provenance === nothing
-        c = any(!iszero, field)
-        provenance = DatumProvenance(; constrained = c, torque_qualified = c)
-    end
+    c = any(!iszero, field)
+    # Upgrade-only, matching the keyword constructor: the two construction paths of
+    # one type must not disagree on this gate, so a hand-built provenance carrying
+    # setup metadata cannot suppress the qualification a nonzero field earns.
+    provenance = provenance === nothing ?
+                 DatumProvenance(; constrained = c, torque_qualified = c) :
+                 (c && !provenance.torque_qualified ?
+                  DatumProvenance(; constrained = true, torque_qualified = true,
+                                  reference_id = provenance.reference_id,
+                                  reference_fingerprint =
+                                      provenance.reference_fingerprint,
+                                  setup_id = provenance.setup_id,
+                                  soc = provenance.soc) : provenance)
     return TrainingDatum(Float64(energy), dirs, mags, nothing, nothing,
                          Matrix{Float64}(field), torq, provenance)
 end
@@ -346,6 +372,63 @@ function SpinDatum(energy::Real, moments::AbstractMatrix{<:Real};
     provenance === nothing && (provenance = DatumProvenance())
     return TrainingDatum(Float64(energy), dirs, mags, nothing, nothing, nothing,
                          nothing, provenance)
+end
+
+"""
+    LatticeDatum(energy; displacements = nothing, forces = nothing,
+                 reference = nothing, reference_id = "reference",
+                 n_atoms = nothing, provenance = nothing) -> TrainingDatum
+
+A [`TrainingDatum`](@ref) for **spin-free** training data: one energy, a displacement
+field, and the forces that came with it. The counterpart of [`SpinDatum`](@ref) at the
+other end of the joint expansion.
+
+`TrainingDatum` requires a spin channel, because the package's centre of gravity is a
+spin–lattice expansion and a datum that silently omits its magnetic state is the
+harder failure to diagnose. A lattice-only user has no magnetic state to give, so this
+constructor supplies the inert one: the `ẑ` placeholder direction (the same one
+[`SpinDatum`](@ref) uses for a quenched moment) with **exactly zero** moment
+magnitudes. Zero is the load-bearing part. A lattice-only basis references no spin
+site, so the placeholder is never read; feed the same datum to a basis that *does*
+carry spin content and [`SLCEDataset`](@ref)'s zero-moment invariant rejects it by
+name, rather than fitting it as a fabricated ferromagnet.
+
+Pass `reference` (the clamped-ion reference `Crystal`) and the provenance stamp the
+displacement channel requires is built for you — `reference_id` plus
+[`crystal_fingerprint`](@ref). `n_atoms` is otherwise inferred from whichever of
+`displacements` / `forces` is present, and is required only when neither is (an
+energy-only datum). An explicit `provenance` overrides all of it.
+
+```julia
+data = [LatticeDatum(E[i]; displacements = u[i], forces = F[i], reference = crystal)
+        for i in eachindex(E)]
+ds = SLCEDataset(basis, data)              # use_torque resolves to false by itself
+f  = fit(SLCEFit, ds, OLS(); force_weight = 1.0)
+```
+"""
+function LatticeDatum(energy::Real;
+                      displacements::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                      forces::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                      reference::Union{Crystal,Nothing} = nothing,
+                      reference_id::AbstractString = "reference",
+                      n_atoms::Union{Integer,Nothing} = nothing,
+                      provenance::Union{DatumProvenance,Nothing} = nothing)::TrainingDatum
+    nat = n_atoms !== nothing ? Int(n_atoms) :
+          displacements !== nothing ? size(displacements, 2) :
+          forces !== nothing ? size(forces, 2) :
+          reference !== nothing ? size(reference.frac_positions, 2) :
+          throw(ArgumentError("LatticeDatum: cannot infer the atom count — pass " *
+                              "`displacements`, `forces`, `reference`, or `n_atoms`"))
+    nat > 0 || throw(ArgumentError("LatticeDatum: n_atoms must be ≥ 1; got $nat"))
+    if provenance === nothing && reference !== nothing
+        provenance = DatumProvenance(; reference_id = reference_id,
+                                     reference_fingerprint =
+                                         crystal_fingerprint(reference))
+    end
+    dirs = repeat(Float64[0.0, 0.0, 1.0], 1, nat)
+    return TrainingDatum(; energy = energy, directions = dirs, magmoms = zeros(nat),
+                         displacements = displacements, forces = forces,
+                         provenance = provenance)
 end
 
 """
@@ -460,20 +543,27 @@ function _check_reference(basis::SLCEBasis, data::AbstractVector{TrainingDatum})
 end
 
 """
-    SLCEDataset(basis, data::AbstractVector{TrainingDatum}; use_torque = true,
+    SLCEDataset(basis, data::AbstractVector{TrainingDatum}; use_torque = nothing,
                use_force = true, zero_moment_atol = 1e-10) -> SLCEDataset
-    SLCEDataset(basis, src::AbstractDFTSource; use_torque = true) -> SLCEDataset
+    SLCEDataset(basis, src::AbstractDFTSource; use_torque = nothing) -> SLCEDataset
 
 Build a fit-ready [`SLCEDataset`](@ref) from training data (or directly from a DFT
 source, which is read first). The spin directions become the configurations and the
-energies the energy targets; with `use_torque = true` (the default) the per-atom
-torque targets of every **qualified** configuration — `torques !== nothing` and
+energies the energy targets; with `use_torque = true` the per-atom torque targets of
+every **qualified** configuration — `torques !== nothing` and
 `provenance.torque_qualified` — are included for an energy+torque co-fit (see
 [`fit`](@ref)). Configurations without qualified torque data contribute energy rows
 only, so a mixed dataset (e.g. constrained-noncollinear configs plus
 unconstrained/collinear energy-only configs **from the same computational setup**)
 is a first-class object: its torque design has rows exactly for the qualified
 configurations. Pass `use_torque = false` to force a dataset without torque targets.
+
+`use_torque = nothing` (the default) resolves from the **basis**: `true` when it
+carries spin content, `false` for a lattice-only expansion, which has no torque
+design block to build and for which demanding torque data is a requirement no
+correct call can satisfy. It is deliberately *not* resolved from whether the data
+happen to carry torques — that would turn "the adapter dropped the constraining
+fields", today a loud error, into a silent energy-only fit.
 
 Against a **displacement-decorated basis** the designs are evaluated jointly at each
 configuration's `(e, u)`: a datum's `displacements` become its `u` field (a datum
@@ -508,9 +598,15 @@ Boundary invariants checked here (all fail loudly rather than bias silently):
   `zero_moment_atol`, pass the same value here (both default to `1e-10`).
 """
 function SLCEDataset(basis::SLCEBasis, data::AbstractVector{TrainingDatum};
-                    use_torque::Bool = true, use_force::Bool = true,
+                    use_torque::Union{Bool,Nothing} = nothing, use_force::Bool = true,
                     zero_moment_atol::Real = 1e-10)::SLCEDataset
     isempty(data) && throw(ArgumentError("no training data"))
+    # A spin-free basis has no torque design block to build, so demanding torque data
+    # for it is a requirement no correct call can satisfy. Resolve from the BASIS,
+    # never from whether the data happen to carry torques: reading the data would
+    # turn "the adapter dropped the constraining fields" — today a loud error — into
+    # a silent energy-only fit.
+    ut = use_torque === nothing ? _basis_has_spin(basis) : use_torque
     _check_setup_uniformity(data)
     _check_reference(basis, data)
     _check_referenced_moments(basis, data; atol = zero_moment_atol)
@@ -525,14 +621,14 @@ function SLCEDataset(basis::SLCEBasis, data::AbstractVector{TrainingDatum};
     if !_basis_has_disp(basis)
         # Pure-spin basis: the established spin-configuration path (`use_force` is
         # moot — `_check_reference` already warned if forces are present).
-        use_torque ||
+        ut ||
             return SLCEDataset(basis, configs, energies; provenance = ident)
         sel = _qualified_torque_sel(data)
         torques = Matrix{Float64}[data[i].torques::Matrix{Float64} for i in sel]
         return SLCEDataset(basis, configs, energies, torques, sel; provenance = ident)
     end
     return _joint_dataset(basis, data, configs, energies, ident;
-                          use_torque = use_torque, use_force = use_force)
+                          use_torque = ut, use_force = use_force)
 end
 
 # Torque-qualified configuration indices (presence AND provenance qualification),
@@ -714,7 +810,8 @@ function _check_displacement_radius(crystal::Crystal,
     return nothing
 end
 
-SLCEDataset(basis::SLCEBasis, src::AbstractDFTSource; use_torque::Bool = true,
+SLCEDataset(basis::SLCEBasis, src::AbstractDFTSource;
+           use_torque::Union{Bool,Nothing} = nothing,
            use_force::Bool = true, zero_moment_atol::Real = 1e-10)::SLCEDataset =
     SLCEDataset(basis, read_configs(src); use_torque = use_torque,
                use_force = use_force, zero_moment_atol = zero_moment_atol)

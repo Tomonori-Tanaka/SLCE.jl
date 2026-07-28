@@ -412,6 +412,7 @@ AbstractDFTSource
 TrainingDatum
 DatumProvenance
 SpinDatum
+LatticeDatum
 crystal_fingerprint
 read_configs
 ```

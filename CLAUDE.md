@@ -212,6 +212,35 @@ Easy to break silently — confirm before touching the algorithm.
   guards against cross-basis confusion. This reload is realized by persistence
   (`SLCE.load(SLCEModel, …)` rebuilds `jphi` in basis-key order from the
   per-`SALCKey` coefficients).
+- **The spin-free entry path shares ONE predicate** (`slce/model.jl`
+  `_basis_has_spin` ↔ `io/dftsource.jl` `SLCEDataset`'s `use_torque = nothing` ↔
+  `slce/forceconstants.jl` `force_constants(; spins = nothing)` ↔ `fitting/fit.jl`
+  `_no_spins` / `_validate_config_pair`): every place that lets a lattice-only caller
+  omit a magnetic state asks the same question, and it is **not** `is_soc_free`.
+  `is_soc_free` asks whether a label's total spin rank `L_S` vanishes — true for most
+  ordinary `soc = false` spin labels — so a "has no spin content" test built on it
+  waves a spin-carrying model through and evaluates it at a fabricated state. The two
+  are gated against each other on a basis where they disagree
+  (`test/unit/test_latticeonly.jl`). `_basis_has_spin` reads the SPEC as well as the
+  surviving SALCs, exactly like `_basis_has_disp` and for the same reason. The
+  omission marker everywhere is all-ZERO, never a plausible `+ẑ`: `LatticeDatum`'s
+  zero `magmoms` is what makes `SLCEDataset`'s existing zero-moment invariant reject
+  the datum if it ever meets a spin-carrying basis, so that guard is load-bearing for
+  the convenience constructor and must not be relaxed. `use_torque` resolves from the
+  BASIS and never from whether the data carry torques — the latter converts "the
+  adapter dropped the constraining fields" from a loud error into a silent
+  energy-only fit.
+- **`torque_qualified` is upgraded by both datum constructors, never revoked**
+  (`io/dftsource.jl` `TrainingDatum` keyword ctor ↔ `SpinDatum` ↔
+  `io/provenance.jl`): a joint datum MUST hand-build a provenance (the displacement
+  channel requires `reference_id`/`reference_fingerprint`), and a hand-built one
+  carries the struct default `false` — which used to discard the qualification that
+  explicit `torques` or a nonzero `field` earn, so a datum with displacements AND
+  torques died at the dataset with "pass `use_torque = false`", the opposite of the
+  caller's intent. Keep the two construction paths' rules identical (they are
+  compared in `test_dftsource.jl` for exactly this reason) and keep the upgrade
+  one-way: suppressing a torque channel is `use_torque = false`'s job at the dataset
+  level.
 - **Persistence schema ↔ the serialized structs** (`io/persist.jl`): `_to_doc` /
   `_from_doc` mirror the fields of `Crystal` / `Lattice` / `SpaceGroup` / `BasisSpec`
   / `SALCKey` / `SALCTerm` / `SALCMember` / `SALC` / `SLCEBasis` / `SLCEModel`. Add or

@@ -6,6 +6,54 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the lattice-only entry path
+
+The same API review walked a phonons-only workflow end to end and counted where the
+package demanded a magnetic state from a caller who has none. Four places, each
+answerable only by inventing one — and a fabricated `+ẑ` ferromagnet is
+indistinguishable from a real one once it reaches a basis that reads spins.
+
+- **`LatticeDatum(energy; displacements, forces, reference, …)`** — `SpinDatum`'s
+  counterpart for spin-free data. It fills the mandatory spin channel with the `ẑ`
+  placeholder and **exactly zero** moment magnitudes, and passing `reference` builds
+  the `reference_id`/`crystal_fingerprint` stamp the displacement channel requires.
+  Zero is the load-bearing part: a lattice-only basis never reads the placeholder, and
+  the same datum against a spin-carrying basis trips `SLCEDataset`'s existing
+  zero-moment invariant by name.
+- **`SLCEDataset`'s `use_torque` defaults to `nothing`**, resolved from the basis:
+  `false` for a lattice-only expansion, which has no torque design block and for which
+  the old `true` default was a requirement no correct call could satisfy. Resolved
+  from the *basis*, never from whether the data carry torques — the latter would turn
+  "the adapter dropped the constraining fields", today a loud error, into a silent
+  energy-only fit.
+- **`force_constants`, `predict_energy` and `predict_force` accept no spin state**
+  (omitted, or `nothing`) when the basis carries none. The predicate is the new
+  `_basis_has_spin` (spec ∪ surviving SALCs). It is **not** `is_soc_free`, which asks
+  whether a label's total spin rank vanishes — true for most ordinary `soc = false`
+  spin labels, so building the test on it would wave a spin-carrying model through and
+  evaluate it at a fabricated state. The two predicates are now gated against each
+  other on a basis where they disagree.
+- **A hand-built `DatumProvenance` no longer suppresses the torque channel.** Two
+  requirements collided: the displacement channel *requires* a provenance carrying the
+  reference identity, and building one discarded the automatic `torque_qualified` that
+  explicit torques (or a nonzero field) earn — so a joint datum with displacements AND
+  torques failed the dataset build with "pass `use_torque = false`", the exact opposite
+  of the caller's intent. Both datum constructors now **upgrade** the flag and never
+  revoke it; withholding torques from a fit is `use_torque = false`'s job, at the
+  dataset level where that decision belongs.
+
+### Fixed — a dead design column blamed the data for a property of the basis
+
+`fit`'s dead-column warning said "this fit's data say nothing about them", which is
+advice that cannot be taken when the SALC is zero for *every* configuration. Measured
+on a conventional bcc 2-atom cell: 1 of 3 lattice-only SALCs, and **14 of 23** joint
+ones, cancel identically under minimum-image ties — so `n_salcs` overstates a small
+cell's real freedom by a lot. The two cases now get separate messages. The classifier
+evaluates the basis at three probe configurations (reached only once a dead column
+exists, and seeded, because a diagnostic must not depend on ambient RNG state); it is
+pinned against a 200-sample design matrix built through the other code path, where the
+two index sets agree exactly.
+
 ### Added — the magnetic-symmetry contract of the force constants
 
 A four-agent review of the user-facing API against two concrete workflows — a

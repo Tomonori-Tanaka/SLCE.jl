@@ -22,6 +22,13 @@ Stamped by the DFT adapter that builds the datum; consumed as invariants by the
   exactly that (a converged **unconstrained** noncollinear run, whose `τ = 0` is a
   genuine stationarity observation), pass an explicit
   `provenance = DatumProvenance(; torque_qualified = true)`.
+  The datum constructors **upgrade** this flag, never revoke it: a nonzero `field`,
+  or `torques` passed explicitly, sets it even on a hand-built provenance. That
+  matters because a joint datum has no choice but to build one by hand — the
+  displacement channel requires `reference_id`/`reference_fingerprint` — and before
+  the upgrade, stamping the reference silently dropped the qualification. To keep
+  torques out of a fit, use `use_torque = false` at the [`SLCEDataset`](@ref) level,
+  which is where that decision belongs.
 - `reference_id::Union{String,Nothing}` — human-readable label of the clamped-ion
   reference crystal the displacements `u = r − r_ref` were measured against
   (`nothing` = unset; allowed only against a pure-spin basis).

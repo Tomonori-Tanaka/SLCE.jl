@@ -154,6 +154,30 @@ force-carrying configuration enter the force design block for a three-block co-f
 (`fit(...; torque_weight, force_weight)` — see the
 [fitting guide](fitting.md#Forces:-the-three-block-co-fit)).
 
+### Lattice-only data
+
+At the other end of the joint expansion sits the user with no magnetic state at all —
+force constants and phonons, nothing spin-dependent. [`LatticeDatum`](@ref) is
+[`SpinDatum`](@ref)'s counterpart for them, and the whole chain then runs without a
+spin argument anywhere:
+
+```julia
+data = [LatticeDatum(E[i]; displacements = u[i], forces = F[i], reference = crystal)
+        for i in eachindex(E)]
+ds  = SLCEDataset(basis, data)             # use_torque resolves to false by itself
+f   = fit(SLCEFit, ds, OLS(); force_weight = 1.0)
+fcs = force_constants(SLCEModel(f); order = 2)     # `spins` not required either
+```
+
+`LatticeDatum` fills the mandatory spin channel with the `ẑ` placeholder direction and
+**exactly zero** moment magnitudes. Zero is the load-bearing part: a lattice-only basis
+reads no spin site, so the placeholder is never touched, and feeding the same data to a
+basis that *does* carry spin content trips the zero-moment invariant by name instead of
+fitting a fabricated ferromagnet. `use_torque` (and the omission of `spins`/`e`) resolve
+from the **basis**, never from what the data happen to contain — a lattice-only basis
+has no torque block to build, while "the adapter dropped the constraining fields" must
+stay the loud error it is today.
+
 The torque target from a constrained calculation is
 ``\boldsymbol\tau_a = \boldsymbol m_a \times \boldsymbol B_a`` (the physical /
 Landau–Lifshitz torque), the *same* physical quantity, sign, and layout as the model's

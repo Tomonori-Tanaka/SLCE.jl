@@ -182,26 +182,80 @@ const _DEAD_COL_RTOL = 1e-12
 # several weightings (energy-only, then force-only) must be warned about each one —
 # `maxlog` silences a call site for the whole process. The cost is `k` identical
 # lines when `cross_validate` refits per fold, which is the informative direction.
-function _warn_unidentified(X::AbstractMatrix, rep::Union{Nothing,ASRReparam})
+function _warn_unidentified(basis::SLCEBasis, X::AbstractMatrix,
+                            rep::Union{Nothing,ASRReparam})
     isempty(X) && return nothing
     nrm = [norm(@view X[:, j]) for j in axes(X, 2)]
     nmax = maximum(nrm)
     nmax == 0.0 && return nothing                  # an all-zero design: nothing to rank
     dead = findall(<=(_DEAD_COL_RTOL * nmax), nrm)
     isempty(dead) && return nothing
-    # Under the reparameterization the indices are γ directions, NOT `jphi`
-    # positions, so the `refit`-drops-them advice (a β-space support rule) does not
-    # transfer — say only what is true in each coordinate system.
-    advice = rep === nothing ?
-             "`refit` drops them (their scaled magnitude is zero)." :
-             "They are directions of the ASR null-space basis, not `jphi` positions."
-    @warn "fit: $(length(dead)) design column(s) carry no information — this fit's " *
-          "data say nothing about them (a force-only fit sees no pure-spin column, " *
-          "for example), so their coefficients are an estimator artifact rather " *
-          "than an estimate. `identifiability` reports the full rank deficiency. " *
-          advice columns = first(dead, 10) coordinates =
-        rep === nothing ? "jphi (β)" : "reparameterized (γ)"
+    if rep !== nothing
+        # Under the reparameterization the indices are γ directions, NOT `jphi`
+        # positions: neither the `refit`-drops-them advice (a β-space support rule)
+        # nor the per-SALC structural classification below transfers, because there
+        # is no SALC at index j. Say only what is true in these coordinates.
+        @warn "fit: $(length(dead)) design column(s) carry no information — this " *
+              "fit's data say nothing about them, so their coefficients are an " *
+              "estimator artifact rather than an estimate. `identifiability` " *
+              "reports the full rank deficiency. They are directions of the ASR " *
+              "null-space basis, not `jphi` positions." columns =
+            first(dead, 10) coordinates = "reparameterized (γ)"
+        return nothing
+    end
+    structural = _identically_zero_salcs(basis, dead)
+    starved = setdiff(dead, structural)
+    isempty(structural) ||
+        @warn "fit: $(length(structural)) SALC(s) are identically zero on this " *
+              "cell — their members cancel for EVERY configuration, so no amount " *
+              "of data can determine them and `n_salcs` overstates the model's " *
+              "real freedom. This is a property of the basis, not of this fit: " *
+              "widen the cell or drop the channel. `refit` removes them from the " *
+              "support." columns = first(structural, 10)
+    isempty(starved) ||
+        @warn "fit: $(length(starved)) design column(s) carry no information — this " *
+              "fit's data say nothing about them (a force-only fit sees no " *
+              "pure-spin column, for example), so their coefficients are an " *
+              "estimator artifact rather than an estimate. `identifiability` " *
+              "reports the full rank deficiency. `refit` drops them (their scaled " *
+              "magnitude is zero)." columns = first(starved, 10) coordinates =
+            "jphi (β)"
     return nothing
+end
+
+# Which of `cols` name SALCs that are zero for EVERY configuration, not merely for
+# this fit's data. The two call for opposite responses — collect more data, versus
+# nothing will ever help — and the old single message asserted the first for both,
+# which is advice that cannot be taken when a two-atom cell's minimum-image ties
+# annihilate a bond (measured: 1 of 3 columns on a bcc 2-atom lattice-only basis).
+#
+# Decided by evaluating the basis at a few random configurations: a handful of design
+# ROWS, negligible beside the design already assembled, and reached only once a dead
+# column exists. The seed is fixed — a diagnostic must not depend on ambient RNG
+# state — and the threshold is the same relative cut the caller used, because an
+# identically-zero SALC cancels to roundoff, not to exact zero.
+function _identically_zero_salcs(basis::SLCEBasis, cols::AbstractVector{Int};
+                                 nprobe::Int = 3)::Vector{Int}
+    ss = salcs(basis)
+    isempty(ss) && return Int[]
+    nat = n_atoms(basis.crystal)
+    rng = MersenneTwister(0x5A1CDEAD)
+    peak = zeros(Float64, length(ss))
+    scratch = SALCScratch()
+    for _ = 1:nprobe
+        e = randn(rng, 3, nat)
+        for a = 1:nat
+            c = norm(@view e[:, a])
+            c > 0 && (@views e[:, a] ./= c)
+        end
+        u = 0.05 .* randn(rng, 3, nat)
+        for j in eachindex(ss)
+            peak[j] = max(peak[j], abs(evaluate_salc(ss[j], e, u, scratch)))
+        end
+    end
+    ref = maximum(peak)
+    ref == 0.0 && return [j for j in cols if j <= length(peak)]
+    return [j for j in cols if j <= length(peak) && peak[j] <= _DEAD_COL_RTOL * ref]
 end
 
 """
@@ -299,7 +353,7 @@ function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator
         rep = _fit_stage(dataset, rep, frozen, sector_mask, estimator)
     end
     X, y, xbar, ybar, groups = _assemble_problem(dataset, w, wF, rep)
-    _warn_unidentified(X, rep)
+    _warn_unidentified(dataset.basis, X, rep)
     gamma = solve_coefficients(estimator, X, y; groups = groups,
                                nullspace = rep === nothing ? nothing : rep.Z)
     j0 = ybar - dot(xbar, gamma)          # = ȳ − x̄_βᵀβ (γ-space x̄ under rep)
@@ -512,7 +566,8 @@ function _require_pure_spin_predict(model::SLCEModel, what::AbstractString)
     _basis_has_disp(model.basis) &&
         throw(ArgumentError("the model's basis is displacement-decorated — pass " *
                             "the displacement field explicitly: $what(model, e, u) " *
-                            "(u = zeros(3, n_atoms) for the clamped-ion reference)"))
+                            "(u = zeros(3, n_atoms) for the clamped-ion reference; " *
+                            "e = nothing for a lattice-only model)"))
     return nothing
 end
 
@@ -610,7 +665,17 @@ predict_torque(f::SLCEFit, data) = predict_torque(SLCEModel(f), data)
 function _validate_config_pair(model::SLCEModel, e::AbstractMatrix{<:Real},
                                u::AbstractMatrix{<:Real})
     nat = n_atoms(model.basis.crystal)
-    _validate_config(e, nat)
+    if _basis_has_spin(model.basis)
+        _validate_config(e, nat)
+    else
+        # A lattice-only model reads no spin factor, so there is no unit-vector
+        # postcondition to protect — only the shape has to line up. This is what lets
+        # a caller pass `nothing` (below) or an all-zero placeholder without the
+        # package pretending the placeholder is a magnetic state.
+        size(e) == (3, nat) ||
+            throw(DimensionMismatch("spin configuration is $(size(e, 1)) × " *
+                                    "$(size(e, 2)), model expects 3 × $nat"))
+    end
     size(u) == (3, nat) ||
         throw(DimensionMismatch("displacement field u is $(size(u, 1)) × " *
                                 "$(size(u, 2)), model expects 3 × $nat"))
@@ -618,6 +683,21 @@ function _validate_config_pair(model::SLCEModel, e::AbstractMatrix{<:Real},
         throw(ArgumentError("displacement field u contains non-finite entries"))
     return nat
 end
+
+# `nothing` in the spin slot: the lattice-only caller has no magnetic state, and the
+# alternative — inventing one — is how a placeholder becomes a fabricated ferromagnet
+# the moment the model does carry spin content. Legal exactly when there is no spin
+# factor to evaluate; the predicate is `_basis_has_spin`, never `is_soc_free`.
+function _no_spins(model::SLCEModel)::Matrix{Float64}
+    _basis_has_spin(model.basis) && throw(ArgumentError(
+        "the spin configuration is required: this model's basis carries spin " *
+        "content, so the prediction depends on the magnetic state. `nothing` is " *
+        "accepted only for a lattice-only model."))
+    return zeros(Float64, 3, n_atoms(model.basis.crystal))
+end
+
+predict_energy(model::SLCEModel, ::Nothing, u::AbstractMatrix{<:Real})::Float64 =
+    predict_energy(model, _no_spins(model), u)
 
 function predict_energy(model::SLCEModel, e::AbstractMatrix{<:Real},
                         u::AbstractMatrix{<:Real})::Float64
@@ -658,6 +738,10 @@ the two are consistent by construction. On a pure-spin model (or on atoms no SAL
 displacement slot reads) the force is exactly zero — the energy does not depend on
 those displacements.
 """
+predict_force(model::SLCEModel, ::Nothing,
+              u::AbstractMatrix{<:Real})::Matrix{Float64} =
+    predict_force(model, _no_spins(model), u)
+
 function predict_force(model::SLCEModel, e::AbstractMatrix{<:Real},
                        u::AbstractMatrix{<:Real})::Matrix{Float64}
     nat = _validate_config_pair(model, e, u)

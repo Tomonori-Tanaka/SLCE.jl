@@ -72,7 +72,7 @@ function _site_derivative(poly, comps)::Float64
 end
 
 """
-    force_constants(model::SLCEModel; spins, order = 2) -> ForceConstantSet
+    force_constants(model::SLCEModel; spins = nothing, order = 2) -> ForceConstantSet
 
 The order-`order` force constants of `model` at the spin configuration `spins`
 (`3 × n_atoms`, unit columns): the exact `order`-th derivatives of the energy with
@@ -104,6 +104,11 @@ A pure-spin model has no displacement content and yields an empty set. Only term
 whose displacement degrees sum to exactly `order` contribute; a model truncated below
 `order` therefore returns fewer (or no) constants rather than an error.
 
+`spins` may be omitted only for a model whose basis carries **no spin content at
+all** — a lattice-only expansion, where there is nothing for a spin state to feed
+and inventing one would be noise. Omitting it against a spin-carrying basis is an
+error, never a default state.
+
 !!! note "Magnetic symmetry: which basis you fit decides which group is imposed"
     The returned constants are invariant under the **magnetic space group** of
     `spins` — *including* its antiunitary elements, whose rotation parts constrain
@@ -134,13 +139,30 @@ whose displacement degrees sum to exactly `order` contribute; a model truncated 
     [`asr_residual`](@ref). Constants from a violating model give acoustic modes with
     nonzero frequency at `q = 0`.
 """
-function force_constants(model::SLCEModel; spins::AbstractMatrix{<:Real},
+function force_constants(model::SLCEModel;
+                         spins::Union{AbstractMatrix{<:Real},Nothing} = nothing,
                          order::Integer = 2)::ForceConstantSet
     order >= 1 || throw(ArgumentError("order must be ≥ 1; got $order"))
     nat = n_atoms(model.basis.crystal)
-    size(spins) == (3, nat) || throw(DimensionMismatch(
-        "spins is $(size(spins)); expected (3, $nat) — one unit column per atom"))
-    e = Matrix{Float64}(spins)
+    if spins === nothing
+        # Omitting the spin state is legal exactly when no spin factor exists to
+        # evaluate. The predicate is `_basis_has_spin` (spec ∪ surviving SALCs) and
+        # NOT `is_soc_free`, which asks whether `L_S == 0` — true for most ordinary
+        # `soc = false` spin labels, so it would wave a spin-carrying model through
+        # and silently evaluate it at the all-zero state.
+        _basis_has_spin(model.basis) && throw(ArgumentError(
+            "`spins` is required: this model's basis carries spin content, so the " *
+            "force constants depend on the magnetic state. Pass the 3 × $nat unit " *
+            "directions to evaluate at."))
+        # Zeros, not a fabricated ferromagnet: nothing reads them, and a marker that
+        # is obviously not a spin configuration cannot be mistaken for one if it
+        # surfaces through `ForceConstantSet.spins`.
+        e = zeros(Float64, 3, nat)
+    else
+        size(spins) == (3, nat) || throw(DimensionMismatch(
+            "spins is $(size(spins)); expected (3, $nat) — one unit column per atom"))
+        e = Matrix{Float64}(spins)
+    end
     _warn_spin_blind(model.basis, Int(order))
     out = Dict{Tuple{Vector{Int},Vector{SVector{3,Int}}},Array{Float64}}()
     polycache = Dict{NTuple{3,Int},SolidHarmonics._Poly}()
