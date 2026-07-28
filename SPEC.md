@@ -494,6 +494,92 @@ capability consumed by both the introspection and the Sunny interop.
   there are two that must agree — this intra-model incremental one and the grid finite
   difference — and their agreement is `StrainedModels`' acceptance gate (M5-3), which
   cannot run until a grid exists.
+- **The ε-linear magnetoelastic tier — M5-2 slice 2** (`slce/magnetoelastic.jl`): the two
+  deliverables that ride on `strain_derivatives(order = 1)`, and on nothing above it. The
+  tier is ε-linear for two INDEPENDENT reasons and the file says both: §13 risk 2 (only
+  ε-linear content is Seth–Hill measure-independent unconditionally; second-order elastic
+  constants agree across measures only at a stress-free reference, which a spin–lattice
+  cell can be for at most one magnetic state) and the slice-1 finding (the ASR buys origin
+  independence only where the affine field is periodic).
+  - `magnetoelastic_constants(model; signs, tol)` → `(; B1, B2, ion = :clamped, residual,
+    volume)`. **This is where §12 gate (u) closes.** The pinned convention, stated in the
+    docstring and gated in `test/unit/test_magnetoelastic.jl`:
+    `E_me/V = B₁ Σ_i ε_ii(α_i² − 1/3) + 2B₂ Σ_{i<j} ε_ij α_i α_j` — TENSOR shear, that
+    range, that sign, `E_me` an energy DENSITY (so B carries energy/volume). None of those
+    was pinned anywhere before: gate (e2) fixes the magnetoelastic block's SPAN and says in
+    its own comment that "C2 is the fit gauge — no B₁/B₂ normalization or sign convention
+    is pinned here". `ion = :clamped` is a FIELD, not prose, so `result.B2` cannot be
+    quoted without it.
+    Extraction is a **projection, not a readout**: the exact `D⁽¹⁾(α)` is computed at 19
+    deterministic directions (3 axes + 6 face + 4 body diagonals + 6 generic — the generic
+    ones are what `l = 4` content fails on, since a high-symmetry-only set can be blind to
+    it) and least-squares-fitted to
+    `D⁰_ij + V B₁ δ_ij(α_i² − 1/3) + V B₂(1 − δ_ij) α_iα_j` with `D⁰` free. Reading two
+    directions would return a number for a model that is not of this form; the projection
+    returns `residual` instead — the fraction of the α-DEPENDENT response left unexplained
+    (normalized by the α-dependent part, never by `‖D‖`, since the reference stress can
+    dwarf the magnetoelastic signal). The warning above `tol` is deliberately NOT
+    `maxlog`-limited (the `fit.jl:180` reasoning: it reports one model's property).
+  - `exchange_strain_derivatives(model; origin, check_origin)` → `ExchangeStrainDerivatives`
+    (`pairs[(a,b,R)][α,β,γ,δ] = ∂M_ab^{αβ}/∂ε_{γδ}`, `onsites[a]` likewise, `skipped`,
+    `origin`). The model's `dJ/dr` resolved per bond and per strain component — the
+    ε-linear derivative of exactly the matrices `bilinear_terms` reports, from terms with
+    two `l = 1` spin factors (or one `l = 2`) plus exactly one `degree = 1` displacement
+    factor. `γ, δ` are UNSYMMETRIZED (a general affine map), matching
+    `strain_derivatives(symmetrize = false)`. `skipped` reports only what a user would
+    actually miss — SALCs with ε-linear displacement content whose spin part is not
+    bilinear-representable; pure-spin SALCs and `degree = 2` factors are absent from a
+    first derivative BY DEFINITION and are not losses. The `(4π)` scale is
+    `count(has_spin, decors)/2`, never `_bilinear_terms`' pure-spin `body/2` shortcut.
+    **The per-bond split is origin-dependent in general and is therefore measured.** The
+    ASR cancels the origin from the TOTAL, not bond by bond: a bond whose displacement
+    content is not purely relative carries an absolute position. Symmetry usually rules it
+    out (a bond orbit with a site-swap operation admits only `u_b − u_a`), which is why the
+    check passes silently on every fixture tried, including the split-home `±1/6` chain —
+    but it is recomputed at a probe-shifted origin and refused on disagreement, the same
+    idiom `strain_derivatives` uses at order ≥ 2.
+  Gates (`test/unit/test_magnetoelastic.jl`): gate (u) against a closed form written out
+  by hand and evaluated through `evaluate_salc`/`_eval_term_mixed` on the (e2) octahedron
+  — two implementations, one number; the convention itself re-derived longhand
+  (`2·Σ_{i<j}` typed as a literal) against the production energy at finite (α, ε), with
+  shear-only and hydrostatic special cases isolating the factor 2 and the `−1/3`; the
+  `l = 2` time-reversal parity under a sublattice flip; `residual` > 1e-3 with the warning
+  on the SAME crystal stretched to tetragonal; and for the bond derivatives the
+  RECONSTRUCTION identity — contracting every bond with a spin configuration rebuilds
+  `strain_derivatives(order = 1, symmetrize = false)` to 1e-11, the `_reconstruct_energy`
+  fence one derivative up.
+  The (e2) fixture needed two changes to carry a MODEL: the centre is displacement-active
+  and a pure-lattice `degree = 2` sector rides along, because a basis whose every SALC is
+  individually translation-invariant makes `A ≡ 0`, which `build_asr` refuses as a broken
+  expansion — a narrow but real over-strictness of that guard, recorded here rather than
+  fixed under the milestone.
+- **Magnon–phonon vertices — M5-2 slice 3** (`slce/magnonphonon.jl`):
+  `magnon_phonon_vertices(model; spins)` → `MagnonPhononVertices`
+  (`vertices[(a, b, R)][α, β] = ∂²E_cell/∂u_{aα}(0) ∂e_{bβ}(R)`), §7's third named
+  deliverable. Structurally `_fill_fcs_tensor!` with one axis moved from the "evaluate"
+  column to the "differentiate" column: the single `degree = 1` displacement factor gives
+  `α` through the same monomial coefficients, and each spin slot in turn is differentiated
+  by `Harmonics.grad_Zlm` (product rule — a term with two spin factors on one atom
+  contributes twice) while the rest evaluate to numbers.
+  **The spin index is Cartesian AND unambiguous**, because `grad_Zlm` is the TANGENTIAL
+  gradient (the same object the torque design matrix is built from): `V·ê_b ≡ 0` holds
+  identically, so no local-frame `(f₁, f₂)` convention is invented and the caller projects
+  onto their own magnon basis. The pair is ORDERED — `a` displaced, `b` magnetic — unlike
+  `bilinear_terms`' undirected bonds, so `(a,b,R)` and `(b,a,−R)` mean different things.
+  Contributing content is exactly "one degree-1 displacement factor + at least one spin
+  factor": a magnetoelastic sector declared at `degree = 2` yields NO vertices (it feeds
+  the spin-dependent force constants), which is `_warn_spin_blind`'s trap from the other
+  side. No ASR precondition — no absolute position enters — but the translation sum rule
+  `Σ_{a,R} V = 0` holds for a constrained model and is gated.
+  "Adiabatic" (the §7-mandated docstring word) is a SCOPE statement: derivatives of the
+  static surface, so retardation, the Berry-phase phonon-angular-momentum term and
+  spin-lattice relaxation are outside a static CE by construction — the same free scope
+  line §7 draws for the multipole readout.
+  Gates (`test/unit/test_magnonphonon.jl`): the Γ-folded vertices against a MIXED central
+  finite difference of `predict_energy` (displacement component × tangential spin
+  direction, all `a, b, α`); tangency `‖T·ê_b‖ < 1e-12`; the translation sum rule; the
+  degree-2 ⇒ empty / lattice-only ⇒ throw content rules; and the shared `_resolve_spins`
+  error surface.
 - **Effective models at a displaced structure — M5 slice 1** (`slce/effective.jl`):
   `effective_model(model; u0, atol = 0.0)` → `EffectiveModel` — the same coefficient
   set re-expanded around `R + u0`, EXACTLY (design record §9d). Every displacement

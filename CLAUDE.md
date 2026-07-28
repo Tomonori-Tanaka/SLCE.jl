@@ -617,6 +617,43 @@ Easy to break silently — confirm before touching the algorithm.
   (`𝓡_U E = −𝓡_S E`), never noise to discard silently. Measure = Biot / Seth–Hill
   `m = 1` (design record §9e) — `order = 1` is measure-independent, `order = 2` is not,
   so any second-order output must record the measure AND the spin state.
+- **The magnetoelastic tier ↔ the ε-LINEAR strain response ↔ the bilinear conversion**
+  (`slce/magnetoelastic.jl`, `test/unit/test_magnetoelastic.jl`): both deliverables ride on
+  `strain_derivatives(order = 1)` and **must stay there**. The tier is first-order for two
+  independent reasons — measure independence (§13 risk 2: second-order elastic constants
+  agree across the Seth–Hill family only at a stress-free reference, and a spin–lattice
+  cell is stress-free for at most one magnetic state) and origin independence (the ASR
+  covers `ε = 0` alone). Adding an `order = 2` arm to either one silently forfeits both.
+  **The B₁/B₂ convention is pinned here and nowhere else** — `E_me/V = B₁ Σ_i ε_ii(α_i² −
+  1/3) + 2B₂ Σ_{i<j} ε_ij α_iα_j`, tensor shear, that range, that sign, energy DENSITY —
+  because gate (e2) fixes only the block's span ("C2 is the fit gauge"). Gate (u) compares
+  it against a hand-written closed form through `evaluate_salc`, never against
+  `strain_derivatives`' own output; if the convention ever moves, that test is the one
+  place to change, and the docstring, the guide and `_me_form` in the test must move with
+  it. `ion = :clamped` is a FIELD of the returned tuple, not prose — do not "simplify" the
+  return value to `(B1, B2)`. The constants come from a PROJECTION over 19 directions with
+  `residual` reported, not from two evaluations: a model outside the two-constant form must
+  say so rather than return numbers. `exchange_strain_derivatives` shares the tesseral →
+  Cartesian conversion with `bilinear_terms` (`_l1_pair_matrix` / `_l2_onsite_matrix`) but
+  NOT its `(4π)^(body/2)` scale — the joint rule is `count(has_spin, decors)/2`, and the
+  pure-spin shortcut is exactly the §7 consumer-scale trap. Its gate is the reconstruction
+  identity against `strain_derivatives(symmetrize = false)`, which is why the unsymmetrized
+  `(γ, δ)` convention is contract and not an accident. The per-bond split is
+  origin-dependent whenever a bond's own displacement content is not relative — measured on
+  every call in the same idiom, never assumed from the model-wide ASR.
+- **Magnon–phonon vertices ↔ `grad_Zlm` ↔ the torque path** (`slce/magnonphonon.jl`,
+  `test/unit/test_magnonphonon.jl`): `magnon_phonon_vertices` is `_fill_fcs_tensor!` with
+  one axis moved from "evaluate" to "differentiate" — the displacement axis still reads
+  `solid_harmonic_poly`, the differentiated spin axis reads `Harmonics.grad_Zlm`, which is
+  the SAME tangential gradient `_design_torque` is built from. **Do not replace it with a
+  raw `∂Z/∂e`**: the projection is what makes `V·ê_b ≡ 0` and therefore what makes the
+  Cartesian return value free of a local-frame convention. The `(a, b, R)` key is ORDERED
+  (`a` displaced, `b` magnetic) — never canonicalize it the way `bilinear_terms` does its
+  bonds. Contributing content is exactly one degree-1 displacement factor plus a spin
+  factor, so a `degree = 2` magnetoelastic sector yields an EMPTY set, and that is
+  `_warn_spin_blind`'s trap from the other side. No ASR precondition (no absolute positions
+  enter), but the translation sum rule `Σ_{a,R} V = 0` is gated — if it starts failing, the
+  bug is in the model or the ASR, not here.
 - **Re-expansion ↔ the same displacement polynomial** (`slce/effective.jl`,
   `test/unit/test_effective.jl`): `effective_model(model; u0)` is the THIRD consumer of
   `SolidHarmonics.solid_harmonic_poly`, after the ASR builder and the force constants —

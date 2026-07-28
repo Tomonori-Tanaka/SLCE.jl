@@ -70,6 +70,8 @@ end
         include("unit/test_forceconstants.jl")
         include("unit/test_rotation.jl")
         include("unit/test_strain.jl")
+        include("unit/test_magnetoelastic.jl")
+        include("unit/test_magnonphonon.jl")
         include("unit/test_latticeonly.jl")
         include("unit/test_effective.jl")
         include("unit/test_threading.jl")

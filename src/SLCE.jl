@@ -91,6 +91,16 @@ include("slce/forceconstants.jl")
 # strain field is not cell-periodic.
 include("slce/strain.jl")
 
+# --- the ε-LINEAR magnetoelastic tier that rides on it: the pinned B₁/B₂ convention and
+# the strain derivatives of the bilinear couplings. First order in ε and nowhere else —
+# both the measure argument (§13 risk 2) and the origin-independence one (§9d) stop there.
+include("slce/magnetoelastic.jl")
+
+# --- the mixed derivative that couples the two channels: one u index, one (tangential)
+# spin index. Not a strain object at all — no absolute positions, hence no ASR precondition
+# — but it belongs to the same deliverable tier.
+include("slce/magnonphonon.jl")
+
 # Re-expansion around a displaced reference (§9d): the same homogeneous-polynomial
 # fact the force constants ride on, used to MOVE the expansion point rather than to
 # differentiate at it.
@@ -154,6 +164,10 @@ export DecoratedTerm, decorated_terms, restrict
 export ForceConstantSet, force_constants, dynamical_matrix
 # homogeneous-strain response (clamped ion, Biot measure); ASR is a hard precondition
 export strain_derivatives
+# the ε-linear magnetoelastic tier: the pinned cubic B₁/B₂ convention (clamped ion)
+export magnetoelastic_constants, exchange_strain_derivatives, ExchangeStrainDerivatives
+# the adiabatic magnon-phonon vertices: ∂²E/∂u ∂e, with the spin derivative tangential
+export MagnonPhononVertices, magnon_phonon_vertices
 # the same coefficient set re-expanded around a displaced structure (a relaxed cell, a
 # condensed soft mode) — exact, and deliberately NOT an SLCEModel
 export EffectiveModel, EffectiveTerm, effective_model

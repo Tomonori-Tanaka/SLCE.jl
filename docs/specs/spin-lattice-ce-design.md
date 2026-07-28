@@ -971,6 +971,21 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
 - **(u) the B₁/B₂ output convention** against an independently HAND-DERIVED
   closed form (§7) — shear factor, summation range, trace subtraction, sign.
   Never against the evaluator's own output.
+  **DONE 2026-07-29** — `magnetoelastic_constants` (`slce/magnetoelastic.jl`), gated in
+  `test/unit/test_magnetoelastic.jl` on the (e2) octahedron carrying a model: the pinned
+  form is typed as a literal (`2 * sum(… for j = (i+1):3)`) and evaluated through
+  `evaluate_salc`/`_eval_term_mixed`, while the deliverable reaches its answer through
+  `strain_derivatives` → monomial coefficients → a least-squares projection. Two
+  implementations, one number, agreeing to 1e-9. Three refinements the record did not
+  anticipate. (i) The gate needs the α-**difference** at fixed ε, not the raw energy: the
+  reference stress is α-independent and would otherwise sit on top of `E_me`; differencing
+  two magnetization directions isolates the magnetoelastic part exactly and lets the
+  right-hand side be the literal formula. (ii) The shear and hydrostatic special cases are
+  worth keeping as separate assertions — the first fails by exactly 2 under the engineering
+  convention, the second is what makes `−1/3` mean "orthogonal to the volume response".
+  (iii) The constants are extracted by PROJECTION over 19 directions rather than read off
+  two, so a model outside the two-constant form reports `residual` instead of returning
+  plausible numbers; the same fixture stretched to tetragonal is the negative control.
 - **(v) strain-label round trip** — `U` → persisted geometry → recomputed label,
   plus the refusal surface: unknown convention tag, missing tag, and a
   geometry/label mismatch each error loudly (§9e).
@@ -1124,9 +1139,50 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
     ε-linear deliverables — B₁/B₂, `dJ/dε`, the internal-strain response, the reference
     stress — are untouched, which is a second, independent reason (beyond §13 risk 2's
     measure argument) that v0's clamped-ion tier is the ε-linear one.
-    Still open in M5-2: the three named deliverables themselves, and gate (u) — the
-    B₁/B₂ output convention against a hand-derived closed form, which is where §7's
-    pinned `E_me` form and the clamped-ion qualifier become numbers.
+    **Slice 2 complete 2026-07-29** — the ε-LINEAR pair of deliverables
+    (`slce/magnetoelastic.jl`): `magnetoelastic_constants` (closing gate (u), see §12) and
+    `exchange_strain_derivatives`. Four things worth carrying forward.
+    (i) **The tier is ε-linear for two independent reasons, and both are now written into
+    the code.** §13 risk 2's measure argument and slice 1's origin argument stop at the
+    same place; either alone would justify it. That redundancy is why an `order = 2` arm on
+    these two functions must not be added casually — it forfeits both at once.
+    (ii) **B₁/B₂ is a PROJECTION with a reported residual, not a readout.** Two evaluations
+    suffice for a model that is exactly of the two-constant form and silently return
+    numbers for one that is not. Projecting 19 directions costs one small least-squares
+    solve and yields the quantity that actually matters — the fraction of the
+    α-dependent response the cubic form does not explain — which is the difference between
+    a summary and a decomposition. Generic directions are load-bearing in that set: a
+    high-symmetry-only sample can be blind to `l = 4` content.
+    (iii) **The per-bond `dJ/dε` split is origin-dependent in general, and the ASR does not
+    fix it.** The sum rule cancels the origin from the total, bond by bond it does not: a
+    bond whose displacement content is not purely relative carries an absolute position.
+    Symmetry usually rules this out (a site-swap operation on the bond orbit admits only
+    `u_b − u_a`), and it passed on every fixture tried — including the split-home `±1/6`
+    chain that `strain_derivatives` refuses at order 2, which is a useful datum: the
+    home-image gauge does NOT bite the ε-linear tier. It is measured on every call anyway.
+    (iv) **`build_asr` is over-strict on a fully translation-invariant basis.** A basis
+    whose every SALC is individually invariant (the (e2) subblock: a clamped centre with a
+    `degree = 1` shell) makes `A ≡ 0`, which the builder refuses as a broken symbolic
+    expansion — its comment claims rank 0 is "physically impossible" on a
+    displacement-active basis, which holds for a raw displacement factor but not for a
+    projected combination. Worked around in the fixture (add a `degree = 2` sector, make
+    the centre displacement-active); the honest fix is to DISTINGUISH "the expansion
+    produced nothing" from "what it produced cancelled", e.g. by measuring the translation
+    derivative numerically before refusing. Small, real, and not in this milestone.
+    **Slice 3 complete 2026-07-29 — M5-2 CLOSED.** `magnon_phonon_vertices(model; spins)`
+    (`slce/magnonphonon.jl`), the mixed `∂²E/∂u_{aα} ∂e_{bβ}`. The record expected this one
+    to need a local-frame convention; **it does not, and that is the finding.**
+    `Harmonics.grad_Zlm` is the TANGENTIAL gradient — the radial part is already projected
+    out, since it is what the torque design matrix is built from — so the Cartesian `β`
+    index satisfies `V·ê_b ≡ 0` identically and the caller projects onto their own
+    `(f₁, f₂)`. Pinning a frame here would have been a convention invented for no reason,
+    and one more thing for §13 risk 2 to worry about. Two smaller notes: the `(a, b, R)`
+    key is ORDERED (displaced, magnetic) unlike `bilinear_terms`' undirected bonds, and the
+    contributing content is exactly "one degree-1 displacement factor + a spin factor" — so
+    a magnetoelastic sector declared at `degree = 2` yields an EMPTY set, which is
+    `_warn_spin_blind`'s trap seen from the other side. No ASR precondition (no absolute
+    position enters), but `Σ_{a,R} V = 0` holds for a constrained model and is gated
+    alongside the mixed finite difference and the tangency.
   - **M5-3 — `StrainedModels` + volume grid.** d_NN-scaled cutoffs (note BOTH
     cutoff surfaces scale: `BasisSpec.cutoff` and every `SectorRule.cutoff`),
     key-equality assertion, `disp_scale` frozen — assert the freeze now even

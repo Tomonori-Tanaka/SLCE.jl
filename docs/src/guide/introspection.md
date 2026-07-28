@@ -332,3 +332,130 @@ println("‖ΔD²‖ / ‖D²‖ between two origins: ", round(norm(alt - raw) /
 The fix is the crystal **description**, not the fit: place the atoms so that each one's
 home representative is the image its clusters use. The same chain written with the
 bonded partner in the home cell answers, and its check passes.
+
+## Magnetoelastic coupling: the ε-linear tier
+
+`order = 1` is where the magnetoelastic deliverables live, and the two paragraphs above
+are the reason it is a *tier* and not just the first term of a series: the sum rule buys
+origin independence exactly where the affine field is periodic, and the Seth–Hill measure
+drops out of ε-linear content unconditionally. Everything second order in `ε` is
+conditional on both; nothing here is.
+
+The basis on this page carries no `degree = 1` content, so it has no magnetoelastic
+coupling at all. Here is one that does — the same chain with a bilinear `ls = [1,1]` pair
+dressed by a relative displacement, fitted under the sum rule:
+
+```@example introspect
+mespec = BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
+    Sector(spin = [1, 1], disp = (degree = 1,), sites = 2, cutoff = 1.1),  # magnetoelastic
+    Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)])              # force constants
+mebasis = SLCEBasis(cr, mespec)
+metruth = SLCEModel(mebasis, 0.0, randn(MersenneTwister(4), n_salcs(mebasis)))
+medata = map(1:300) do _
+    e = randcfg()
+    u = 0.08 .* randn(rng, 3, nat)
+    TrainingDatum(; energy = predict_energy(metruth, e, u), directions = e,
+                  magmoms = ones(nat), displacements = u, provenance = prov)
+end
+memodel = SLCEModel(fit(SLCEFit, SLCEDataset(mebasis, medata; use_torque = false,
+                                             use_force = false), OLS(); asr = true))
+dJ = exchange_strain_derivatives(memodel)
+println(dJ)
+for ((a, b, R), T) in dJ.pairs
+    println("bond ($a, $b, $R):  ∂M^{xx}/∂ε = ", round.(T[1, 1, :, :]; sigdigits = 3))
+end
+```
+
+[`exchange_strain_derivatives`](@ref) is the model's `dJ/dr`, resolved per bond and per
+strain component instead of collapsed onto a bond length: `T[α, β, γ, δ]` is
+`∂M_ab^{αβ}/∂ε_{γδ}`, with `M_ab` the bilinear matrix [`bilinear_terms`](@ref) reports.
+The `γ, δ` pair is **unsymmetrized** — the derivative with respect to a general affine
+map — so contract it with `ε` as it stands.
+
+Those bond couplings are not an independent readout: contracting them with a spin
+configuration has to rebuild the cell's total ε-linear response, which
+[`strain_derivatives`](@ref) reaches by an entirely different route (monomial
+coefficients contracted with site positions, never touching the tesseral-to-Cartesian
+conversion). That identity is the acceptance gate on this deliverable:
+
+```@example introspect
+e = randcfg()
+recon = zeros(3, 3)
+for ((a, b, _), T) in dJ.pairs, γ = 1:3, δ = 1:3
+    recon[γ, δ] += dot(e[:, a], T[:, :, γ, δ] * e[:, b])
+end
+D = strain_derivatives(memodel; spins = e, order = 1, symmetrize = false)
+println("‖rebuilt − total‖ / ‖total‖ = ", round(norm(recon - D) / norm(D); sigdigits = 3))
+```
+
+!!! warning "The per-bond split is origin-dependent unless the bond's own content is relative"
+    A strain moves each site by `ε·(R_s − origin)`, so every term carries an *absolute*
+    position. The origin cancels from the total by the sum rule — but that is a statement
+    about the whole model, not about one bond. A bond whose displacement content is not
+    purely relative (`u_b − u_a`) has an `∂M/∂ε` that depends on where the origin was put,
+    and is then not a property of the bond at all. Bond orbits with a site-swap operation
+    admit only the relative combination, so the check normally passes silently; when it
+    does not, the function throws rather than handing back a convention-dependent
+    coupling.
+
+### The two cubic constants, and knowing when they mean anything
+
+[`magnetoelastic_constants`](@ref) compresses the same content into `B₁` and `B₂`, in a
+convention this package pins and gates (`test/unit/test_magnetoelastic.jl`):
+
+```
+E_me / V = B₁ Σ_i ε_ii (α_i² − 1/3) + 2 B₂ Σ_{i<j} ε_ij α_i α_j
+```
+
+**tensor** shear `ε_ij` (engineering `γ = 2ε` is an I/O view, never the internal object),
+that summation range, that sign, `E_me` an energy *density*. Every one of those is a
+convention that differs between papers, and each disagreement is a clean factor of two or
+a flipped sign in a published number.
+
+The form is cubic. This chain is not, and the result says so rather than returning two
+plausible numbers:
+
+```@example introspect
+c = magnetoelastic_constants(memodel)
+println("B₁ = ", round(c.B1; sigdigits = 3), "   B₂ = ", round(c.B2; sigdigits = 3),
+        "   ion = ", c.ion, "   residual = ", round(c.residual; sigdigits = 3))
+```
+
+`residual` is the fraction of the model's *magnetization-dependent* ε-linear response that
+the two-constant cubic form does not explain — computed by projecting the exact response
+at 19 magnetization directions onto that form. Near zero, `B₁`/`B₂` *are* the coupling;
+`O(1)`, as here, and they are a summary of something else, which is what the warning
+says. Read `ion = :clamped` as part of the answer: no internal-strain relaxation has been
+applied, and the clamped-versus-relaxed difference is routinely a factor ~2.
+
+## Magnon–phonon vertices
+
+The force constants differentiate the energy twice in `u`; the bilinear couplings twice in
+the spin directions. What couples the two subsystems is the **mixed** derivative, and it is
+its own deliverable:
+
+```@example introspect
+V = magnon_phonon_vertices(memodel; spins = e)
+println(V)
+for ((a, b, R), T) in sort(collect(V.vertices); by = first)
+    println("displace $a, vary spin $b at $R:  ‖∂²E/∂u∂e‖ = ", round(norm(T); sigdigits = 3),
+            "   ‖T·ê_b‖ = ", round(norm(T * e[:, b]); sigdigits = 3))
+end
+```
+
+The pair is **ordered** — `a` is displaced, `b` is the magnetic site — unlike the
+undirected bond keys of [`bilinear_terms`](@ref). And the second column is the point: the
+spin derivative is *tangential*, with the radial direction projected out, because a magnon
+amplitude cannot change the length of a spin. That is what lets the result come back in
+Cartesian components without pinning a local-frame convention on the caller: project
+`T[α, :]` onto whichever `(f₁, f₂)` your magnon basis uses and the answer is the same.
+
+Only terms with exactly one **degree-1** displacement factor *and* a spin factor
+contribute. A magnetoelastic sector declared at `disp = (degree = 2,)` produces none — that
+content feeds the spin-dependent force constants instead — which is the same trap
+[`force_constants`](@ref) warns about from the other side.
+
+"Adiabatic" in the docstring is a scope statement, not a hedge about accuracy: these are
+derivatives of the static energy surface, so retardation, the Berry-phase term that carries
+phonon angular momentum, and spin-lattice relaxation lie outside a static cluster expansion
+by construction — no basis or truncation choice brings them in.

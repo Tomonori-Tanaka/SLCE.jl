@@ -337,6 +337,54 @@ linearization. `order = 1` is measure-independent across the Seth–Hill family;
 strain_derivatives
 ```
 
+## Magnetoelastic coupling (ε-linear)
+
+Two deliverables ride on the ε-**linear** strain response, and only on it. That tier is
+safe twice over: ε-linear content is Seth–Hill measure-independent unconditionally, and
+the sum-rule argument above buys origin independence exactly where the affine field is
+periodic, which is first order and no further.
+
+`magnetoelastic_constants` compresses it into the two cubic constants, in a convention
+this package pins and gates:
+
+```
+E_me / V = B₁ Σ_i ε_ii (α_i² − 1/3) + 2 B₂ Σ_{i<j} ε_ij α_i α_j
+```
+
+with **tensor** shear `ε_ij`, the `Σ_{i<j}` range, that sign, and `E_me` an energy
+density. `exchange_strain_derivatives` keeps the resolution instead: `∂M_ab/∂ε` per bond
+and `∂A_a/∂ε` per site, the `dJ/dr` of the model in the form a spin Hamiltonian consumes.
+
+!!! warning "Clamped ion — and the qualifier rides in the return value"
+    Neither deliverable applies the internal-strain relaxation `Λ = −Φ⁻¹Ξ`. The
+    clamped-vs-relaxed difference is routinely a factor ~2 and can flip a sign, so
+    `magnetoelastic_constants` returns `ion = :clamped` as a field rather than only
+    saying so in prose: `result.B2` cannot be quoted without it.
+
+```@docs
+magnetoelastic_constants
+exchange_strain_derivatives
+ExchangeStrainDerivatives
+```
+
+## Magnon–phonon vertices
+
+The force constants differentiate twice in `u`, the bilinear couplings twice in the spin
+directions; `magnon_phonon_vertices` is the **mixed** derivative `∂²E/∂u ∂e` that couples
+the two — a phonon eigenvector on one index, a magnon polarization on the other. The spin
+derivative is **tangential** (the radial part is projected out, so `V·ê_b ≡ 0`), which is
+why the result can be returned in Cartesian components without pinning anybody's
+local-frame convention.
+
+"Adiabatic" is a scope statement: these are derivatives of the *static* energy surface, so
+retardation, the Berry-phase term that gives phonons angular momentum, and spin-lattice
+relaxation are outside a static cluster expansion by construction.
+
+```@docs
+magnon_phonon_vertices
+MagnonPhononVertices
+```
+
 ## Effective models at a displaced structure
 
 The same fact the force constants ride on — every displacement site factor is a

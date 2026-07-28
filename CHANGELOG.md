@@ -6,6 +6,88 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — magnetoelastic coupling, with the B₁/B₂ convention pinned
+
+Two deliverables on top of the ε-linear strain response, and deliberately none above it:
+
+`magnetoelastic_constants(model; signs, tol)` returns the cubic constants as
+`(; B1, B2, ion = :clamped, residual, volume)` in one pinned convention,
+
+```
+E_me / V = B₁ Σ_i ε_ii (α_i² − 1/3) + 2 B₂ Σ_{i<j} ε_ij α_i α_j
+```
+
+with **tensor** shear `ε_ij`, that summation range, that sign, and `E_me` an energy
+*density*. Every one of those is a convention that differs between papers — a factor of
+two on B₂ for engineering shear, another for `Σ_{i≠j}`, a shifted B₁ without the `−1/3`,
+an overall sign — and none of them was pinned anywhere in the package before: the existing
+magnetoelastic gate fixes the *span* of the block and says in its own comment that it
+fixes no normalization. The pin is now gated (design record §12 gate (u)) against a closed
+form written out by hand and evaluated through the production SALC evaluator, never
+against the deliverable's own path.
+
+`ion = :clamped` is a **field of the result**, not a sentence in the docstring: no
+internal-strain relaxation `Λ = −Φ⁻¹Ξ` has been applied, the clamped-versus-relaxed
+difference is routinely a factor ~2 and can flip a sign, and a bare clamped-ion B₂
+compared against experiment is a wrong number rather than an approximate one.
+
+The constants are obtained by **projection, not readout**: the exact ε-linear response is
+computed at 19 magnetization directions and least-squares-fitted to the two-constant cubic
+form with the α-independent part free. Two well-chosen directions would return numbers for
+a model that is not of that form; the projection returns `residual` — the fraction of the
+magnetization-dependent response the form does not explain — and warns when it is large. A
+non-cubic crystal, `l = 4` spin content, or a magnetic state whose sublattices do not share
+an axis all surface there instead of in a plausible-looking pair of constants.
+
+`exchange_strain_derivatives(model)` keeps the resolution instead of compressing it:
+`∂M_ab/∂ε` for every bond and `∂A_a/∂ε` for every single-ion matrix — the model's `dJ/dr`
+resolved per bond and per strain component, in the form a spin Hamiltonian consumes. It is
+gated by **reconstruction**: contracting every bond with a spin configuration rebuilds the
+cell's total ε-linear response, which `strain_derivatives` computes without ever touching
+the tesseral-to-Cartesian conversion — the fence `_reconstruct_energy` puts under
+`bilinear_terms`, one derivative up.
+
+The per-bond split needs a caveat the total does not. A strain moves each site by
+`ε·(R_s − origin)`, and the acoustic sum rule cancels that origin from the *total*, not
+bond by bond: a bond whose displacement content is not purely relative carries an absolute
+position of its own. Symmetry usually rules this out — a bond orbit with a site-swap
+operation admits only `u_b − u_a` — so the check passes silently on every fixture tried,
+including the split-home chain that `strain_derivatives` refuses at `order = 2`. It is
+measured on every call anyway, and a disagreement is refused.
+
+Why the tier stops at first order, twice over: ε-linear content is Seth–Hill
+measure-independent unconditionally (second-order elastic constants agree across measures
+only at a stress-free reference, and a spin–lattice cell can be stress-free for at most one
+magnetic state), and the sum rule buys origin independence only where the affine field is
+periodic, which is `ε = 0`.
+
+### Added — magnon–phonon vertices
+
+`magnon_phonon_vertices(model; spins)` returns the mixed second derivative
+`∂²E/∂u_{aα}(0) ∂e_{bβ}(R)` — the object that couples the two subsystems, where the force
+constants differentiate twice in `u` and the bilinear couplings twice in the spin
+directions. Contract one index with a phonon eigenvector and the other with a magnon
+polarization and it is the one-magnon–one-phonon vertex.
+
+The spin derivative is **tangential**: the radial part is projected out (the same
+`grad_Zlm` the torque design matrix is built from), so `V·ê_b ≡ 0` identically. That is
+what lets the result come back in plain Cartesian components without pinning anyone's
+local-frame convention — project onto whichever `(f₁, f₂)` your magnon basis uses. The
+pair `(a, b, R)` is *ordered*, `a` displaced and `b` magnetic, unlike the undirected bond
+keys of `bilinear_terms`.
+
+Only terms with exactly one degree-1 displacement factor *and* a spin factor contribute, so
+a magnetoelastic sector declared at `disp = (degree = 2,)` produces no vertices at all —
+that content feeds the spin-dependent force constants instead, which is the trap
+`force_constants` warns about seen from the other side.
+
+Gated against a mixed central finite difference of the production evaluator, plus the two
+structural properties: tangency, and the translation sum rule (a rigid translation cannot
+change the energy, hence cannot change its derivative with respect to any spin).
+"Adiabatic" in the docstring is a scope statement rather than a hedge — these are
+derivatives of the static energy surface, and retardation, phonon angular momentum and
+spin-lattice relaxation are outside a static cluster expansion by construction.
+
 ### Added — the homogeneous-strain response, exactly
 
 `strain_derivatives(model; spins, order, origin, symmetrize)` returns the exact
