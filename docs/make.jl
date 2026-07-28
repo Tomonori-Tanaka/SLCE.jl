@@ -1,6 +1,7 @@
 using SLCE
 import Spglib   # activates the SpglibBackend extension for the executed `@example` blocks
 using Documenter
+using Documenter: Remotes
 
 DocMeta.setdocmeta!(SLCE, :DocTestSetup, :(using SLCE);
                     recursive = true)
@@ -8,14 +9,12 @@ DocMeta.setdocmeta!(SLCE, :DocTestSetup, :(using SLCE);
 makedocs(;
     sitename = "SLCE.jl",
     modules = [SLCE],
-    # Local-only build: there is no published remote yet, so do not try to resolve
-    # "edit on GitHub" / source links. Add a `repolink`/`deploydocs` when a remote exists.
-    remotes = nothing,
+    repo = Remotes.GitHub("Tomonori-Tanaka", "SLCE.jl"),
     format = Documenter.HTML(;
         prettyurls = get(ENV, "CI", "false") == "true",
         mathengine = Documenter.MathJax3(),
-        edit_link = nothing,
-        repolink = "",
+        canonical = "https://tomonori-tanaka.github.io/SLCE.jl/dev",
+        edit_link = "main",
         footer = "Built with [Documenter.jl](https://documenter.juliadocs.org).",
         # api.md is one deliberate flat reference page; it crossed the default
         # 200 KiB HTML threshold with the joint/ASR docstrings.
@@ -55,4 +54,13 @@ makedocs(;
     # there has to fail the build like any other.
     checkdocs = :public,
     doctest = false,
+)
+
+# Publishes to https://tomonori-tanaka.github.io/SLCE.jl/ from the `documentation build`
+# CI job (which needs `permissions: contents: write`). Outside CI this is a no-op, so a
+# local `julia --project=docs docs/make.jl` still just builds into `docs/build/`.
+deploydocs(;
+    repo = "github.com/Tomonori-Tanaka/SLCE.jl",
+    devbranch = "main",
+    push_preview = false,
 )
