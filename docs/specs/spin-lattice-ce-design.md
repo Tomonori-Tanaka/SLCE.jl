@@ -1082,6 +1082,28 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
     than on `coef·folded`, keeping `sent_w` materialized) touches §12 gate
     (a)'s byte-equality contract; decide explicitly between a
     `keep_zero_terms` arm and a loud refusal in `set_coefficients!`.
+    **RESOLVED 2026-07-29** (SLCEMonteCarlo `feat/set-coefficients`): BOTH, wired
+    together — `keep_zero_terms = true` at construction freezes the support, and
+    `set_coefficients!` refuses a nonzero coefficient for a pruned term with a
+    message naming the flag. Two corrections to the framing above. (i) The
+    `w == 0.0` skips are the ONLY issue in name: for a surviving term
+    (`coef ≠ 0`) `coef·folded == 0 ⟺ folded == 0`, so gating on `folded` is
+    byte-identical on every model built the old way and gate (a) is untouched
+    (whole suite 18013 green, unchanged). The lone exception is a denormal
+    underflow, which keeps one extra entry of weight 0.0. (ii) The record missed
+    the harder half: `site_active` / `site_has_spin` / `site_has_disp` and their
+    counts, the coloring, the displacement components and `comp_free` are all
+    derived from the term list the Hamiltonian was BUILT with, and
+    `n_spin_active` normalizes every spin observable — which is the real reason
+    `keep_zero_terms` is not merely an escape hatch but the precondition that
+    makes an in-place rewrite sound. The flatness verdict is re-measured on every
+    write and a change is refused (opt-out for the hot path). Measured:
+    **0.033 ms** vs 13.2 ms (4³) / 96.4 ms (8³) for a rebuild — 404× / 2912×, and
+    `dims`-independent because the work is per template; one sweep is 3.8 / 35.6 ms,
+    so the §I strain move's per-sweep rewrite costs ~1% of a sweep rather than 3×.
+    A zero-coefficient site now counts as active, which is the honest accounting:
+    it is sampled with every move accepted at `ΔE = 0`, i.e. a free spin that
+    belongs in `⟨m⟩`, unlike a structurally absent site, which is frozen.
   - **M5-5 — finite-T.** SCP-style ⟨uu⟩ → J_eff(T), ⟨Φ_spin⟩ →
     magnetic-state-dependent force constants (§9d template).
   Global strain channel (§9b) only after its two holes are resolved AND a felt
