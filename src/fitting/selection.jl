@@ -89,7 +89,8 @@ end
 
 """
     group_costs(basis::SLCEBasis,
-                column_groups::AbstractVector{<:Integer} = salc_groups(basis))
+                column_groups::AbstractVector{<:Integer} = salc_groups(basis);
+                asr::Union{Nothing,ASRReparam} = nothing)
         -> Vector{Int}
 
 Per-group Monte-Carlo **sweep** cost: over the distinct contraction entries — keys
@@ -123,10 +124,19 @@ disjoint canonical `(atoms, shifts)`, and equal `orbit_id` with distinct `decors
 distinct sorted slot labels). `column_groups` may also be any coarser contiguous `1:G`
 partition of the columns — the per-entry slot count keeps the sum additive under
 coarsening, which a per-group multiplier would not.
+
+Pass `asr` (a [`SLCEDataset`](@ref)'s `.asr`) to price **structurally infeasible**
+groups at zero. A group every one of whose columns is annihilated by the constraint
+([`group_freedom`](@ref) `s_g == 0`) can never be nonzero in a translation-invariant
+model, so charging a Monte-Carlo sweep cost for it is a pure over-report — and not a
+small one: on a `pmax = 1` spin+displacement truncation whose displacement content the
+ASR kills outright, the dead group carries 94.7 % of `Σ_g c_g`. The discount is opt-in
+so that a cost computed from the basis alone stays a property of the basis.
 """
 function group_costs(basis::SLCEBasis,
                      column_groups::AbstractVector{<:Integer} =
-                         salc_groups(basis))::Vector{Int}
+                         salc_groups(basis);
+                     asr::Union{Nothing,ASRReparam} = nothing)::Vector{Int}
     sl = basis.salc_basis.salcs
     G = _validate_labels(column_groups, length(sl), "group_costs")
     sets = [Set{_EntryKey}() for _ = 1:G]
@@ -139,7 +149,56 @@ function group_costs(basis::SLCEBasis,
     # `length(k[3])` is the entry's slot count — the number of site programs the MC
     # emits for it. Reading it off the key (rather than off a per-group constant)
     # is what keeps the sum additive under a coarser `column_groups`.
-    return [sum(k -> length(k[3]), s; init = 0) for s in sets]
+    c = [sum(k -> length(k[3]), s; init = 0) for s in sets]
+    asr === nothing && return c
+    size(asr.Z, 1) == length(sl) || throw(DimensionMismatch(
+        "asr covers $(size(asr.Z, 1)) columns but the basis has $(length(sl))"))
+    # A group survives the discount if ANY of its columns is feasible — the discount
+    # must not fire on a group the constraint merely restricts.
+    live = falses(G)
+    for j in eachindex(sl)
+        norm(@view asr.Z[j, :]) < _ASR_DEAD_ROW && continue
+        live[column_groups[j]] = true
+    end
+    return [live[g] ? c[g] : 0 for g = 1:G]
+end
+
+"""
+    group_freedom(rep::ASRReparam, column_groups::AbstractVector{<:Integer})
+        -> Vector{Float64}
+
+How much freedom the ASR leaves each group: `s_g = ‖Z[g, :]‖_F²`, the squared Frobenius
+norm of the group's row block of the null-space basis `Z`.
+
+`Z` is orthonormal, so `Σ_g s_g == q = size(Z, 2)` **exactly** — `s_g` reads as "how
+many of the `q` feasible directions this group holds", and `0 ≤ s_g ≤ p_g`. Despite
+being written in terms of `Z`, it is gauge-invariant: it is `tr` of the orthogonal
+projector `Z·Z'` onto `null(A)` restricted to the group's rows, so it does not depend
+on the factorization that produced `Z` (which nothing may persist).
+
+`s_g == 0` ⟺ every column of the group is structurally zeroed — no translation-
+invariant model can carry the group at any support. That is the condition
+[`group_costs`](@ref)`(...; asr)` prices at zero, and the group-resolved form of the
+basis-level warning `build_asr` emits.
+
+!!! note "Groups are not the ASR's own granularity"
+    A small `s_g` is not a licence to drop the group independently. The constraint's
+    all-or-nothing atoms are the *circuits* of `A`'s column matroid, which are small
+    (2–3 columns measured) but cross group boundaries, so a single
+    `(body, orbit_id, decors)` group generally has **no** feasible subspace on its own:
+    `dim null(A[:, cols_g]) == 0` held for every displacement-touched group of every
+    fixture measured. Read `s_g` as a diagnostic of what the truncation admits, not as
+    a per-group cost that selection can independently recover.
+"""
+function group_freedom(rep::ASRReparam,
+                       column_groups::AbstractVector{<:Integer})::Vector{Float64}
+    Z = rep.Z
+    G = _validate_labels(column_groups, size(Z, 1), "group_freedom")
+    s = zeros(Float64, G)
+    for j in axes(Z, 1)
+        s[column_groups[j]] += sum(abs2, @view Z[j, :])
+    end
+    return s
 end
 
 """
@@ -903,12 +962,14 @@ penalty λ, while this sweeps the support directly. On real data the group-magni
 spectrum is typically continuous (no clean alive/dead gap), so most of the
 cost–error trade lives here.
 
-Per threshold `t`: the alive groups are those with any column satisfying
-`|jϕⱼ|·‖X[:, j]‖ > t` on `f`'s assembled design (the [`refit`](@ref) rule, grouped),
-the predicted cost is `Σ_{g alive} c_g`, and the point's fit is
-`refit(f, estimator; threshold = t)` — note the refit keeps *columns* above `t`, so a
-weak column of an alive group may still be dropped (the group's cost is paid either
-way). The `score` is the fit's own objective
+Per threshold `t` the point's fit is `refit(f, estimator; threshold = t)`, keeping the
+*columns* with `|jϕⱼ|·‖X[:, j]‖ > t` on `f`'s assembled design (the [`refit`](@ref)
+rule). The reported `n_alive` and `cost` are then read back off that refit — the alive
+groups are those holding a nonzero de-biased coefficient, and the predicted cost is
+`Σ_{g alive} c_g`. Reading them off the *pre*-threshold magnitudes instead would agree
+without a constraint but over-report under one (below). Note that a weak column of an
+alive group may still be dropped; the group's cost is paid either way. The `score` is
+the fit's own objective
 `(1 − w_T − w_F)·MSE_E + w_T·MSE_T + w_F·MSE_F` (the weights taken from `f`) evaluated
 on `evalset` — pass a held-out `SLCEDataset` (built on the same basis; see dataset
 slicing) for an honest error axis; the default is the in-sample training set.
@@ -921,6 +982,19 @@ slicing) for an honest error axis; the default is the in-sample training set.
     cannot see them, but it means the front is a front over the *derivative-visible*
     model only. The relative alive floor also spans blocks of different units there;
     pass an absolute `thresholds` vector if that matters.
+
+!!! warning "Under an ASR, the displacement groups move as one"
+    A joint fit carries the acoustic sum rule, and the constraint's rows tie columns
+    **across** the [`salc_groups`](@ref) partition. Measured on every fixture tried
+    (G from 2 to 20): not one displacement-touched group has a feasible subspace on
+    its own (`dim null(A[:, cols_g]) == 0`), and closing the groups under the
+    constraint's connected components collapses them to **two** clusters regardless of
+    `G`. So the cost axis is real on the pure-spin groups — which `build_asr` leaves
+    untouched, identity blocks in `Z` — and close to binary on the displacement side.
+    The front is still honest, because `cost` is derived from the returned refit and
+    [`group_costs`](@ref) is given the fit's constraint; it simply has fewer reachable
+    values there than `G` suggests. [`group_freedom`](@ref) reports what the constraint
+    leaves each group.
 
 The sweep is either automatic or explicit, and the two are **separate keywords** on
 purpose: `npoints` is a point count for the automatic grid (**at most** that many
@@ -946,7 +1020,11 @@ function select_support(f::SLCEFit;
     basis = f.dataset.basis
     lab = column_groups === nothing ? salc_groups(basis) : Vector{Int}(column_groups)
     G = _validate_labels(lab, length(f.jphi), "select_support")
-    cg = costs === nothing ? Float64.(group_costs(basis, lab)) : Float64.(costs)
+    # The default cost discounts groups the fit's own constraint makes infeasible: on a
+    # plain ASR fit `f.reparam === f.dataset.asr` (staged fits are refused below), so
+    # this is the constraint the reported front actually lives under.
+    cg = costs === nothing ?
+         Float64.(group_costs(basis, lab; asr = f.reparam)) : Float64.(costs)
     length(cg) == G ||
         throw(ArgumentError("costs length $(length(cg)) ≠ number of groups $G"))
     evalset.basis.salc_basis.fingerprint == basis.salc_basis.fingerprint ||
@@ -973,16 +1051,6 @@ function select_support(f::SLCEFit;
                             "is not implemented yet — its frozen columns are not " *
                             "selectable, so the group cost front would be wrong; " *
                             "use refit, which stays inside the stage"))
-    elseif f.reparam !== nothing
-        # Plain ASR: the magnitudes below are read off a β-space design, but the fit
-        # solved in γ space, so the reported front would not be the one the
-        # constrained solve can reach.
-        throw(ArgumentError("select_support under an ASR reparameterization is not " *
-                            "implemented yet: the alive rule is β-indexed while " *
-                            "the fit solved in the constrained (γ) space. Re-fit " *
-                            "with asr = false to select a deliberately " *
-                            "unconstrained model, or use refit directly, which " *
-                            "re-derives the null space on the support"))
     end
 
     # Per-group max scaled magnitude on the assembled training design — and it must be
@@ -1016,14 +1084,21 @@ function select_support(f::SLCEFit;
     rmseF = fill(NaN, nt)
     fits = Vector{SLCEFit}(undef, nt)
     for i = 1:nt
+        fr = refit(f, estimator; threshold = thr[i])
+        fits[i] = fr
+        # Alive groups are read off the REFIT, not off the pre-threshold magnitudes
+        # `m_g > thr[i]`. The two agree without a constraint, and this is already the
+        # convention the front is pinned to; under an ASR they do not, because `refit`
+        # re-derives the null space on the support and a support that splits a
+        # constraint-coupled column set structurally zeroes some survivors. Deriving
+        # the row from `fr.jphi` is what makes the reported cost the cost of the model
+        # actually returned, rather than an upper bound on it.
         alive = falses(G)
-        for g = 1:G
-            m_g[g] > thr[i] && (alive[g] = true)
+        for j in eachindex(fr.jphi)
+            fr.jphi[j] != 0.0 && (alive[lab[j]] = true)
         end
         n_alive[i] = count(alive)
         cost[i] = sum(cg[g] for g = 1:G if alive[g]; init = 0.0)
-        fr = refit(f, estimator; threshold = thr[i])
-        fits[i] = fr
         mseE = mean(abs2, evalset.y_E .- (fr.j0 .+ evalset.X_E * fr.jphi))
         rmseE[i] = sqrt(mseE)
         # The three-block objective, in the same prediction-space convention

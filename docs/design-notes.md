@@ -407,16 +407,23 @@ column dominates, the model is genuinely sparse), with `:lambda_1se` shrinking m
 
 **The objective is a weighted group-L0, so approximate that — not a surrogate.** A
 Monte-Carlo sweep over a fitted SLCE pays per surviving *contraction entry*, and an
-entry is shared by every SALC of one `(body, orbit_id, ls)` group (the MC engine folds
-their coefficients into a single contraction weight). The entry vanishes only when the
-*whole group* is zero, so the real objective is
+entry is shared by every SALC of one `(body, orbit_id, decors)` group. The entry
+vanishes only when the *whole group* is zero, so the real objective is
 
     ‖y − Xβ‖² + λ·Σ_g c_g·1{β_g ≠ 0}
 
-with `c_g` the group's a-priori cost — the union count of its distinct
-`(member sites, l-assignment, nonzero tensor index)` entries over the canonical (v4)
-members. Distinct groups never share an entry key, so the costs are additive and the
-"predicted MC cost" of any support is a plain sum. Neither an L1 group penalty (the
+with `c_g` the group's a-priori cost — over the union of its distinct
+`(member sites, per-slot factor labels, nonzero tensor index)` entries on the canonical
+members, the **sum of each entry's slot count**. The slot count, not the entry count:
+the MC emits one *site program* per member site position (`_push_term_programs!`), each
+walked every sweep, while the `nnz`-sized *energy* program is walked once per run.
+Pricing `nnz` mis-ranks across body orders by a factor `body`, and once displacement
+slots exist it also collapses distinct lattice groups onto one key — both fixed
+2026-07-28. Distinct groups never share an entry key, so the costs are additive and the
+"predicted MC cost" of any support is a plain sum. It is a **lower bound** on the
+realized entry count: nothing downstream merges two SALCs that touch one key, so a
+group whose channels are realized separately costs more than the union suggests.
+Neither an L1 group penalty (the
 convex relaxation) nor per-column selection matches this: shrinking a surviving group
 saves nothing, and killing single columns of a group saves nothing either.
 
@@ -444,6 +451,52 @@ floor independent of group size — the same calibration as `AdaptiveRidge`'s `�
 to which the update degenerates exactly for singleton groups with unit weights (pinned
 by test). The trade-off versus a group lasso is theory: no convexity, selection
 consistency is empirical. That is the same trade already accepted for `AdaptiveRidge`.
+
+**What the fixed-point argument does and does not say.** `λ·v_g·‖β_g‖²/(‖β_g‖² + p_g ε)
+→ λ·v_g` is a statement about the *quadratic majorizer's* value at the fixed point. The
+objective the IRLS actually descends is the MM surrogate's target
+`λ·Σ_g v_g·log(‖β_g‖² + p_g·ε)`, whose per-group price is
+`λ·v_g·log(1 + ‖β_g‖²/(p_g·ε))` — equivalently, the iteration is the EM algorithm for a
+Gamma–Gaussian scale mixture (a Student-t prior) in which `v_g` reads as a prior *shape*
+`2a_g + p_g`, not as a posterior relevance. At `ε = 1e-8` that log factor spans roughly
+0.3 to 18 across the magnitude range, so it modulates the effective price by an amount
+comparable to the `(c_g/c̄)^θ` tilt itself. This is a plausible mechanism for the
+postscript's observation that nothing dies along the λ path on l044, and it is cheap to
+check: compare `log(1 + ‖β_g‖²/(p_g·ε))` against `(c_g/c̄)^θ` on one fitted model and
+see which term orders the deaths. Note also that `v_g = √p_g·(...)` is the Yuan–Lin
+convention, not the scale-mixture one (`2a_g + p_g`); the two rank small-against-large
+groups differently, so the probabilistic reading is an analogy for orientation, not a
+licence to quote a prior.
+
+**The ASR is not group-granular, and the group axis nearly collapses under it.** With
+displacement content the design carries `A·β = 0`, and `A`'s rows tie columns *across*
+the `(body, orbit_id, decors)` partition. Measured 2026-07-28 on five fixtures with `G`
+from 2 to 20: **not one** displacement-touched group has a feasible subspace on its own
+(`dim null(A[:, cols_g]) = 0` in every case), the constraint's true all-or-nothing atoms
+— the circuits of `A`'s column matroid — are small (2–3 columns) but each spans several
+groups, and closing the groups under `A`'s connected components collapses them to **two**
+clusters *regardless of `G`* (K/G 0.50 → 0.12 → 0.10 as G grows). So closure is not a
+refinement of the cost axis, it is its destruction, and it is rejected. What survives is
+the split: pure-spin columns get identity blocks in `Z` and are untouched, so the cost
+axis is intact on the spin side and close to binary on the displacement side. Two
+consequences are implemented rather than documented away — `select_support` derives
+`n_alive`/`cost` from the *returned refits* (so the reported cost is the model's, not an
+upper bound), and `group_costs(...; asr)` prices structurally infeasible groups at zero,
+which matters: on a `pmax = 1` truncation whose displacement content the ASR kills
+outright, the dead group carried 94.7 % of `Σ_g c_g`.
+
+The per-group quantity that *is* well defined under the constraint is
+`s_g = ‖Z[g, :]‖_F²` (`group_freedom`), with `Σ_g s_g ≡ q` exactly and `s_g = 0` ⟺ the
+group is structurally zeroed. It is gauge-invariant (a trace of the projector `Z·Z'`,
+not of `Z`) and needs no fit. What is *not* available is a per-group effective dof that
+attributes the constraint's cost: for a group killed by the constraint the naive ARD
+relevance `γ_g = p_g − tr(Λ_g Σ_gg)` equals `p_g`, its **maximum**, because a hard
+equality constraint acts as infinitely informative "data" — and `Σ_g γ_g` overcounts the
+true dof by exactly `J = rank(A)`, a deficit attributable to no single group. The right
+replacement for "what does support `S` cost" is a subspace dimension rather than a count
+(`dim{β ∈ null(A) : β_g = 0 ∀g ∉ S}`, the generalized-lasso df of Tibshirani & Taylor
+2012), which is why the honest implementation reads the realized support back off the
+refit instead of predicting it.
 
 **GCV from the closed-form hat matrix — computed on the smaller Gram side.** The
 converged fit is linear in `y` with the weights frozen (`islinear`), so

@@ -192,6 +192,12 @@ end
 # untouched (pure-spin) columns.
 const _ASR_RTOL_ZERO = 1e-10
 const _ASR_BAND = (1e-12, 1e-8)
+# A column is STRUCTURALLY ZEROED by a constraint when its row of the null-space basis
+# vanishes: no feasible β can carry it. `Z` is orthonormal, so the row norm is on the
+# scale of 1 and an absolute cut is the right form. One definition, four readers —
+# `build_asr`'s basis-level warning, `refit`'s movable-column and split-coupled-set
+# rules (fit.jl), and `group_costs`' structural discount (selection.jl).
+const _ASR_DEAD_ROW = 1e-12
 
 """
     _asr_nullspace(A) -> (Z::Matrix{Float64}, rank::Int)
@@ -317,7 +323,7 @@ function build_asr(basis::SLCEBasis)::Union{Nothing,ASRReparam}
         # BASIS-level structurally zero columns: coefficients no translation-
         # invariant model can carry, for every support. Reported here, once —
         # `refit` warns only about columns its support ADDITIONALLY kills.
-        dead = [j for j in axes(Z, 1) if norm(@view Z[j, :]) < 1e-12]
+        dead = [j for j in axes(Z, 1) if norm(@view Z[j, :]) < _ASR_DEAD_ROW]
         isempty(dead) ||
             @warn "ASR: some columns cannot appear in any translation-invariant " *
                   "model (structurally zeroed by the constraint for every " *

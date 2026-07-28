@@ -6,6 +6,56 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — `select_support` runs under an ASR, and prices it honestly
+
+`select_support` no longer refuses a plain ASR-constrained fit. The refusal was
+conservatism about the *reporting*, not about the fit: the engine it drives is `refit`,
+which already re-derives the null space on each support and is already gated on
+translation invariance and `Σf = 0` after the fact. What was actually wrong is that
+`n_alive` and `cost` were computed from the *pre*-threshold magnitudes `m_g > t`; under
+a constraint those over-report, because a support that splits a constraint-coupled
+column set structurally zeroes some survivors. Both columns are now derived from the
+**returned refits** — the convention the unconstrained front was already pinned to — so
+the reported cost is the cost of the model handed back. The staged (`frozen` /
+`sector_mask`) refusal stays; `select_fit`'s ASR refusal stays, because its λ path
+genuinely does solve on an unconstrained Gram.
+
+`group_costs` gains an opt-in `asr` keyword that prices **structurally infeasible**
+groups at zero — groups every column of which the constraint annihilates, so no
+translation-invariant model can ever carry them. Not a rounding error: on a `pmax = 1`
+spin+displacement truncation whose displacement content the ASR kills outright, the dead
+group carried 94.7 % of `Σ_g c_g`. `select_support` passes the fit's own constraint by
+default; a cost computed from the basis alone still ignores it, so the plain call stays a
+property of the basis.
+
+New public helper `SLCE.group_freedom(rep, column_groups)` = `s_g = ‖Z[g, :]‖_F²`, with
+`Σ_g s_g ≡ q` exactly and `s_g = 0` ⟺ the group is structurally zeroed. It is
+gauge-invariant despite being written in `Z` (it is a trace of the projector `Z·Z'`) and
+needs no fit.
+
+**Measurement that decided this, recorded because it closes two design questions.**
+On five fixtures with `G` from 2 to 20: not one displacement-touched group has a feasible
+subspace on its own (`dim null(A[:, cols_g]) = 0` in every case); the constraint's true
+all-or-nothing atoms are the circuits of `A`'s column matroid, 2–3 columns each but
+spanning several groups; and closing the groups under `A`'s connected components
+collapses them to **two** clusters regardless of `G` (K/G 0.50 → 0.12 → 0.10 as G grows).
+So (i) component closure is rejected — it destroys the cost axis rather than repairing
+it, and (ii) the group axis is intact on the pure-spin side (identity blocks in `Z`,
+untouched by the ASR) and close to binary on the displacement side. Both facts are now in
+the `select_support` docstring and design record §13. A constrained λ path is *not*
+scheduled off the back of this: §13's own postscript records that on production l044
+nothing dies along the λ path at all, while the threshold front delivered 38 % of the
+Monte-Carlo cost at a better held-out RMSE.
+
+Also in this change: `_ASR_DEAD_ROW` is one named constant for the structurally-zeroed
+column rule (`‖Z[j, :]‖ < 1e-12`) that four sites had been spelling as a literal, and
+design record §13's cost definition is brought up to date — it still described the
+pre-2026-07-28 `(body, orbit_id, ls)` grouping and an entry *count*, where the code
+groups by `decors`, keys on slot labels, and sums slot counts; the lower-bound caveat and
+a correction to the fixed-point argument (the IRLS descends `Σ_g v_g·log(‖β_g‖² + p_gε)`,
+whose per-group price carries a log factor spanning ~0.3–18, not the flat `λ·v_g` the
+majorizer suggests) went in with it.
+
 ### Added — the selection layer takes `force_weight`
 
 `select_fit` and `cross_validate` gain `force_weight`; `select_support` reads it off

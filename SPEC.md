@@ -713,6 +713,22 @@ capability consumed by both the introspection and the Sunny interop.
   Pareto rule. Needed because real-data group-magnitude spectra are continuous (no
   alive/dead gap for the λ path to expose). `SupportPath` is a Tables.jl source
   (`threshold`/`n_alive`/`cost`/`score`/`rmse_energy`/`rmse_torque`/`selected`).
+  `n_alive`/`cost` are read off the **returned refits**, not off the pre-threshold
+  magnitudes — the two agree without a constraint, but under an ASR a support that
+  splits a constraint-coupled column set structurally zeroes some survivors, so the
+  pre-threshold form over-reports. Runs under a plain ASR (staged fits still refused).
+- **Constraint-aware costing** (`fitting/selection.jl`): `group_costs(basis, labels;
+  asr)` prices at zero any group every column of which the constraint annihilates (no
+  translation-invariant model can carry it); `select_support` passes the fit's own
+  `reparam` by default. `group_freedom(rep, labels)` (public, unexported) =
+  `s_g = ‖Z[g, :]‖_F²`, with `Σ_g s_g ≡ q` exactly, `0 ≤ s_g ≤ p_g`, `s_g = 0` ⟺
+  structurally zeroed, and gauge-invariance (a trace of the projector `Z·Z'`).
+  **Groups are not the ASR's granularity**: measured over five fixtures (`G` 2→20), no
+  displacement-touched group has a feasible subspace alone, the constraint's atoms are
+  matroid circuits of 2–3 columns spanning several groups, and closing groups under
+  `A`'s connected components collapses them to two clusters regardless of `G` — closure
+  is therefore rejected, and the cost axis is real on the ASR-untouched pure-spin
+  groups and near-binary on the displacement side.
 - **Generic CV** (exported): `cross_validate(dataset, estimator; torque_weight,
   nfolds = 5, seed = 1) -> CVResult` — configuration-grouped K-fold assessment of any
   `fit` call: each fold refits from scratch (fold-local centering/whitening, no

@@ -452,7 +452,17 @@ Easy to break silently — confirm before touching the algorithm.
   Z is not — never persist or pin Z/γ), and **`refit` must re-derive the null
   space on its support columns** (`A[:, support]`) — a support splitting a
   constraint-coupled column set changes the feasible space (survivors may be
-  structurally zeroed, warned). Nothing is persisted: `asr_residual(model)`
+  structurally zeroed, warned). The structurally-zeroed test is **one constant**,
+  `_ASR_DEAD_ROW` (`‖Z[j, :]‖ < 1e-12`, absolute because `Z` is orthonormal), with four
+  readers: `build_asr`'s basis-level warning, `refit`'s movable-column and
+  split-coupled-set rules, and `group_costs`' structural discount. Its group-resolved
+  form is `group_freedom` (`s_g = ‖Z[g, :]‖_F²`, `Σ_g s_g ≡ q`, gauge-invariant).
+  **The ASR's granularity is NOT the group** (measured 2026-07-28, five fixtures,
+  `G` 2→20): no displacement-touched group has a feasible subspace alone, the true
+  atoms are matroid circuits of 2–3 columns that cross groups, and component closure
+  collapses `G` to two clusters regardless of `G` — so closure is rejected and the
+  cost axis is real only on the ASR-untouched pure-spin groups. Nothing is persisted:
+  `asr_residual(model)`
   recomputes `‖Aβ‖/(‖A‖‖β‖)` from the basis (fingerprint precedent — recompute,
   never trust), and the physical consumers (M4 force constants / dynamical matrix,
   MC joint ingest) gate on it; hand-built violating models are legal (the gate-(k)
@@ -633,9 +643,15 @@ Easy to break silently — confirm before touching the algorithm.
   `cost_weights` docstring — keep the formulas in Greek (a derivation written in
   `score_rtol` is unreadable) and the keywords in words, never the other way round. `select_fit`'s alive-group rule is the `refit` scaled-magnitude support rule
   (`|jϕⱼ|·‖X[:,j]‖ > threshold`) applied per group — change one side and the other (and
-  the E2E cost-recomputation test) follows; `select_support` reuses the same rule for its
-  per-point alive/cost columns while delegating each point's fit to `refit` itself
-  (column-wise), so all three move together. `select_support`'s evalset score and
+  the E2E cost-recomputation test) follows; `select_support` uses that rule only to build
+  its threshold grid and to drive `refit` (column-wise), and reads its `n_alive`/`cost`
+  columns back off the **returned refits** (groups with a nonzero de-biased coefficient).
+  Do not "simplify" that back to `m_g > t`: the two agree without a constraint, but under
+  an ASR a support that splits a constraint-coupled column set structurally zeroes some
+  survivors, and `m_g > t` would then report a cost the returned model does not pay.
+  `group_costs(...; asr)` additionally prices structurally infeasible groups at zero, and
+  `select_support` passes the fit's own `reparam` — so a change to either the discount or
+  the post-refit derivation must move the `test_asr.jl` front test with it. `select_support`'s evalset score and
   `cross_validate`'s holdout score share the prediction-space convention
   (`y_E − (j0 + X_E·jϕ)`, `y_T − X_T·jϕ`, combined as `(1−w)·MSE_E + w·MSE_T`) —
   change `fit`'s objective normalization and both scores must follow.

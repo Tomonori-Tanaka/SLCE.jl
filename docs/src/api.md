@@ -212,7 +212,8 @@ residuals_force
 
 The fit-accuracy-vs-Monte-Carlo-cost workflow: `salc_groups` / `group_costs` /
 `cost_weights` (public, unexported — call as `SLCE.salc_groups` etc.) build the
-per-group cost weights of a [`GroupAdaptiveRidge`](@ref); `gcv` / `effective_dof` are
+per-group cost weights of a [`GroupAdaptiveRidge`](@ref), and `group_freedom` reports
+how much of the null space an ASR leaves each group; `gcv` / `effective_dof` are
 the closed-form hat-matrix diagnostics of the linear estimators; `select_fit` drives
 the λ path and applies the cost-aware Pareto rule; `cross_validate` is the generic
 configuration-grouped K-fold assessment for comparing any estimators or
@@ -230,6 +231,7 @@ CVResult
 SLCE.salc_groups
 SLCE.group_costs
 SLCE.cost_weights
+SLCE.group_freedom
 ```
 
 ## Tabular coefficients

@@ -140,16 +140,23 @@ noisy data the resulting model demonstrably gains energy under rigid
 translations.
 
 `asr` threads through [`cross_validate`](@ref) and [`select_fit`](@ref) to every fit
-they run. For the two λ/threshold path drivers it is more than a knob: they solve on a
-cached **unconstrained** Gram and decide alive groups by a β-indexed magnitude rule, so
-they refuse to run *under* a reparameterization — a path that ignored the constraint
-would report a support the constrained solve never chose. Selecting a joint model with
-them therefore means selecting a deliberately unconstrained one
-(`select_fit(...; asr = false)`, and a fit made with `asr = false` for
-[`select_support`](@ref)); the selected fit is re-solved cold with the same `asr`, so a
-plain `fit` call reproduces it. For a constrained joint model, use
-[`cross_validate`](@ref) (which fits constrained per fold) and [`refit`](@ref) (which
-re-derives the null space on the support) directly.
+they run. [`select_fit`](@ref) refuses to run *under* a reparameterization: its λ path
+solves on a cached **unconstrained** Gram, so it would report a support the constrained
+solve never chose. Selecting with it therefore means selecting a deliberately
+unconstrained model (`select_fit(...; asr = false)`); the selected fit is re-solved cold
+with the same `asr`, so a plain `fit` call reproduces it.
+
+[`select_support`](@ref) has no such restriction — it drives [`refit`](@ref), which
+re-derives the null space on each support, and reads its alive/cost columns back off the
+refits it returns. Be aware of what the constraint does to the *cost axis*, though: the
+sum rule ties columns across groups, and on every fixture measured no displacement-
+touched group has a feasible subspace on its own, so the displacement side of the model
+moves close to all-or-nothing while the pure-spin groups (which the constraint leaves
+untouched) keep full granularity. `SLCE.group_freedom` reports how much of the null
+space the constraint leaves each group, and `SLCE.group_costs(basis, labels; asr = ...)`
+prices at zero any group the constraint kills outright — worth checking on a new
+truncation, since a `pmax` too small to form difference invariants can leave a dead
+group holding most of the nominal cost.
 
 The constraint is not only about physical propriety — it is often what makes the
 fit *identifiable at all*. Displacement samples that leave the center of mass

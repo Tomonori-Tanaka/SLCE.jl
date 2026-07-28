@@ -481,7 +481,7 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
     jphi = zeros(Float64, length(jphi_in))
     movable = Int[]
     if rep !== nothing
-        movable = [j for j in axes(rep.Z, 1) if norm(@view rep.Z[j, :]) >= 1e-12]
+        movable = [j for j in axes(rep.Z, 1) if norm(@view rep.Z[j, :]) >= _ASR_DEAD_ROW]
         support = intersect(support, movable)
         jphi = copy(rep.beta_p)
         jphi[rep.free] .= 0.0
@@ -522,8 +522,8 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
             jphi = stage.beta_p
         else
             dead = [j for j in support
-                    if norm(@view stage.Z[j, :]) < 1e-12 &&
-                       norm(@view rep.Z[j, :]) >= 1e-12]
+                    if norm(@view stage.Z[j, :]) < _ASR_DEAD_ROW &&
+                       norm(@view rep.Z[j, :]) >= _ASR_DEAD_ROW]
             isempty(dead) ||
                 @warn "refit: the support splits an ASR-coupled column set — " *
                       "these surviving columns are structurally zeroed by the " *

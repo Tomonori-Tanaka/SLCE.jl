@@ -119,6 +119,54 @@ end
         bz = @test_logs (:warn, r"no translation-invariant") build_asr(b1x)
         @test size(bz.Z, 2) == count(s -> !any(SLCE.has_disp, s.key.decors),
                                      salcs(b1x))
+
+        # --- group_freedom and the structural cost discount ---------------------
+        # s_g = ‖Z[g,:]‖_F² is the group-resolved share of the q feasible directions.
+        # Σ_g s_g ≡ q is exact (Z orthonormal), and it is the invariant that makes the
+        # quantity gauge-independent — it is tr of the projector Z·Z', not of Z.
+        lab_a = SLCE.salc_groups(basis)
+        s_a = SLCE.group_freedom(rep, lab_a)
+        @test sum(s_a) ≈ size(rep.Z, 2) rtol = 1e-12
+        pg_a = [count(==(g), lab_a) for g in eachindex(s_a)]
+        @test all(0 .<= s_a .<= pg_a .+ 1e-12)
+        # gauge invariance: an orthogonal remix of Z's columns is an equally valid
+        # null-space basis and must give the same s_g
+        qq = size(rep.Z, 2)
+        Qr = qr(randn(MersenneTwister(7), qq, qq)).Q * Matrix(I, qq, qq)
+        repg = ASRReparam(rep.A, rep.Z * Qr, rep.beta_p, rep.rank)
+        @test SLCE.group_freedom(repg, lab_a) ≈ s_a rtol = 1e-10
+        # one label per column ⇒ s_g is the per-column row norm²
+        @test SLCE.group_freedom(rep, collect(1:n_salcs(basis))) ≈
+              [sum(abs2, @view rep.Z[j, :]) for j in axes(rep.Z, 1)] rtol = 1e-12
+        @test_throws ArgumentError SLCE.group_freedom(rep, ones(Int, 3))
+
+        # On the pmax = 1 truncation the ASR kills the displacement content outright,
+        # so its group holds none of the freedom — and must not be charged for a
+        # Monte-Carlo sweep it can never trigger.
+        lab_z = SLCE.salc_groups(b1x)
+        s_z = SLCE.group_freedom(bz, lab_z)
+        @test sum(s_z) ≈ size(bz.Z, 2) rtol = 1e-12
+        dead_g = findall(<(1e-12), s_z)
+        @test !isempty(dead_g)                          # the fixture is the dead case
+        c_plain = SLCE.group_costs(b1x, lab_z)
+        c_disc = SLCE.group_costs(b1x, lab_z; asr = bz)
+        @test all(iszero, c_disc[dead_g]) && all(>(0), c_plain[dead_g])
+        live_g = setdiff(eachindex(s_z), dead_g)
+        @test c_disc[live_g] == c_plain[live_g]         # live groups untouched
+        @test sum(c_disc) < 0.1 * sum(c_plain)          # the dead group dominated
+        # no dead group ⇒ the discount is the identity
+        @test SLCE.group_costs(basis, lab_a; asr = rep) ==
+              SLCE.group_costs(basis, lab_a)
+        @test_throws DimensionMismatch SLCE.group_costs(b1x, lab_z; asr = rep)
+
+        # The ASR's own granularity is NOT the group: no displacement-touched group
+        # has a feasible subspace on its own, which is why a small s_g is a diagnostic
+        # and not a licence to drop the group independently.
+        for g in eachindex(s_a)
+            cols = findall(==(g), lab_a)
+            any(!iszero, @view rep.A[:, cols]) || continue
+            @test size(_asr_nullspace(rep.A[:, cols])[1], 2) == 0
+        end
         # pure-spin basis: nothing (the structural fast path)
         bspin = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
             Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
@@ -318,12 +366,33 @@ end
         @test fa.jphi == fb.jphi && fa.j0 == fb.j0      # bitwise
         @test !fa.asr && fa.asr_residual == 0.0
         @test asr_residual(SLCEModel(fa)) == 0.0
-        # Selection-layer fences on the joint basis. Under the DEFAULT `asr = true`
-        # both refuse: the λ path solves on an unconstrained Gram and the alive rule
-        # is β-indexed, so neither is faithful to the constrained solve.
+        # Selection-layer fences on the joint basis. `select_fit` still refuses under
+        # the DEFAULT `asr = true`: its λ path solves on an unconstrained Gram, so the
+        # support it reports is not the one the constrained solve chose.
         gar = GroupAdaptiveRidge(collect(1:m), ones(m); lambda = 1e-6)
         @test_throws ArgumentError select_fit(ds, gar; lambdas = [1e-6])
-        @test_throws ArgumentError select_support(f)
+        # `select_support` does NOT: it drives `refit`, which re-derives the null space
+        # on each support, and the front's alive/cost columns are read back off the
+        # returned refits. Every point must stay translation-invariant.
+        sc = select_support(f; npoints = 5)
+        @test length(sc.threshold) >= 1
+        @test sc.selected in eachindex(sc.threshold)
+        lab_c = SLCE.salc_groups(basis)
+        cg_c = SLCE.group_costs(basis, lab_c; asr = ds.asr)
+        for i in eachindex(sc.threshold)
+            # the point's fit is exactly `refit` at that threshold, so re-deriving the
+            # row here is the same computation the front reports
+            fri = refit(f, OLS(); threshold = sc.threshold[i])
+            ag = unique(lab_c[findall(!=(0.0), fri.jphi)])
+            @test sc.n_alive[i] == length(ag)
+            @test sc.cost[i] == sum(cg_c[ag]; init = 0.0)
+            # §6 amendment 4: the invariance gates hold AFTER selection too
+            mi = SLCEModel(fri)
+            @test asr_residual(mi) < 1e-10
+            @test maximum(abs, sum(predict_force(mi, e0, u0); dims = 2)) < 1e-10
+        end
+        @test sc.fit.jphi == refit(f, OLS();
+                                   threshold = sc.threshold[sc.selected]).jphi
         # ...but a DELIBERATELY unconstrained joint fit selects end to end. This is
         # the path the constrained one is measured against later; it also exercises
         # `group_costs` on a displacement-decorated basis, which used to be refused.
@@ -343,12 +412,11 @@ end
         @test SLCE._is_staged(fstg)
         @test occursin("staged", sprint(showerror,
             try select_support(fstg) catch e; e end))
-        # `f` is a force co-fit, so ITS refusal is the force one — the ASR message
-        # needs a constrained fit with no force weight to be reachable at all.
+        # A constrained fit with no force weight also selects; the ASR refusal that
+        # used to fire here is gone, and only the staged one remains.
         fasr = fit(SLCEFit, ds, OLS(); torque_weight = 0.3)
         @test !SLCE._is_staged(fasr) && fasr.reparam === ds.asr
-        @test occursin("asr = false", sprint(showerror,
-            try select_support(fasr) catch e; e end))
+        @test select_support(fasr; npoints = 3) isa SupportPath
         # cross_validate runs constrained per fold; asr = false threads through
         cv = cross_validate(ds, OLS(); torque_weight = 0.3, nfolds = 3)
         @test cv.pooled_rmse_energy < 1e-10

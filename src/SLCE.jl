@@ -171,7 +171,7 @@ public SectorRule                                                     # resolved
 public has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin, is_soc_free
 public spin_decors, spin_ls, rep_scale
 public islinear, solve_coefficients
-public salc_groups, group_costs, cost_weights                        # MC-cost grouping
+public salc_groups, group_costs, cost_weights, group_freedom        # MC-cost grouping
 public ASRReparam, build_asr                                         # ASR machinery
 public sector_columns                                                # staged-fit selectors
 public RowLayout, row_layout, row_index, site_rows!   # sampler row-table contract
