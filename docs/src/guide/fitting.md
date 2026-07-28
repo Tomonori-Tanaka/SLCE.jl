@@ -184,6 +184,56 @@ problem (they error, pointing at [`GroupAdaptiveRidge`](@ref)); the quadratic
 and adaptive-ridge estimators work unchanged, with their penalties still defined
 on the physical β.
 
+## Rotational invariance (measured, not imposed)
+
+Translation is the *only* affine invariance this package imposes. The other two —
+rigid rotation (Born–Huang) and vanishing stress — are **not constraints here**, and
+the reason is structural: a rigid rotation by an arbitrary angle is not an operation
+of the crystal's space group, so the SALC projection cannot remove it, and the
+Born–Huang conditions are independent of both the ASR and the pair-exchange (Huang)
+conditions. What the package gives you instead is a way to *measure* the violation.
+
+```julia
+rotational_residual(model, spins; omega = 0.05, axis = (0, 0, 1))
+```
+
+rotates the lattice rigidly by a **finite** angle and reports the energy that costs
+as a fraction of what a real deformation of the same size costs. Zero is invariance;
+`≈ 1` means the model cannot tell a rotation from a strain. The underlying evaluation
+path is [`affine_energy`](@ref), which applies a displacement field
+`u(R) = M·(R − origin) + base` at each cluster site's own position — image shift
+included. [`predict_energy`](@ref) cannot express such a field at all: it resolves a
+site's displacement as `u[:, atom]`, so the fields it accepts are cell-periodic, and
+translation is the one affine field that *is*. On an ASR-satisfying model the answer
+does not depend on `origin`.
+
+The angle has to be finite. Linearizing the rotation to `u = ωWd` reproduces every
+term of `ΔE` except `½ω²·F·(W²d)` — and on a model whose forces follow the bond
+directions the linearized test returns *exactly* zero however badly the model
+violates invariance, because `d·(Wd) = 0` for antisymmetric `W`.
+
+In a SOC sector zero is the wrong expectation for the lattice half: the rotational
+response *transfers* to the spin channel rather than vanishing (`𝓡_U E = −𝓡_S E`).
+The statement that holds in every sector is [`rotation_transfer_residual`](@ref),
+which rotates spins and lattice together and reports how much of the two halves fails
+to cancel. On a pseudo-dipolar model — invariant under the joint rotation and under
+neither half alone — the lattice-only residual is `≈ 1.7` while the joint one is
+`≈ 10⁻³`.
+
+Two things worth knowing before reading a number:
+
+- **A truncated model is never exactly invariant.** The rotational condition ties
+  order `n` to order `n + 1`, so the best a fit to a genuinely invariant potential
+  achieves is a residual that *vanishes with `ω`* — that decay, not the value at one
+  `ω`, is what distinguishes truncation from a real violation.
+- **On-site displacement content carries an image gauge.** A model with 1-body
+  (on-site) force content attaches it to the home-cell representative of each atom.
+  Two descriptions of the same crystal that differ in which periodic image is called
+  "home" fit the same periodic training data equally well and have *different*
+  rotational residuals — measured 1349× apart on a stressed dimer, and identical
+  once the reference is relaxed (`F = 0`). Periodic data cannot choose between them;
+  this diagnostic can.
+
 ## Estimators
 
 The estimator is the regression strategy, dispatched on [`AbstractEstimator`](@ref). Four

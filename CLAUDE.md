@@ -483,6 +483,27 @@ Easy to break silently — confirm before touching the algorithm.
   (`test/unit/test_asr.jl`). `ASRReparam.beta_p` is the affine slot the staged fit
   fills (frozen-stage offsets); the staged-fit rule is "each stage fitted under its
   own ASR keeps the next stage's constraint homogeneous".
+- **Periodic evaluator ↔ affine evaluator** (`fitting/fit.jl` ↔ `slce/affine.jl`):
+  `predict_energy` resolves a site's displacement as `u[:, atom]`, so it can express
+  ONLY cell-periodic fields — translation is the one affine field that is, which is why
+  the ASR is testable through the ordinary predictors and rotation/strain are not.
+  `affine_energy` is the missing path (same `SALC.members` sum, field resolved at each
+  member site's own position **with its image shift**), and it is a RE-INDEXING of the
+  evaluator, never a second one: the `M = 0` bit-identity gate
+  (`affine_energy(m, e, zeros(3,3); base = u) === predict_energy(m, e, u)`) is what
+  enforces that, so both kernels must keep sharing `_eval_term_mixed` and its loop
+  order. Rotational invariance is **measured, never imposed** — translation is the only
+  affine condition constrained (a continuous rigid rotation is not a space-group
+  operation, so no basis projection can remove it). Three traps the gates pin
+  (`test/unit/test_rotation.jl`): the LINEARIZED rotation test is blind, not weak (it
+  misses exactly `½ω²F·(W²d)`, and returns exact zero on radial forces at every ω); a
+  truncated model's residual VANISHES WITH ω rather than being zero, so the decay rate
+  is the signal and a single-ω threshold conflates truncation with violation; and
+  on-site displacement content carries a home-**image gauge** (`F·M(L)`, at `O(ω²)` —
+  the same order as the content) that periodic training data cannot fix, so any future
+  rotational constraint matrix is NOT a function of the model alone. In a SOC sector
+  zero is the wrong expectation for `rotational_residual`; the sector-independent
+  statement is `rotation_transfer_residual` (`𝓡_U E = −𝓡_S E`, gate (r)).
 - **Staging axis ↔ truncation axis** (`fitting/staged.jl` ↔ `basis/salcbasis.jl` ↔
   `slce/truncation.jl`): `Sector(soc = …)` defines the model's SUPPORT (columns that
   are never built), `sector_mask`/`frozen` define what a fit STAGE moves (columns held

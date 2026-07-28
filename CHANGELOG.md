@@ -6,6 +6,30 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — rotational invariance is now measurable (a diagnostic, not a constraint)
+
+`affine_energy(model, spins, M; origin, base)` evaluates the model under an **affine**
+displacement field `u(R) = M·(R − origin) + base`, resolved at each cluster site's own
+equilibrium position (image shift included). This is the path `predict_energy` cannot
+express: it reads a site's displacement as `u[:, atom]`, so the fields it accepts are
+cell-periodic — and translation is the one affine field that is, which is exactly why
+the ASR was testable through the ordinary predictors and rotation was not. At `M = 0`
+the two agree bit-identically; on an ASR-satisfying model the result is independent of
+`origin` to `1e-15`.
+
+Two diagnostics ride on it. `rotational_residual` rotates the lattice rigidly by a
+**finite** angle and reports the cost as a fraction of a same-size deformation
+(design record §12 gate (q)); `rotation_transfer_residual` rotates spins and lattice
+together and reports how much of the two halves fails to cancel — the SOC rotation
+law `𝓡_U E = −𝓡_S E`, previously derived and unverified in code (gate (r)).
+
+Nothing is imposed. Translation remains the only affine invariance this package
+constrains; see `docs/design-notes.md` for why (a continuous rigid rotation is not a
+space-group operation) and for the three findings the measurement produced — the
+linearized test is *blind*, not weak; a truncated model's residual vanishes with `ω`
+rather than being zero, so the decay rate is the signal; and on-site displacement
+content carries a home-image gauge that periodic training data cannot fix.
+
 ### Fixed — constrained fits left numerical junk on forbidden directions
 
 `fit` and `refit` lifted `γ` to `β` as `beta_p + Z·γ`. A column that no feasible model

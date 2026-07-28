@@ -78,6 +78,10 @@ include("slce/introspect.jl")
 # programs against (SLCEMonteCarlo's sweep kernels are the consumer).
 include("slce/rowlayout.jl")
 
+# --- affine (non-periodic) displacement fields: the evaluation path a rigid rotation
+# or a homogeneous strain needs, and the finite-ω rotational-invariance diagnostic.
+include("slce/affine.jl")
+
 # --- physics deliverables of the displacement channel: exact force constants at a
 # spin configuration, and their reciprocal-space form.
 include("slce/forceconstants.jl")
@@ -116,6 +120,8 @@ export BasisSpec, Sector, SLCEBasis, SLCEDataset, SLCEModel, SLCEFit, fit, refit
     n_salcs, read_setup
 export predict_energy, predict_torque, predict_force, has_torque, has_force
 export asr_residual
+# affine-field evaluation and the rotational-invariance diagnostic (NOT a constraint)
+export affine_energy, rotational_residual, rotation_transfer_residual
 # estimators
 export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, AdaptiveLasso, AdaptiveRidge,
     GroupAdaptiveRidge, FixedCoefficients

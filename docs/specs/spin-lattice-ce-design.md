@@ -922,13 +922,32 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
   hole-(i) diagnostic, which it is not (§9b): the linear test passes by a point-
   group argument and never sees the `½W²d` contraction. Run it on a fixture
   where the linear kill is NOT symmetry-forced.
+  **DONE 2026-07-29** — `rotational_residual` over the new `affine_energy` path
+  (`test/unit/test_rotation.jl`). The blind-linear-test claim is pinned as an
+  exact zero against the hand-derived `ΔE = 1 − cos ω` of a radial-force dimer;
+  the positive control is a central pair potential (residual `~10⁻³`, falling
+  with ω) against a random ASR-feasible model (`~1.7`, flat). New finding, and it
+  is a precondition on any future constraint layer: on-site displacement content
+  carries an **image gauge** — the home-cell representative of each atom changes
+  the residual by `F·M(L)`, i.e. at `O(ω²)`, the same order as the content
+  (measured 1349× on a stressed dimer, zero at a relaxed one; the gate pins ≥ 50×).
+  A constraint matrix
+  for this condition is therefore not a function of the model alone.
 - **(r) the SOC rotation law as a two-sided identity** — `𝓡_U E ≡ −𝓡_S E` on a
-  fitted model, on a D₄h-class fixture that HAS l = 2 single-ion anisotropy. Two
-  reasons this is the right shape: it is the first implementation-level check of
-  the theory paper's "the rotation rules are transferred, not absent", and it
-  turns the antisymmetric part of the strain-derivative tensor from discarded
-  content into a measured quantity. The O_h fixture of gate (e2) is blind to it
-  — cubic forbids l = 2 anisotropy, so both sides vanish there.
+  fitted model. Two reasons this is the right shape: it is the first
+  implementation-level check of the theory paper's "the rotation rules are
+  transferred, not absent", and it turns the antisymmetric part of the
+  strain-derivative tensor from discarded content into a measured quantity. The
+  O_h fixture of gate (e2) is blind to it — cubic forbids l = 2 anisotropy, so
+  both sides vanish there.
+  **DONE 2026-07-29** — `rotation_transfer_residual`, on a **pseudo-dipolar dimer**
+  `E = A(ê₁·r̂)(ê₂·r̂)` rather than the D₄h `l = 2` fixture first reserved: same
+  content (invariant under the joint rotation and under neither half alone), a
+  smaller fixture, and a lattice-only half of `1.67` instead of a marginal one, so
+  the cancellation to `1.5·10⁻⁴` is not two small numbers agreeing. Normalized as
+  `|ΔE_joint| / (|ΔE_lattice| + |ΔE_spin|)`, which needs no external energy scale
+  — the strain-scale normalization of gate (q) is ω-unstable here, because the two
+  halves need not share their leading power of ω.
 - **(s) `−dj0/dV` vs the DFT stress** at each grid point — validates the
   interpolation, the single-source rule (§8) and the grid's basis-set
   consistency (§9a) in one test.

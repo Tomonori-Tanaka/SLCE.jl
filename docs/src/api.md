@@ -167,6 +167,18 @@ SLCE.ASRReparam
 SLCE.build_asr
 ```
 
+## Rotational invariance (a diagnostic, not a constraint)
+
+Translation is the only affine invariance the package *imposes*. Rigid rotation and
+vanishing stress are measured instead — see the
+[fitting guide](guide/fitting.md#Rotational-invariance-(measured,-not-imposed)).
+
+```@docs
+affine_energy
+rotational_residual
+rotation_transfer_residual
+```
+
 ## Staged (hierarchical) fitting
 
 `fit`'s `frozen` / `sector_mask` keywords fit a model in physical stages (see the

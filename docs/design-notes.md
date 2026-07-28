@@ -642,9 +642,9 @@ all atoms *with the cell held fixed*:
 
 | operation | condition | in this package |
 |---|---|---|
-| `u → u + t` | acoustic sum rule | **`build_asr`** (+ `asr_residual`) |
-| `u → u + ε_antisym·R` | Born–Huang rotational | **not implemented** |
-| `u → u + ε_sym·R` | equilibrium / vanishing stress | **not implemented** |
+| `u → u + t` | acoustic sum rule | **imposed**: `build_asr` (+ `asr_residual`) |
+| `u → u + ε_antisym·R` | Born–Huang rotational | **measured, not imposed**: `rotational_residual` / `rotation_transfer_residual` |
+| `u → u + ε_sym·R` | equilibrium / vanishing stress | **not implemented** (the evaluation path exists — `affine_energy` — the condition does not) |
 
 None of the three follows from the SALC projection, and that is not an oversight
 in the projection: a rigid rotation of the whole crystal by an arbitrary
@@ -745,10 +745,60 @@ order of how easy they are to get wrong:
    `dynamical_matrix(force_constants(model; spins), [0, 0, 0])` (`dynamical_matrix`
    takes a `ForceConstantSet` and a three-component fractional `q`, not a model and
    a scalar). The rotational analogue is that a rigid rotation costs zero energy —
-   testable directly through the evaluator at **finite** `ω`, the same way
-   `test_asr.jl` tests finite-`t` translation invariance. There is no
-   `rotational_residual` today; that is the shape it would take, and design record
-   §12 gate (q) now reserves it.
+   testable at **finite** `ω`, the same way `test_asr.jl` tests finite-`t`
+   translation invariance. **Built 2026-07-29** as `rotational_residual` /
+   `rotation_transfer_residual` (design record §12 gates (q) and (r)); the
+   measurements it produced are below.
+
+**The measurement (2026-07-29), and the three things it settled.**
+
+The diagnostic could not reuse the periodic predictors: `predict_energy` resolves a
+site's displacement as `u[:, atom]`, so the fields it can express are cell-periodic,
+and a rotation is not one — the atom at `R + L` moves by `(O − I)(R + L)`. That is
+the same fact from the other side: *translation is the one affine field a periodic
+evaluator can represent, which is why the ASR could be tested through the ordinary
+predictors and rotation cannot.* `affine_energy` supplies the missing path — the same
+`SALC.members` sum, with the field resolved at each member site's own equilibrium
+position, image shift included. At `M = 0` it reduces to `predict_energy`
+bit-identically (the gate that keeps it from becoming a second evaluator), and on an
+ASR-satisfying model it is independent of the rotation centre to `1e-15`.
+
+1. **The linearized test is not a weak version of the finite one; it is blind.**
+   With `F = ∂E/∂u|₀`, `ΔE(ω) = ω·F·(Wd) + ω²·[½F·(W²d) + ½(Wd)ᵀΦ(Wd)] + O(ω³)`,
+   and linearizing to `u = ωWd` reproduces everything except `½ω²·F·(W²d)`. On a
+   model whose forces follow the bond directions the linear test returns **exactly**
+   zero — `d·(Wd) = 0` for antisymmetric `W` — at every `ω`, however non-invariant
+   the model is. Pinned in `test_rotation.jl` against the hand-derived closed form
+   `ΔE = 1 − cos ω` for a radial-force dimer.
+2. **A truncated model is never exactly invariant, and the decay rate is the
+   signal.** A fit to a central pair potential — exactly rotationally invariant —
+   lands at a residual of `~10⁻³` that *falls with `ω`*, while a random
+   ASR-feasible model of the same basis sits at `~1.7` and stays there. Reading a
+   single `ω` would conflate the two; the `ω → 0` behaviour separates them. This is
+   constraint 2 above (order `n` couples to `n + 1`) showing up as a floor rather
+   than as an error.
+3. **On-site displacement content carries an image gauge that periodic data cannot
+   fix.** A model's 1-body force content is attached to the *home-cell
+   representative* of each atom. Describing the same dimer chain with atom 2's home
+   image at 2.0 Å instead of 1.0 Å gives a fit of identical quality on identical
+   periodic data and a rotational residual **1349× larger** — because the on-site
+   force is then attached to an atom that is not the one the bond acts on. The
+   effect is `F·M(L)` with `L` a lattice vector, i.e. `O(ω²)`: the same order as the
+   genuine rotational content, so it contaminates rather than perturbs. At a relaxed
+   reference (`F = 0`) it vanishes, which is the `ε_antisym` half of the
+   "relaxed reference is benign" statement above. **Consequence for constraint 1: a
+   rotational constraint layer would have to pin that gauge — the constraint matrix
+   is not a function of the model alone.**
+
+**The SOC rotation law is now verified in code (gate (r)).** On a pseudo-dipolar
+dimer `E = A(ê₁·r̂)(ê₂·r̂)` — invariant under the joint spin+lattice rotation and
+under neither half alone — a fit reproduces the potential to `1 − R² = 3·10⁻¹⁰`, its
+lattice-only residual is `1.67`, and the joint residual is `1.5·10⁻⁴` and falling
+with `ω`. A random ASR-feasible model of the same basis shows no cancellation at all
+(`0.99`). That closes the "derived and unverified in code" status recorded below: in
+a SOC sector zero is the *wrong* expectation for the lattice half, and reading it as
+a violation is the trap. The right object there is `rotation_transfer_residual`,
+which needs no external energy scale because the two halves scale it themselves.
 
 Cross-reference: the derivation and the numerics behind this note live outside
 this repo, in the phonon paper's working document
@@ -765,6 +815,9 @@ asserts (`:409-413`) is `evaluate_salc(s, e, ucfg(W)) < 1e-12` for antisymmetric
 says the kill is "an exact O_h statement". Both sides of the identity vanish there
 for a reason that does not generalize: cubic symmetry forbids `l = 2` single-ion
 anisotropy, so `𝓡_S E = 0` and hence `𝓡_U E = 0`. The identity acquires content
-only where a rank-two on-site anisotropy is allowed (a D₄h-class fixture), which is
-design record §12 gate (r); the finite-`ω` half is gate (q). Until those exist,
-the honest statement is that the transfer is derived and unverified in code.
+only where the sector couples the two channels, which is design record §12 gate (r);
+the finite-`ω` half is gate (q). **Both are now built** (`test_rotation.jl`,
+2026-07-29): gate (r) runs on a pseudo-dipolar dimer rather than the D₄h `l = 2`
+fixture originally reserved for it — same content, a smaller fixture, and the
+lattice-only half is large (`1.67`) instead of marginal, so the cancellation it
+demonstrates is not a cancellation of two small numbers.

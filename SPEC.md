@@ -383,6 +383,30 @@ capability consumed by both the introspection and the Sunny interop.
   self-image refusal, and the same rank / invariance / `Σf = 0` battery at
   **3-body**, where one constraint row couples three site blocks (the
   third-order force-constant case; every other fixture is a 2-body bond).
+- **Rotational invariance — measured, never imposed** (`slce/affine.jl`, design
+  record §12 gates (q) + (r)). `affine_energy(model, spins, M; origin, base)` evaluates
+  the model under `u(R) = M·(R − origin) + base[:, atom]` with `R` each cluster site's
+  own equilibrium position, **image shift included** — the path `predict_energy` cannot
+  express, since it resolves a site as `u[:, atom]` and so accepts only cell-periodic
+  fields (translation is the one affine field that is; that asymmetry is why the ASR was
+  testable through the ordinary predictors and rotation was not). Reduces to
+  `predict_energy` **bit-identically** at `M = 0` — the gate that keeps it from becoming
+  a second evaluator — and is `origin`-independent to `1e-15` under the ASR (and
+  demonstrably *not* on an unconstrained model). `rotational_residual(model, spins;
+  omega, axis, origin, u0)` = `|ΔE_rot| / RMS_6(ΔE_strain)` over the six
+  Frobenius-normalized symmetric directions of the same `‖O − I‖_F`;
+  `rotation_transfer_residual` = `|ΔE_joint| / (|ΔE_lattice| + |ΔE_spin|)`, which needs
+  no external scale because the halves need not share their leading power of `ω`.
+  Nothing is constrained: a continuous rigid rotation is not a space-group operation, so
+  the SALC projection cannot remove it, and Born–Huang is independent of both the ASR and
+  the 15 Huang conditions. Gates (`test/unit/test_rotation.jl`): the `M = 0` bit-identity
+  and error surface; ASR origin-independence *with* its unconstrained counterexample;
+  the **blind linearized test** pinned as an exact zero against the hand-derived
+  `ΔE = 1 − cos ω` of a radial-force dimer; a central-pair-potential positive control
+  (`~10⁻³`, falling with `ω`) against a random ASR-feasible model (`~1.7`, flat); the
+  home-**image gauge** (same crystal, same periodic data, 1349× the residual on a stressed
+  dimer — so a future constraint matrix is not a function of the model alone); and gate
+  (r) on a pseudo-dipolar dimer, lattice-only `1.67` vs joint `1.5·10⁻⁴`.
 - **Downstream term contract — M4 slice 1**: `DecoratedTerm` / `decorated_terms(model)`
   (`slce/introspect.jl`) — one term per member and slot layout, each tensor axis
   labelled by a `SLCE.Slot` (member-site index + `(channel, k, l)` factor), with
