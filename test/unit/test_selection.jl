@@ -141,31 +141,74 @@ end
             G = maximum(labels)
             @test length(costs) == G
 
-            # independent brute force with a structurally different key encoding
+            # Independent brute force with a structurally different key encoding:
+            # nested tuples rather than the vectors `_EntryKey` uses, and the slot
+            # labels spelled out here rather than routed through `SLCE._slotkey`.
             bysets = [Set{Any}() for _ = 1:G]
             for (j, s) in enumerate(salcs(b))
                 for mem in s.members, t in mem.terms
+                    slotkey = Tuple((Int(sl.factor.channel), sl.site,
+                                     sl.factor.k, sl.factor.l) for sl in t.slots)
                     for idx in CartesianIndices(t.folded)
                         t.folded[idx] == 0.0 && continue
                         key = (Tuple(mem.atoms), Tuple(Tuple.(mem.shifts)),
-                               Tuple(SLCE._term_spin_ls(t)), Tuple(idx))
+                               slotkey, Tuple(idx))
                         push!(bysets[labels[j]], key)
                     end
                 end
             end
-            @test costs == length.(bysets)
+            # the cost is the summed SLOT COUNT over distinct entries, not the entry
+            # count: the MC emits one site program per slot (`_push_term_programs!`)
+            slotsum(S) = sum(k -> length(k[3]), S; init = 0)
+            @test costs == slotsum.(bysets)
+            # and it is strictly larger than the bare entry count wherever a term has
+            # more than one slot — the defect this pricing fixes
+            @test all(costs .>= length.(bysets))
+            @test any(costs .> length.(bysets))
 
             # additivity: groups never share entries, so the sum is the global
-            # count — equal to the single-group partition's cost
+            # cost — equal to the single-group partition's cost
             total = group_costs(b, ones(Int, n_salcs(b)))
             @test length(total) == 1
             @test sum(costs) == total[1]
-            @test total[1] == length(union(bysets...))
+            @test total[1] == slotsum(union(bysets...))
 
             # default labels argument = salc_groups partition
             @test group_costs(b) == costs
         end
         @test maximum(salc_groups(basis)) > 1     # the multi-group case was real
+
+        # A JOINT basis: this used to be refused outright ("the MC entry-key model is
+        # pure-spin"). The slot-keyed entry is what makes it well-defined — keying on
+        # the pure-spin `ls` would erase every displacement slot, collapsing distinct
+        # lattice groups onto one key and destroying the additivity asserted below.
+        jcr = Crystal(Lattice(Matrix(3.0 * I(3))), [1/6 -1/6; 0.0 0.0; 0.0 0.0],
+                      [1, 1], ["Fe"])
+        jbasis = SLCEBasis(jcr, BasisSpec(jcr; lmax = 1, pmax = 1, sectors = [
+            Sector(spin = (sites = 1:2,), cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1)]))
+        jlab = salc_groups(jbasis)
+        jcost = group_costs(jbasis, jlab)
+        @test length(jcost) == maximum(jlab)
+        @test all(>(0), jcost)
+        # the basis really is mixed, and really does carry groups whose slot count
+        # exceeds the body order (a site holding both a spin and a displacement
+        # factor) — the case a `body`-based multiplier would get wrong
+        ks = jbasis.salc_basis.keys
+        @test !all(SLCE.is_pure_spin, ks) && any(SLCE.is_pure_spin, ks)
+        @test any(length(t.slots) > s.body
+                  for s in salcs(jbasis) for m in s.members for t in m.terms)
+        # additivity survives on the joint basis too
+        @test sum(jcost) == group_costs(jbasis, ones(Int, n_salcs(jbasis)))[1]
+        # and pure-spin groups are still priced at |entries|·body
+        for g in unique(jlab)
+            cols = findall(==(g), jlab)
+            all(SLCE.is_pure_spin, ks[cols]) || continue
+            nent = sum(count(!=(0.0), t.folded)
+                       for j in cols for m in salcs(jbasis)[j].members
+                       for t in m.terms)
+            @test jcost[g] <= nent * ks[cols[1]].body      # ≤: the union dedups
+        end
 
         # malformed labels
         @test_throws ArgumentError group_costs(small, ones(Int, n_salcs(small) + 1))

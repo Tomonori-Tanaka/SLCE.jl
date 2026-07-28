@@ -32,22 +32,37 @@ function salc_groups(basis::SLCEBasis)::Vector{Int}
     return labels
 end
 
-# One Monte-Carlo contraction entry: (member sites, l-assignment, tensor index). Two
-# SALCs touching an identical entry key have their coefficients folded into a single
-# contraction weight downstream, so the entry's cost is paid once per group.
-const _EntryKey = Tuple{Vector{Int},Vector{SVector{3,Int}},Vector{Int},Vector{Int}}
+# One Monte-Carlo contraction entry: (member sites, per-slot factor labels, tensor
+# index). The slot labels are `_slotkey` tuples `(channel, site, k, l)` rather than
+# `Slot`s: the value is identical, and keying a `Set` on an explicit tuple is this
+# package's convention where determinism matters.
+#
+# The slot vector is part of the key ON PURPOSE, and not only to separate channels.
+# The MC pays a site program PER SLOT — `_push_term_programs!` emits one program per
+# member site position, each of `|axes(q)|·nnz` entries — so an entry's sweep cost is
+# `length(slots)`, readable off the key itself. Keying on the pure-spin per-site `ls`
+# instead (what this did before) drops every displacement slot from the key, which
+# both collapses distinct lattice groups onto one another and loses that factor.
+const _SlotKey = Tuple{Channel,Int,Int,Int}
+const _EntryKey = Tuple{Vector{Int},Vector{SVector{3,Int}},Vector{_SlotKey},Vector{Int}}
 
-# Function barrier over the rank-erased `folded::Array{Float64}` (runtime rank = body
-# order): pushes one `_EntryKey` per nonzero tensor element.
+# A term's slot labels in its canonical slot order (SPIN axes before DISP, each by
+# member site order) — the order `_canonicalize_members` fixes and the one
+# SLCEMonteCarlo's `_align_reduced` reproduces, so equal terms give equal keys.
+_slotkeys(t::SALCTerm)::Vector{_SlotKey} = _SlotKey[_slotkey(s) for s in t.slots]
+
+# Function barrier over the rank-erased `folded::Array{Float64}` (runtime rank = slot
+# count): pushes one `_EntryKey` per nonzero tensor element.
 function _push_entries!(set::Set{_EntryKey}, atoms::Vector{Int},
-                        shifts::Vector{SVector{3,Int}}, ls::Vector{Int},
+                        shifts::Vector{SVector{3,Int}}, slotkeys::Vector{_SlotKey},
                         folded::Array{Float64})::Nothing
     for idx in CartesianIndices(folded)
-        # exact != 0.0 is deliberate coupling: it mirrors SLCEMonteCarlo's own
-        # exact-zero entry skip, so the count matches what a sweep would touch —
-        # do not soften to an isapprox
+        # exact != 0.0 mirrors the skip in `_push_term_programs!`. Note the MC's SITE
+        # programs skip on `coef * folded[idx] == 0.0`, which a basis-level metric
+        # cannot evaluate (there is no fitted coefficient yet); the divergence is
+        # underflow-only and in the lower-bound direction. Do not soften to isapprox.
         if folded[idx] != 0.0
-            push!(set, (atoms, shifts, ls, collect(Tuple(idx))))
+            push!(set, (atoms, shifts, slotkeys, collect(Tuple(idx))))
         end
     end
     return nothing
@@ -77,35 +92,54 @@ end
                 column_groups::AbstractVector{<:Integer} = salc_groups(basis))
         -> Vector{Int}
 
-Per-group Monte-Carlo cost: the number of **distinct contraction entries** — keys
-`(member sites, l-assignment, nonzero tensor index)` — in the union over the group's
-SALCs (canonical members, schema v4). This is an **a-priori proxy (a lower bound)**
-for the entries a `SLCEMonteCarlo` sweep realizes: an entry vanishes only when the
-whole group is zero, and SALC channels whose tensors are proportional fold into one
-realized entry, while non-proportional channels of one group are realized separately
-downstream — the union undercounts those. The relative ordering it induces is what
-the selection needs. Costs are additive across the [`salc_groups`](@ref) partition
-(distinct `(body, orbit_id, ls)` groups never share an entry key); `column_groups`
-may also be any coarser contiguous `1:G` partition of the columns.
+Per-group Monte-Carlo **sweep** cost: over the distinct contraction entries — keys
+`(member sites, per-slot factor labels, nonzero tensor index)` — in the union over the
+group's SALCs (canonical members), the sum of each entry's slot count.
+
+The slot count is the point. A single-site Metropolis proposal re-evaluates every
+entry containing the moved site, and `SLCEMonteCarlo`'s `_push_term_programs!` emits
+one **site program per member site position**, each of `|axes(q)|·nnz` entries — so
+one instance costs `nnz · length(slots)` per sweep, not `nnz`. `nnz` alone is the size
+of the separate **energy** program, which `total_energy` walks once per run. Pricing
+`nnz` therefore mis-ranks across body orders (a 3-body group is priced at 2/3 of a
+2-body group's real sweep cost) and, once displacement slots exist, across groups of
+equal body order, since `length(slots)` can reach `2·body`.
+
+This is an **a-priori proxy, and a lower bound**: an entry vanishes only when the whole
+group is zero, so pricing groups by it is sound, but nothing downstream actually merges
+two SALCs that touch one entry key (`decorated_terms` emits one term per
+`(SALC, member, SALCTerm)`, and `TiledHamiltonian` tiles without merging), so the union
+undercounts a group whose channels are realized separately. What it does **not** try to
+model is the per-visit `O(nrows)` block (`fill!` plus the `delta_energy` row range):
+`nrows` comes from `row_layout` over the basis *keys* and never shrinks when a group is
+dropped, so that cost is selection-invariant and unattributable to any group. Sweep
+*multiplicity* — that a site may be visited by the spin, overrelaxation and displacement
+passes — is likewise not modelled here; it depends on run-time `UpdatePlan` counts and
+on which other groups survive.
+
+Costs are additive across the [`salc_groups`](@ref) partition (distinct
+`(body, orbit_id, decors)` groups never share an entry key: distinct `orbit_id` gives
+disjoint canonical `(atoms, shifts)`, and equal `orbit_id` with distinct `decors` gives
+distinct sorted slot labels). `column_groups` may also be any coarser contiguous `1:G`
+partition of the columns — the per-entry slot count keeps the sum additive under
+coarsening, which a per-group multiplier would not.
 """
 function group_costs(basis::SLCEBasis,
                      column_groups::AbstractVector{<:Integer} =
                          salc_groups(basis))::Vector{Int}
     sl = basis.salc_basis.salcs
-    all(is_pure_spin(k) for k in basis.salc_basis.keys) || throw(ArgumentError(
-        "group_costs: the basis carries displacement-decorated sectors; the " *
-        "MC entry-key model is pure-spin until the M4 contract migration"))
     G = _validate_labels(column_groups, length(sl), "group_costs")
     sets = [Set{_EntryKey}() for _ = 1:G]
     for j in eachindex(sl)
         set = sets[column_groups[j]]
         for m in sl[j].members, t in m.terms
-            # Pure-spin entry key (the M4 MC-contract migration moves this to
-            # slots); identical values to the v4 per-site ls on today's bases.
-            _push_entries!(set, m.atoms, m.shifts, _term_spin_ls(t), t.folded)
+            _push_entries!(set, m.atoms, m.shifts, _slotkeys(t), t.folded)
         end
     end
-    return length.(sets)
+    # `length(k[3])` is the entry's slot count — the number of site programs the MC
+    # emits for it. Reading it off the key (rather than off a per-group constant)
+    # is what keeps the sum additive under a coarser `column_groups`.
+    return [sum(k -> length(k[3]), s; init = 0) for s in sets]
 end
 
 """
@@ -543,25 +577,41 @@ penalty itself and trace a Pareto front over both knobs.
 
 !!! note "Force channel"
     Selection optimizes the energy(+torque) objective only: there is no
-    `force_weight` here yet (the group cost model is not channel-split for joint
-    models), so a force-carrying dataset is selected on its energy/torque blocks.
+    `force_weight` here yet, so a force-carrying dataset is selected on its
+    energy/torque blocks.
+
+!!! note "Joint bases and the ASR"
+    The λ path solves on a cached **unconstrained** Gram and decides alive groups by a
+    β-indexed magnitude rule, so it is only faithful to a fit that is itself
+    unconstrained. `asr` is threaded to [`fit`](@ref) exactly as it is by
+    [`cross_validate`](@ref): the default `true` refuses a displacement-decorated
+    dataset (whose reparameterization the path would ignore), and `asr = false`
+    selects a deliberately unconstrained joint model end to end — the selected fit is
+    re-solved cold with the same `asr`, so `fit` reproduces it verbatim. Selection
+    *under* the constraint is separate work.
 """
 function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
                     lambdas::AbstractVector{<:Real}, torque_weight::Real = 0.0,
                     criterion::Symbol = :gcv, score_rtol::Real = 0.05,
                     costs::Union{Nothing,AbstractVector{<:Real}} = nothing,
                     threshold::Union{Nothing,Real} = nothing, nfolds::Integer = 5,
-                    seed::Integer = 1)::LambdaPath
+                    seed::Integer = 1, asr::Bool = true)::LambdaPath
     isempty(dataset.y_E) && throw(ArgumentError("dataset has no observations"))
-    # The λ path below solves UNCONSTRAINED (direct `_solve_gar` on the cached
-    # Gram); running it on an ASR-carrying joint basis would silently diverge from
-    # `fit`'s constrained default. Joint selection needs the channel-split group
-    # costs (design record §6) — reject until that lands.
-    dataset.asr === nothing ||
-        throw(ArgumentError("select_fit on an ASR-constrained (joint) basis is " *
-                            "not implemented yet — the λ path and the group cost " *
-                            "model are pure-spin; use fit/cross_validate for " *
-                            "joint models"))
+    # The λ path below solves UNCONSTRAINED (direct `_solve_gar` on the cached Gram)
+    # and its alive rule is β-indexed, so it is correct exactly when the fit it
+    # reproduces is also unconstrained. `_resolve_asr_rep` answers that with `fit`'s
+    # own rules (including the refusal when `asr = true` meets a displacement basis
+    # that carries no reparameterization), so `asr = false` selects a deliberately
+    # unconstrained joint model here just as it fits one there.
+    rep = _resolve_asr_rep(dataset, asr)
+    rep === nothing ||
+        throw(ArgumentError("select_fit under an ASR reparameterization is not " *
+                            "implemented yet: the λ path solves on a cached " *
+                            "unconstrained Gram and its alive rule is β-indexed, " *
+                            "so running it here would report a support the " *
+                            "constrained solve never chose. Pass asr = false to " *
+                            "select a deliberately unconstrained model, or use " *
+                            "fit/cross_validate, which are constrained"))
     w = Float64(torque_weight)
     (0.0 <= w <= 1.0) || throw(ArgumentError("torque_weight must be in [0, 1]; got $w"))
     if w > 0 && !has_torque(dataset)
@@ -706,7 +756,7 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
     sel = _select_pareto(score, cost, Float64(score_rtol))
     est_sel = GroupAdaptiveRidge(lams[sel], est.column_groups, est.group_weights,
                                  est.epsilon, est.max_iter, est.tol)
-    fsel = fit(SLCEFit, dataset, est_sel; torque_weight = w)
+    fsel = fit(SLCEFit, dataset, est_sel; torque_weight = w, asr = asr)
     # Re-derive the selected row from the cold re-solve, so `fit` / `threshold` /
     # `n_alive[selected]` / `cost[selected]` are mutually consistent (warm and cold
     # agree only within the IRLS tol — a knife-edge coefficient could differ). Under
@@ -864,19 +914,29 @@ function select_support(f::SLCEFit;
                             "$(f.force_weight)) — cost-weighted support selection " *
                             "for the force channel is not implemented yet; select " *
                             "on a fit with force_weight = 0"))
-    f.dataset.asr === nothing ||
-        throw(ArgumentError("select_support on an ASR-constrained (joint) basis " *
-                            "is not implemented yet — the group cost model is " *
-                            "pure-spin; use refit directly for constrained " *
-                            "de-biasing"))
-    # A staged fit's frozen columns are not candidates for thresholding (they were
-    # never fitted), so the per-group alive/cost accounting below would report a
-    # support the stage cannot choose.
-    f.reparam === nothing ||
+    # Three states, two of them refused, and the order matters: a plain joint fit
+    # carries `dataset.asr` as its reparameterization, so keying the staged check on
+    # `reparam !== nothing` told unstaged callers their fit was staged. `_is_staged`
+    # (fit.jl) is the one definition of the distinction.
+    if _is_staged(f)
+        # A staged fit's frozen columns are not candidates for thresholding (they were
+        # never fitted), so the per-group alive/cost accounting below would report a
+        # support the stage cannot choose.
         throw(ArgumentError("select_support on a staged fit (frozen / sector_mask) " *
                             "is not implemented yet — its frozen columns are not " *
                             "selectable, so the group cost front would be wrong; " *
                             "use refit, which stays inside the stage"))
+    elseif f.reparam !== nothing
+        # Plain ASR: the magnitudes below are read off a β-space design, but the fit
+        # solved in γ space, so the reported front would not be the one the
+        # constrained solve can reach.
+        throw(ArgumentError("select_support under an ASR reparameterization is not " *
+                            "implemented yet: the alive rule is β-indexed while " *
+                            "the fit solved in the constrained (γ) space. Re-fit " *
+                            "with asr = false to select a deliberately " *
+                            "unconstrained model, or use refit directly, which " *
+                            "re-derives the null space on the support"))
+    end
 
     # per-group max scaled magnitude on the assembled training design (refit's rule)
     X, _, _, _, _ = _assemble_problem(f.dataset, w)
