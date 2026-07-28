@@ -25,16 +25,18 @@ Number of sites `N` in the cluster (`= R - 1`).
 body_order(cb::CoupledBasis{R}) where {R} = R - 1
 
 """
-    coupled_bases(ls; isotropy = false) -> Vector{CoupledBasis{length(ls)+1}}
+    coupled_bases(ls; scalar_only = false) -> Vector{CoupledBasis{length(ls)+1}}
 
 All coupled bases for the per-site angular momenta `ls`, one per `(Lseq, Lf)`
-coupling path. With `isotropy = true` only the scalar `Lf == 0` sector is kept.
+coupling path. With `scalar_only = true` only the scalar `Lf == 0` sector is kept —
+the spec-level `soc = false` restriction, so `scalar_only ≡ !soc`.
 """
-function coupled_bases(ls::AbstractVector{<:Integer}; isotropy::Bool = false)
+function coupled_bases(ls::AbstractVector{<:Integer}; scalar_only::Bool = false)
     lsv = collect(Int, ls)
     R = length(lsv) + 1
     out = CoupledBasis{R}[]
-    for (Lseq, Lf, tensor) in AngularMomentum.build_real_bases(lsv; isotropy = isotropy)
+    for (Lseq, Lf, tensor) in AngularMomentum.build_real_bases(lsv;
+                                                              scalar_only = scalar_only)
         push!(out, CoupledBasis{R}(lsv, Lseq, Lf, tensor))
     end
     return out

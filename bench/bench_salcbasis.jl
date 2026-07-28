@@ -27,7 +27,7 @@ cs = build_clusters(cr, nl, sg; nbody = spec.nbody, selection = MinimumImage(),
                          cutoff = spec.cutoff)
 
 bench_one("build_salc_basis", () -> build_salc_basis(cr, sg, cs;
-              lmax_by_species = spec.lmax, isotropy = !spec.soc))
+              lmax_by_species = spec.lmax, scalar_only = !spec.soc))
 
-b = build_salc_basis(cr, sg, cs; lmax_by_species = spec.lmax, isotropy = !spec.soc)
+b = build_salc_basis(cr, sg, cs; lmax_by_species = spec.lmax, scalar_only = !spec.soc)
 println("→ n_salcs = $(length(b))")

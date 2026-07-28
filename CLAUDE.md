@@ -309,10 +309,15 @@ Easy to break silently — confirm before touching the algorithm.
   round-tripping. Renaming a spec keyword touches FOUR surfaces at once: the keyword
   constructor (deprecation error, `isotropy` precedent), the `[interaction]` TOML
   schema (`io/input.jl`), the persist spec doc (back-read branch on the NEW key,
-  never on the version), and every BasisSpec call in test/ + examples/ + docs/ —
-  and beware multi-line calls: `build_salc_basis`'s internal `isotropy` kwarg (the
-  literal `Lf == 0` filter) deliberately kept its name, so a blind sed on
-  continuation lines breaks it.
+  never on the version), and every BasisSpec call in test/ + examples/ + docs/.
+  The SOC rule reaches the builder as `build_salc_basis(; scalar_only = !spec.soc)`
+  (`model.jl`), and `scalar_only` is the literal `Lf == 0` filter all the way down
+  through `coupled_bases` and `AngularMomentum.build_real_bases` — the polarity is
+  in the name on purpose, because the retired `isotropy` spelling was the same
+  filter under the opposite-sounding word and a blind sed across the bridge would
+  invert the channel set silently. `isotropy` now survives ONLY as (a) the
+  `BasisSpec` / `[interaction]` deprecation errors and (b) the persist legacy
+  back-read (`soc = !isotropy`); it is not a live keyword anywhere.
 - **Example/tutorial hand-built ground truths ↔ canonical member semantics**
   (`examples/*.jl`, `docs/src/tutorials/*.md`, `docs/src/getting_started.md`,
   `README.md`): synthetic energies/torques written as sums over `salc.members` assume
@@ -537,7 +542,9 @@ Easy to break silently — confirm before touching the algorithm.
   `restrict ≠ refit` warning (docstring + `guide/introspection.md`, design record §13
   risk 5) is mandatory documentation, not a nicety.
   **`EffectiveTerm` (`slce/effective.jl`) is the third public term view and takes the
-  OPPOSITE convention**: its `coef` has the `(4π)^{n_spin_slots/2}` scale, the SALC's
+  OPPOSITE convention** — which is why its field is named `scaled_coef`, not `coef`,
+  so the mistake is a `has no field` error rather than a silent over-count:
+  `scaled_coef` has the `(4π)^{n_spin_slots/2}` scale, the SALC's
   `folded` weight, and the shifted polynomial coefficient ALREADY folded in, because
   one term merges contributions from many SALCs and there is no raw `jϕ` to hand back.
   A consumer migrating from `decorated_terms` and re-applying `_slot_scale`

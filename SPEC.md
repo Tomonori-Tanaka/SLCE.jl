@@ -409,10 +409,11 @@ capability consumed by both the introspection and the Sunny interop.
   reference SALCs cannot span it — `EffectiveModel` is the unsymmetrized
   decorated-monomial form the design record permits, one `EffectiveTerm` per (spin
   factors) × (displacement monomial), evaluated by
-  `predict_energy(em, e, δu)`. **`EffectiveTerm.coef` takes the OPPOSITE scale
-  convention from the other two public term views**: `MultipoleTerm.coef` and
+  `predict_energy(em, e, δu)`. **`EffectiveTerm.scaled_coef` takes the OPPOSITE scale
+  convention from the other two public term views**, which is why it is not spelled
+  `coef`: `MultipoleTerm.coef` and
   `DecoratedTerm.coef` are the raw fitted `jϕ` (scale left to the consumer, or shipped
-  in `DecoratedTerm.scale`), while `EffectiveTerm.coef` has `(4π)^{n_spin_slots/2}`,
+  in `DecoratedTerm.scale`), while `EffectiveTerm.scaled_coef` has `(4π)^{n_spin_slots/2}`,
   the SALC `folded` weight and the shifted polynomial coefficient already folded in —
   necessarily, since one term merges contributions from many SALCs and there is no raw
   `jϕ` to return. Re-applying `_slot_scale` to it double-counts `4π` per spin slot. **Variables are per ATOM, not per slot** (displacements
@@ -453,7 +454,7 @@ capability consumed by both the introspection and the Sunny interop.
   channel masks straddle 0 rows vs `L_S` masks 54/180, consumer follow-through).
 - **Identifiability diagnostics + derivative-only recovery (M3 slice 5)**:
   `identifiability(fit_or_dataset; rtol) -> (; ncols, rank, nullity, sigma_min,
-  sigma_max, tol, gap)` — the numerical rank of the assembled design in the
+  sigma_max, sigma_cut, gap)` — the numerical rank of the assembled design in the
   coordinates the estimator solves (`q` under the ASR) at `min(size)·eps·σ_max`,
   with `gap` (smallest kept / largest dropped σ) exposing an ambiguous decision;
   `O(n·q²)` and opt-in; the dataset method validates exactly like `fit` (shared
@@ -542,7 +543,7 @@ capability consumed by both the introspection and the Sunny interop.
   cell, optional `[symmetry]`);
   keyword arguments override the file's backend/tol. Training data and the estimator
   stay in Julia (mirrors the basis/data separation).
-- **Tabular results** (`slce/coeftable.jl`): `coeftable(fit | model) -> SCECoefficients`
+- **Tabular results** (`slce/coeftable.jl`): `coeftable(fit | model) -> SLCECoefficients`
   is a **Tables.jl** source — one row per SALC (`body`, `orbit_id`, `ls` as a comma
   string, `Lf`, `block`, `J`) — so it drops into `DataFrame` / `CSV.write` /
   `Arrow.write`. The library owns the internal-storage → labeled-row mapping; the caller

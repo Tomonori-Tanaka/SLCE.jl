@@ -44,21 +44,24 @@ A term with an empty `disps` is displacement-independent: those are the coupling
 the `u0`-frozen spin model. A term with an empty `spins` is spin-independent: pure
 lattice content, including the reference forces that a displaced structure carries.
 
-!!! warning "`coef` already carries the `(4π)` scale — do not apply it again"
+!!! warning "`scaled_coef` already carries the `(4π)` scale — do not apply it again"
     This is the OPPOSITE convention from the package's other two public term views,
-    and the difference is deliberate rather than an oversight.
-    [`MultipoleTerm`](@ref)`.coef` and [`DecoratedTerm`](@ref)`.coef` are the raw
-    fitted `jϕ`, with the consumer scale left to the caller (`(4π)^(body/2)`) or
-    shipped beside it (`DecoratedTerm.scale`). `EffectiveTerm.coef` has
+    and the difference is deliberate rather than an oversight — which is why the
+    field is **not** called `coef`. [`MultipoleTerm`](@ref)`.coef` and
+    [`DecoratedTerm`](@ref)`.coef` are the raw fitted `jϕ`, with the consumer scale
+    left to the caller (`(4π)^(body/2)`) or shipped beside it
+    (`DecoratedTerm.scale`). `EffectiveTerm.scaled_coef` has
     `(4π)^{n_spin_slots/2}` — and the SALC's `folded` weight, and the shifted
-    polynomial's coefficient — **already folded in**.
+    polynomial's coefficient — **already folded in**. A consumer migrating from
+    either of the other views hits a `type EffectiveTerm has no field coef` error
+    instead of a silent `(4π)^{n_spin/2}` over-count.
 
     It has to be: one `EffectiveTerm` merges contributions from many SALCs, so there
     is no "raw `jϕ`" to hand back. Re-applying `SLCE._slot_scale` to a term from here
     double-counts `4π` per spin slot.
 """
 struct EffectiveTerm
-    coef::Float64
+    scaled_coef::Float64
     spins::Vector{NTuple{3,Int}}
     disps::Vector{Tuple{Int,NTuple{3,Int}}}
 end
@@ -349,7 +352,7 @@ function predict_energy(em::EffectiveModel, e::AbstractMatrix{<:Real},
         "(same 3 × n_atoms column convention as the spin configuration)"))
     total = em.j0
     @inbounds for t in em.terms
-        w = t.coef
+        w = t.scaled_coef
         for (a, l, m) in t.spins
             w *= Harmonics.Zlm(l, m, SVector{3,Float64}(e[1, a], e[2, a], e[3, a]))
             w == 0.0 && break

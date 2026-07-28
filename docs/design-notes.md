@@ -266,7 +266,7 @@ caller's: only the package knows how to map internal storage (a `SALCKey` plus t
 position of its coefficient in the `jphi` vector) to meaningful rows
 (`body`, `orbit_id`, `ls`, `Lf`, `block`, `J`) — forcing a user to reach into
 `f.dataset.basis.salc_basis.keys` would leak that. So `coeftable(fit | model)` returns an
-`SCECoefficients` that implements the **Tables.jl** interface: it is a *data source*
+`SLCECoefficients` that implements the **Tables.jl** interface: it is a *data source*
 that drops into whatever *sink* the caller chooses (`DataFrame`, `CSV.write`,
 `Arrow.write`). The package depends only on the lightweight Tables.jl contract, never on
 a table or IO package — the responsibility split (library owns the result semantics;

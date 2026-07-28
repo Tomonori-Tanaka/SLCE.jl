@@ -190,13 +190,29 @@ anchored so the first index is in the home cell. The reverse ordering is a separ
 key, equal to the transpose.
 
 [`dynamical_matrix`](@ref) folds them into reciprocal space at a wavevector given in
-**fractional reciprocal coordinates**. Pass `masses` to get an `ω²` spectrum; omit it
-for the bare force-constant matrix:
+**fractional reciprocal coordinates**. Pass `masses` (in **amu**) to get an `ω²`
+spectrum; omit it for the bare force-constant matrix:
 
 ```@example introspect
 D0 = dynamical_matrix(fcs, [0.0, 0.0, 0.0])
 println("eigenvalues of D(0): ", round.(sort(real(eigvals(Hermitian(D0)))); sigdigits = 3))
 ```
+
+That call passed no `masses`, so those are eigenvalues of the **bare** force-constant
+matrix, in eV/Å² — not frequencies of anything. Pass `masses` in amu and they become
+`ω²` **in eV/Å²/amu**, which is still not a frequency until you convert it:
+
+```@example introspect
+λ = sort(real(eigvals(Hermitian(dynamical_matrix(fcs, [0.0, 0.0, 0.0];
+                                                 masses = [55.845, 55.845])))))
+signed_sqrt(x) = x < 0 ? -sqrt(-x) : sqrt(x)          # imaginary modes stay negative
+println("ω² [eV/Å²/amu]: ", round.(λ; sigdigits = 3))
+println("ν  [THz]      : ", round.(signed_sqrt.(λ) .* 15.633302; sigdigits = 3))
+```
+
+The `15.633302` is phonopy's `VaspToTHz` (the `2π` is already in it, so this is the
+ordinary frequency `ν`, not the angular `ω`); a further `× 33.35641` gives cm⁻¹. The
+`test/alamode/` suite pins both against `anphon`'s own cm⁻¹ output.
 
 None of those are zero — and they should be. Three eigenvalues of `D(0)` must vanish:
 those are the acoustic branches, the statement that translating the whole crystal

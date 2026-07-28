@@ -238,7 +238,7 @@ SLCE.cost_weights
 
 ```@docs
 coeftable
-SCECoefficients
+SLCECoefficients
 ```
 
 ## Sunny export

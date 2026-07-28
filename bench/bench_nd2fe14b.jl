@@ -44,7 +44,7 @@ cs = build_clusters(cr, nl, sg; nbody = spec.nbody, selection = MinimumImage(),
                          cutoff = spec.cutoff)
 println("→ orbits by body = $(sort(collect(k => length(v) for (k, v) in cs.by_body)))")
 bench_one("build_salc_basis", () -> build_salc_basis(cr, sg, cs;
-              lmax_by_species = spec.lmax, isotropy = !spec.soc))
+              lmax_by_species = spec.lmax, scalar_only = !spec.soc))
 
 b = SLCEBasis(cr, spec; backend = SpglibBackend(), tol = inp.tol)
 println("→ n_salcs = $(n_salcs(b))")

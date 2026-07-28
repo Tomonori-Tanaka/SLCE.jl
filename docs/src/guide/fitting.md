@@ -401,7 +401,7 @@ explains the data, but *whether the data determine the fit at all*:
 ```julia
 identifiability(f)                        # the design the fit solved
 identifiability(ds; torque_weight = 0.4, force_weight = 0.6)   # before fitting
-# (; ncols, rank, nullity, sigma_min, sigma_max, tol, gap)
+# (; ncols, rank, nullity, sigma_min, sigma_max, sigma_cut, gap)
 ```
 
 `nullity > 0` means the objective is exactly flat along that many coefficient

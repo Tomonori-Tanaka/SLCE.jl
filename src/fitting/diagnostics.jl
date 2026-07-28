@@ -169,7 +169,7 @@ rmse_force(f::SLCEFit)::Float64 = sqrt(rss_force(f) / length(f.dataset.y_F))
 # fails on the missing `@docs` entry — the unit suite cannot see it).
 const IdentifiabilityReport = @NamedTuple{ncols::Int, rank::Int, nullity::Int,
                                           sigma_min::Float64, sigma_max::Float64,
-                                          tol::Float64, gap::Float64}
+                                          sigma_cut::Float64, gap::Float64}
 
 """
     identifiability(f::SLCEFit; rtol = nothing) -> NamedTuple
@@ -179,18 +179,23 @@ const IdentifiabilityReport = @NamedTuple{ncols::Int, rank::Int, nullity::Int,
 Rank diagnosis of the design the fit actually solves: how many coefficient
 directions the training data determine, and how many they leave **flat**. Returns
 
-    (; ncols, rank, nullity, sigma_min, sigma_max, tol, gap)
+    (; ncols, rank, nullity, sigma_min, sigma_max, sigma_cut, gap)
 
 where `ncols` is the number of free parameters the estimator sees (`p` unconstrained,
 `q = p − rank(A)` under the ASR reparameterization — the diagnosis is in the same
 coordinates the solve uses), `rank` is the numerical rank of the assembled
-(centered / whitened, stacked) design at `tol = rtol·σ_max`, and
+(centered / whitened, stacked) design at `sigma_cut = rtol·σ_max`, and
 `nullity = ncols − rank` counts the directions along which the objective is exactly
 flat. `nullity > 0` means the data do **not** determine the model: an unpenalized
 solve returns the estimator's own null-space choice (`OLS`'s minimum-norm
 solution), and a penalized one returns whatever the penalty prefers — in both cases
 a number that is not an estimate. Different fitted coefficients can then reproduce
 the training observables to machine precision.
+
+`rtol` is **relative** and `sigma_cut` is the **absolute** singular value it produced,
+so the two are not interchangeable: feeding a report's `sigma_cut` back in as `rtol`
+would square the cut and declare a rank-deficient design identified. That asymmetry is
+why the field is not called `tol`.
 
 `rtol` defaults to `min(size(X))·eps` (`LinearAlgebra.rank`'s convention;
 deliberately **not** `max(size(X))·eps` — the blocks are whitened by `1/√n`, so the
@@ -260,8 +265,8 @@ function _identifiability(X::AbstractMatrix,
     rt = rtol === nothing ? minimum(size(X)) * eps(Float64) : Float64(rtol)
     (rt >= 0 && isfinite(rt)) ||
         throw(ArgumentError("rtol must be finite and ≥ 0; got $rtol"))
-    tol = rt * smax
-    r = count(>(tol), s)
+    scut = rt * smax                      # ABSOLUTE cut; `rt` is the relative one
+    r = count(>(scut), s)
     # `svdvals` returns min(n, q) values: with fewer rows than columns the smallest
     # SINGULAR value of the q-dimensional operator is exactly 0, not `s[end]`.
     smin = length(s) < q ? 0.0 : (isempty(s) ? 0.0 : s[end])
@@ -272,7 +277,7 @@ function _identifiability(X::AbstractMatrix,
     dropped = r < length(s) ? s[r + 1] : 0.0
     gap = dropped == 0.0 ? Inf : kept / dropped
     return (; ncols = q, rank = r, nullity = q - r, sigma_min = smin,
-            sigma_max = smax, tol = tol, gap = gap)
+            sigma_max = smax, sigma_cut = scut, gap = gap)
 end
 
 # --- StatsAPI generics defaulting to the energy block ------------------------------

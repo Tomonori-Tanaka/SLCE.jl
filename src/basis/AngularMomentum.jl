@@ -284,16 +284,17 @@ function complex_to_real_tensor(Ccx::AbstractArray, ls::AbstractVector{<:Integer
 end
 
 """
-    build_real_bases(ls; isotropy = false) -> Vector{Tuple{Vector{Int},Int,Array{Float64}}}
+    build_real_bases(ls; scalar_only = false) -> Vector{Tuple{Vector{Int},Int,Array{Float64}}}
 
-All real coupled tensors for `ls`, as `(Lseq, Lf, tensor)`. With `isotropy = true`
-only the scalar `Lf == 0` sector is kept.
+All real coupled tensors for `ls`, as `(Lseq, Lf, tensor)`. With
+`scalar_only = true` only the scalar `Lf == 0` sector is kept — the spec-level
+`soc = false` restriction, so `scalar_only ≡ !soc`.
 """
 function build_real_bases(ls::AbstractVector{<:Integer};
-                          isotropy::Bool = false)::Vector{Tuple{Vector{Int},Int,Array{Float64}}}
+                          scalar_only::Bool = false)::Vector{Tuple{Vector{Int},Int,Array{Float64}}}
     out = Tuple{Vector{Int},Int,Array{Float64}}[]
     for (Lseq, Lf) in coupling_paths(ls)
-        (isotropy && Lf != 0) && continue
+        (scalar_only && Lf != 0) && continue
         Ccx = coeff_tensor_complex(ls, Lseq, Lf)
         push!(out, (Lseq, Lf, complex_to_real_tensor(Ccx, ls, Lf)))
     end

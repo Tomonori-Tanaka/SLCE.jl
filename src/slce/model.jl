@@ -53,7 +53,10 @@ need the labels: pass them (or a `Crystal`) as the first argument.
 
 The former `isotropy` keyword is a deprecation error: `isotropy = true` kept
 only the scalar channel, which is exactly `soc = false` (for a pure-spin basis
-`L_S ≡ Lf`).
+`L_S ≡ Lf`). The name is retired everywhere, not merely at this constructor —
+the builder underneath spells the same restriction
+[`SLCE.build_salc_basis`](@ref)`(; scalar_only = !soc)`, so no reachable keyword
+still carries the inverted reading.
 
 # Sector-table (joint spin–lattice) form
 
@@ -321,7 +324,7 @@ function SLCEBasis(crystal::Crystal, spec::BasisSpec;
     salcs = isempty(spec.sectors) ?
         build_salc_basis(crystal, sg, clusters;
                          lmax_by_species = spec.lmax, lsum_by_body = spec.lsum,
-                         isotropy = !spec.soc) :
+                         scalar_only = !spec.soc) :
         build_salc_basis(crystal, sg, clusters, spec; neighbors = nl,
                          selection = images)
     return SLCEBasis(crystal, sg, salcs, spec)

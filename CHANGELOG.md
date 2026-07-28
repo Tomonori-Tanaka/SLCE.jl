@@ -6,6 +6,50 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — BREAKING: five names that misrepresented what they held
+
+A five-lens naming audit over the package (public surface, struct fields and
+keyword arguments, physics conventions, internals, and the four-package family)
+found the internals healthy and the damage concentrated in names a user types.
+These five are the subset where the wrong reading produces **plausible numbers
+rather than an error**. No aliases or deprecation shims: an alias would preserve
+exactly the reading each rename exists to remove.
+
+- **`build_salc_basis(; isotropy)` → `(; scalar_only)`**, and the same for
+  `SLCE.coupled_bases` and `AngularMomentum.build_real_bases`. `BasisSpec` has
+  refused `isotropy` since the SOC rewrite *because the replacement inverted it*
+  (`isotropy = true` ⇔ `soc = false`), yet the declared-`public` builder
+  underneath still took the retired name with the retired polarity, bridged by
+  `isotropy = !spec.soc`. A user following the builder's own docs — or a sed that
+  finished the rename across the bridge — selected the **complementary** channel
+  set; the basis still builds, still projects, still fits. `scalar_only` states
+  the `Lf == 0` filter it performs, so the polarity is unmistakable and no live
+  keyword carries the inverted reading. `isotropy` now survives only as the two
+  deprecation errors and the persist legacy back-read (`soc = !isotropy`).
+- **`identifiability(...).tol` → `.sigma_cut`.** The keyword is `rtol`
+  (relative); the returned field was `rtol·σ_max` (absolute). Round-tripping
+  `identifiability(f2; rtol = r.tol)` — the obvious thing to do with a field
+  named `tol` — squared the cut, kept every singular value, and reported a
+  rank-deficient design as identified, which is the one question the function
+  exists to answer.
+- **`EffectiveTerm.coef` → `.scaled_coef`.** `MultipoleTerm.coef` and
+  `DecoratedTerm.coef` are the raw fitted `jϕ` with the `(4π)^{n_spin/2}` measure
+  left to the consumer; this one has it — plus the SALC `folded` weight and the
+  shifted polynomial coefficient — already folded in, necessarily, since one term
+  merges many SALCs. A consumer migrating between the views now gets
+  `has no field coef` instead of a silent `(4π)^{n_spin_slots/2}` over-count
+  (12.6× on a two-spin term, `√(4π)` per slot beyond that).
+- **`SCECoefficients` → `SLCECoefficients`.** The last public name still carrying
+  the pre-rename prefix, next to `SLCEBasis` / `SLCEDataset` / `SLCEModel` /
+  `SLCEFit`.
+- **`dynamical_matrix(; masses)` now documents its units** (name unchanged —
+  `masses` is what phonopy and ALAMODE call it). The docstring promised
+  eigenvalues "`ω²`" and stated no unit anywhere in `src/` or `docs/`; they are
+  `ω²` **in eV/Å²/amu** and in nothing else, so `sqrt.(eigvals(D))` read as THz
+  is off by 15.633302. Both the docstring and the introspection guide now carry
+  the conversions to THz and cm⁻¹. This was the only finding in the audit whose
+  failure mode is a published phonon spectrum.
+
 ### Added — the anharmonic exit: ALAMODE's `anphon`
 
 `write_phonopy` covers the harmonic channel, and phonopy stops there. Cubic and

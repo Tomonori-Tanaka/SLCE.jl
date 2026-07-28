@@ -759,7 +759,7 @@ end
 # orbit-local; `wcache` is read-only), so orbits are processed independently — the
 # unit of parallelism in `build_salc_basis`.
 function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id::Int,
-                      O::ClusterOrbit, lmax::Vector{Int}, lsumN::Int, isotropy::Bool,
+                      O::ClusterOrbit, lmax::Vector{Int}, lsumN::Int, scalar_only::Bool,
                       wcache::_WigCache)::Vector{SALC}
     out = SALC[]
     rep = O.representative
@@ -779,7 +779,7 @@ function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id
         # chained-CG construction `|Lfset|` times. The `Lf` set is the CG decomposition
         # of the `l`-multiset (permutation-invariant), so the union over orderings equals
         # the previous `coupled_bases(t)` set.
-        cbs = [coupled_bases(o; isotropy = isotropy) for o in orderings]
+        cbs = [coupled_bases(o; scalar_only = scalar_only) for o in orderings]
         Lfset = sort(unique(cb.Lf for cbo in cbs for cb in cbo))
         lab = sort(collect(t))
         for Lf in Lfset
@@ -814,7 +814,7 @@ end
 
 """
     build_salc_basis(crystal, spacegroup, clusters; lmax_by_species,
-                     lsum_by_body = nothing, isotropy = false) -> SALCBasis
+                     lsum_by_body = nothing, scalar_only = false) -> SALCBasis
 
 Construct the symmetry-adapted (and time-reversal-even) SCE basis for every cluster
 orbit and body order. For each `(orbit, l-multiset, Lf)` the stabilizer-invariant
@@ -826,7 +826,11 @@ transported to all orbit members.
 - `lsum_by_body`: per-body-order cap on `Σl` over the cluster sites, indexed by
   body order (`nothing` = no cap; entries of `LSUM_UNCAPPED` mean no cap for
   that order).
-- `isotropy::Bool = false`: keep only the scalar `Lf == 0` channel if `true`.
+- `scalar_only::Bool = false`: keep only the scalar `Lf == 0` channel if `true`.
+  This is the builder-level spelling of the spec's SOC selection rule, with the
+  polarity written into the name: `scalar_only ≡ !`[`BasisSpec`](@ref)`.soc`. The
+  retired `isotropy` keyword meant the same thing under the opposite-sounding name,
+  which is why it is gone rather than aliased — see the `BasisSpec` deprecation.
 
 # Status
 Arbitrary body order. Isotropic (`Lf == 0`) and anisotropic (`Lf > 0`) channels —
@@ -842,7 +846,7 @@ The orbits are built in parallel over `Threads.nthreads()` (set `julia -t` /
 function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::ClusterSet;
                           lmax_by_species::AbstractVector{<:Integer},
                           lsum_by_body::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                          isotropy::Bool = false)::SALCBasis
+                          scalar_only::Bool = false)::SALCBasis
     lmax = collect(Int, lmax_by_species)
     maxbody = isempty(clusters.by_body) ? 0 : maximum(keys(clusters.by_body))
     lsum_by_body === nothing || length(lsum_by_body) >= maxbody ||
@@ -864,7 +868,7 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::Cl
     Threads.@threads for w in eachindex(work)
         (N, orbit_id, O) = work[w]
         parts[w] = _orbit_salcs(crystal, spacegroup, N, orbit_id, O, lmax, lsumN(N),
-                                isotropy, wcache)
+                                scalar_only, wcache)
     end
     salcs = isempty(parts) ? SALC[] : reduce(vcat, parts)
     sort!(salcs; by = s -> s.key)

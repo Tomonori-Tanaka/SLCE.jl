@@ -90,7 +90,7 @@ to inspect it before building.
 
 ## Tabular coefficients
 
-[`coeftable`](@ref) returns an [`SCECoefficients`](@ref) — a **Tables.jl** source with one
+[`coeftable`](@ref) returns an [`SLCECoefficients`](@ref) — a **Tables.jl** source with one
 row per SALC. The columns are read straight off each [`SALCKey`](@ref) (the stable
 design-matrix-column identity), plus the fitted coefficient:
 

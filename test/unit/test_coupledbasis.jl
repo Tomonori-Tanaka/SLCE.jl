@@ -42,9 +42,9 @@ end
         cbs = coupled_bases([1, 2])
         @test sort(getfield.(cbs, :Lf)) == [1, 2, 3]
         @test all(cb -> length(cb.Lseq) == 0, cbs)   # N=2 ⇒ no intermediate
-        # isotropy keeps only Lf == 0 (none here for (1,2))
-        @test isempty(coupled_bases([1, 2]; isotropy = true))
-        @test length(coupled_bases([1, 1]; isotropy = true)) == 1   # Lf=0 exists for (1,1)
+        # scalar_only keeps only Lf == 0 (none here for (1,2))
+        @test isempty(coupled_bases([1, 2]; scalar_only = true))
+        @test length(coupled_bases([1, 1]; scalar_only = true)) == 1   # Lf=0 exists for (1,1)
     end
 
     # The defining property, tying M4 back to M2 (Zₗₘ) and M3 (wignerD_real) with

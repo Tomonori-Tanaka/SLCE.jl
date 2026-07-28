@@ -94,7 +94,7 @@ end
         @test idT.nullity == rep.rank                       # 135 flat directions
         idTz = identifiability(ds; torque_weight = 1.0)
         @test idTz.ncols == q && idTz.nullity == 0          # ASR restores it fully
-        @test idTz.sigma_min > 1e3 * idTz.tol
+        @test idTz.sigma_min > 1e3 * idTz.sigma_cut
         # the rank decisions are not knife-edge: kept/dropped singular values are
         # separated by many orders (or nothing was dropped at all)
         @test idT.gap > 1e6 && idTz.gap == Inf
@@ -257,8 +257,8 @@ end
         # the blocks are whitened by 1/√n, so a max-based tol would grow with the
         # row count and could flip a determined direction to flat
         Xr = _assemble_problem(ds, 0.4, 0.6, ds.asr)[1]
-        @test idr.tol == minimum(size(Xr)) * eps() * idr.sigma_max
-        @test idr.tol < maximum(size(Xr)) * eps() * idr.sigma_max
+        @test idr.sigma_cut == minimum(size(Xr)) * eps() * idr.sigma_max
+        @test idr.sigma_cut < maximum(size(Xr)) * eps() * idr.sigma_max
         # rtol is a knob: a cut above the whole spectrum kills every direction,
         # and an invalid one is refused
         @test identifiability(ds; torque_weight = 0.4, force_weight = 0.6,

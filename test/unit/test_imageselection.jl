@@ -182,7 +182,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         sg = _cubic_sign_group(cr)
         cls = build_clusters(cr, build_neighbor_list(cr, Inf, MinimumImage()), sg;
                              nbody = 2, selection = MinimumImage())
-        salcs = build_salc_basis(cr, sg, cls; lmax_by_species = [1], isotropy = true)
+        salcs = build_salc_basis(cr, sg, cls; lmax_by_species = [1], scalar_only = true)
         b = SLCEBasis(cr, sg, salcs, inter)
         rng = MersenneTwister(11)
         randcol() = (v = randn(rng, 3); v / norm(v))

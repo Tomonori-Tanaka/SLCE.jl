@@ -15,7 +15,7 @@ using Random
     c = coeftable(f)
 
     @testset "Tables.jl interface + schema" begin
-        @test c isa SCECoefficients
+        @test c isa SLCECoefficients
         @test Tables.istable(typeof(c))
         @test Tables.rowaccess(typeof(c))
         sch = Tables.schema(c)
@@ -93,6 +93,6 @@ using Random
     end
 
     @testset "errors" begin
-        @test_throws ArgumentError SCECoefficients(basis.salc_basis.keys, Float64[], 0.0)  # length mismatch
+        @test_throws ArgumentError SLCECoefficients(basis.salc_basis.keys, Float64[], 0.0)  # length mismatch
     end
 end

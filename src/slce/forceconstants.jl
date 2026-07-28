@@ -326,9 +326,24 @@ vectors), so `q·R` is the plain dot product with the integer lattice shift and
 `q = [0,0,0]` is Γ. Rows and columns run atom-major, Cartesian-minor
 (`3(a−1) + α`), matching the package's other derivative layouts.
 
-`masses` (length `n_atoms`, positive) applies the `1/√(MₐM_b)` weighting, making the
-eigenvalues `ω²`; omit it to get the unweighted force-constant matrix. The result is
-Hermitian up to roundoff, and `D(−q) = conj(D(q))`.
+`masses` (length `n_atoms`, positive, **in amu**) applies the `1/√(MₐM_b)` weighting;
+omit it to get the unweighted force-constant matrix. The result is Hermitian up to
+roundoff, and `D(−q) = conj(D(q))`.
+
+!!! note "The eigenvalues are `ω²` in eV/Å²/amu — convert before quoting a frequency"
+    The package fits energies in eV and displacements in Å, so with `masses` in amu
+    the eigenvalues `λ` of the weighted `D(q)` carry units of **eV/(Å²·amu)**. They
+    are `ω²` in those units and in no other; `sqrt.(λ)` is not a frequency in any
+    standard one. The conversions:
+
+    ```
+    ν [THz]  = √λ × 15.633302              # ordinary frequency (the 2π is included)
+    ν [cm⁻¹] = √λ × 15.633302 × 33.35641
+    ```
+
+    A negative `λ` is an imaginary mode; quote it as `−√(−λ)` in the same units.
+    (This is the same constant phonopy calls `VaspToTHz`, and the `test/alamode/`
+    suite pins it by comparing against `anphon`'s own cm⁻¹ output.)
 
 For a model satisfying the acoustic sum rule, `D(0)` has three zero eigenvalues (the
 acoustic modes); if it does not, check [`asr_residual`](@ref) on the model the

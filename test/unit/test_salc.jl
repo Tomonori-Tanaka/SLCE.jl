@@ -74,8 +74,8 @@ end
         end
     end
 
-    @testset "isotropy keeps only Lf = 0" begin
-        iso = build_salc_basis(crystal, sg, clusters; lmax_by_species = [2], isotropy = true)
+    @testset "scalar_only keeps only Lf = 0" begin
+        iso = build_salc_basis(crystal, sg, clusters; lmax_by_species = [2], scalar_only = true)
         @test all(s -> s.Lf == 0, iso.salcs)
         @test length(iso) > 0
     end

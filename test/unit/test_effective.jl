@@ -110,7 +110,7 @@ end
         # renormalization is exactly the content a frozen-structure (and later a
         # thermally renormalized) spin model is supposed to carry, so assert it on the
         # coefficients rather than on a count.
-        spin_only(x) = Dict(t.spins => t.coef for t in x.terms if isempty(t.disps))
+        spin_only(x) = Dict(t.spins => t.scaled_coef for t in x.terms if isempty(t.disps))
         @test keys(spin_only(em)) == keys(spin_only(em0))
         @test any(!isapprox(spin_only(em)[k], spin_only(em0)[k]; rtol = 1e-8)
                   for k in keys(spin_only(em)))
@@ -123,8 +123,8 @@ end
     @testset "terms are canonical, sorted and reproducible" begin
         em2 = effective_model(model; u0)
         @test length(em2) == length(em)
-        @test [(t.coef, t.spins, t.disps) for t in em2.terms] ==
-              [(t.coef, t.spins, t.disps) for t in em.terms]
+        @test [(t.scaled_coef, t.spins, t.disps) for t in em2.terms] ==
+              [(t.scaled_coef, t.spins, t.disps) for t in em.terms]
         @test issorted(em.terms; by = t -> (t.disps, t.spins))
         # one entry per (spins, monomial): no duplicate keys survive the accumulation
         @test length(unique((t.spins, t.disps) for t in em.terms)) == length(em.terms)
@@ -161,7 +161,7 @@ end
     @testset "atol prunes, and says so by breaking exactness" begin
         # Pick the cut from the data (the median coefficient magnitude) rather than a
         # magic number, so the gate keeps meaning if the fixture's scale changes.
-        mags = sort!([abs(t.coef) for t in em.terms])
+        mags = sort!([abs(t.scaled_coef) for t in em.terms])
         emc = effective_model(model; u0, atol = mags[div(end, 2)])
         @test length(emc) < length(em)
         # still close, but no longer the identity — the docstring's warning, gated
