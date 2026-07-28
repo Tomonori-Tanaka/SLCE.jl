@@ -6,6 +6,45 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the magnetic-symmetry contract of the force constants
+
+A four-agent review of the user-facing API against two concrete workflows — a
+collinear-antiferromagnet lattice-dynamics run in the ALAMODE mould, and a
+magnetic-space-group calculation with SOC — found the package's headline physics
+claim true, load-bearing, and written down nowhere. That is now fixed, together
+with the two ways of losing it silently.
+
+- **`force_constants` documents which group it imposes, and why the joint path is
+  the right one.** Force constants are time-reversal *even*, so an antiunitary
+  element `g·T` of the magnetic space group constrains `Φ` through its rotation
+  part exactly as a unitary element does: the correct invariance group is
+  `D ∪ D′`, not the unitary halving subgroup. The joint path lands on it for
+  free — the SALCs are projected with the paramagnetic grey group `G × {1, T}`,
+  and fixing `spins` reduces that to the magnetic stabilizer with nothing
+  declared. On a stripe-AFM fixture the three candidate groups admit 7 (the
+  paramagnetic group, i.e. a lattice-only basis — *too large*, it zeroes what the
+  order breaks), **12** (`D ∪ D′`, correct), and 16 (`D` alone, which is what
+  relabelling the sublattices as distinct species would impose — *too small*).
+  The joint constants satisfy the unitary *and* the antiunitary half to 1.8e-15
+  and are demonstrably not invariant under the rest. The whole ledger is now a
+  test (`test/unit/test_forceconstants.jl`), built against a hand-assembled
+  P4/mmm group so it needs no Spglib.
+- **`force_constants` warns when the constants cannot depend on `spins`.** A basis
+  carrying spin content and displacement terms of the requested `order`, but no
+  term carrying both, produces `Φ` (and `D(q)`) bit-identical for every magnetic
+  state — a "magnetic" phonon calculation that is not magnetic at all, with a
+  perfect r² and no other signal. The usual way in is declaring the
+  magnetoelastic sector at `disp = (degree = 1,)`, which feeds the *forces*; the
+  harmonic constants need `degree = 2` under a spin-carrying sector. The check
+  reads the basis, never `jphi` — a coefficient that fitted to zero is a property
+  of one fit and `refit` moves it, whereas an empty channel is permanent.
+  README's and the basis guide's magnetoelastic examples now say which
+  deliverable each `degree` feeds.
+- **`fit` warns when a dataset carries forces and `force_weight` is 0** (its
+  default). Nothing downstream can tell that apart from a deliberate energy-only
+  fit, and a force-first workflow — forces are *the* observable in ALAMODE, whose
+  `DFSET` has no energy column at all — lands there by doing nothing wrong.
+
 ### Fixed — whole-package review
 
 A nine-agent review over the whole package (a critical reviewer and a

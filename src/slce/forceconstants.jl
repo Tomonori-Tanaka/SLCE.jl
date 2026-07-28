@@ -104,6 +104,30 @@ A pure-spin model has no displacement content and yields an empty set. Only term
 whose displacement degrees sum to exactly `order` contribute; a model truncated below
 `order` therefore returns fewer (or no) constants rather than an error.
 
+!!! note "Magnetic symmetry: which basis you fit decides which group is imposed"
+    The returned constants are invariant under the **magnetic space group** of
+    `spins` — *including* its antiunitary elements, whose rotation parts constrain
+    `Φ` because force constants are time-reversal even. Nothing has to be declared:
+    the SALCs are projected with the paramagnetic grey group `G × {1, T}`, and fixing
+    `spins` cuts that down to the stabilizer of the magnetic state automatically. On a
+    stripe-AFM fixture the joint path spans exactly the 12 symmetry-allowed Γ-Hessian
+    parameters, with the unitary *and* the antiunitary elements satisfied to 1.8e-15
+    (`test/unit/test_forceconstants.jl`).
+
+    There are two ways to lose that, and both are silent unless you look:
+
+    - **A lattice-only basis** (no spin content anywhere) is projected with the
+      *paramagnetic* group, which for an ordered magnetic state is too large — the
+      components the order breaks are set to exactly zero. The same fixture allows
+      only 7 of the 12. Relabelling the sublattices as distinct species (`"Fe_up"` /
+      `"Fe_dn"`) overshoots the other way: it keeps the unitary subgroup and drops the
+      antiunitary elements, admitting 16. Only the joint path lands on 12.
+    - **A joint basis with no spin-carrying term at this `order`.** A magnetoelastic
+      sector declared `disp = (degree = 1,)` contributes to the *forces*, not to the
+      harmonic constants; those need `degree = 2` under a spin-carrying sector. Without
+      one, `Φ` comes out bit-identical for every `spins` — this function warns when the
+      basis is shaped that way.
+
 !!! note "Translation invariance is not automatic"
     The acoustic sum rule `Σ_{b,R} Φ_{aα,bβ}(R) = 0` holds only if the model
     satisfies it — fit with `asr = true` (the default) or check
@@ -117,6 +141,7 @@ function force_constants(model::SLCEModel; spins::AbstractMatrix{<:Real},
     size(spins) == (3, nat) || throw(DimensionMismatch(
         "spins is $(size(spins)); expected (3, $nat) — one unit column per atom"))
     e = Matrix{Float64}(spins)
+    _warn_spin_blind(model.basis, Int(order))
     out = Dict{Tuple{Vector{Int},Vector{SVector{3,Int}}},Array{Float64}}()
     polycache = Dict{NTuple{3,Int},SolidHarmonics._Poly}()
     salcs = model.basis.salc_basis.salcs
@@ -137,6 +162,46 @@ function force_constants(model::SLCEModel; spins::AbstractMatrix{<:Real},
         delete!(out, key)
     end
     return ForceConstantSet(Int(order), model.basis.crystal, e, out)
+end
+
+# The trap this catches: a basis that carries spin content AND displacement terms at
+# `order`, but no term carrying BOTH. The constants are then bit-identical for every
+# `spins` — a "magnetic" phonon calculation that is not magnetic at all — and the
+# usual way to land here is declaring the magnetoelastic sector at `disp =
+# (degree = 1,)`, which feeds the forces rather than the harmonic constants.
+#
+# Read off the BASIS, never off `jphi`: a coefficient that happens to have fitted to
+# zero is a property of one fit and `refit` moves it, whereas an empty channel is
+# permanent. Same reason `multipole_terms` triggers on the spec.
+function _warn_spin_blind(basis::SLCEBasis, order::Int)
+    any_spin = false
+    disp_at_order = false
+    for salc in basis.salc_basis.salcs
+        any_spin |= any(has_spin, salc.decors)
+        for mem in salc.members, t in mem.terms
+            deg = 0
+            spinful = false
+            for s in t.slots
+                if s.factor.channel == DISP
+                    deg += 2 * s.factor.k + s.factor.l
+                else
+                    spinful = true
+                end
+            end
+            deg == order || continue
+            spinful && return nothing            # a spin-dressed term at this order
+            disp_at_order = true
+        end
+    end
+    if any_spin && disp_at_order
+        @warn "force_constants: order-$order constants do not depend on `spins` — the " *
+              "basis has spin content and displacement terms of degree $order, but no " *
+              "term carries both, so Φ (and D(q)) is identical for every magnetic " *
+              "state. A magnetoelastic sector at `disp = (degree = 1,)` contributes " *
+              "to the forces; harmonic constants need `degree = $order` under a " *
+              "spin-carrying sector." maxlog = 1
+    end
+    return nothing
 end
 
 function _accumulate_fcs!(out, weight::Float64, t::SALCTerm, mem::SALCMember,

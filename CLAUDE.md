@@ -414,6 +414,24 @@ Easy to break silently — confirm before touching the algorithm.
   FRACTIONAL reciprocal coordinates (the package's `reciprocal` carries no 2π, so the
   phase is written `exp(2πi q·R)` with an integer `R`) and lays rows out atom-major /
   Cartesian-minor like every other derivative block.
+  **The magnetic symmetry of the result is a consequence of the projection, not an
+  input, and it is the package's headline physics claim** — say it wherever force
+  constants are described. Force constants are time-reversal EVEN, so an antiunitary
+  `g·T` constrains `Φ` through its rotation part like a unitary element: the correct
+  group is `D ∪ D′`, and the joint path lands on it because the SALCs carry the
+  paramagnetic grey group `G × {1, T}` and fixing `spins` reduces that to the magnetic
+  stabilizer. Both neighbours are wrong and silent — a lattice-only basis imposes the
+  paramagnetic group (too large), sublattice-relabelled species impose `D` alone (too
+  small, and this is what ALAMODE's `MAGMOM` does: `alm/system.cpp` splits atom types
+  by `(element, m_z)` and feeds that to spglib). The three counts 7 / 12 / 16 on the
+  stripe-AFM fixture are the ledger, gated in `test_forceconstants.jl` against a
+  hand-assembled P4/mmm group (no Spglib in the core env — `_basis_with_sg` calls the
+  same three builders `SLCEBasis` does). `_warn_spin_blind` is the other half: a basis
+  with spin content and displacement terms at `order`, but no term carrying both,
+  yields `Φ` identical for every magnetic state. It reads the BASIS, never `jphi`
+  (`multipole_terms` precedent — a coefficient fitted to zero is one fit's property,
+  `refit` moves it), and its `maxlog = 1` is why the gate checks the SILENT cases
+  first: a silence assertion after the warning has fired asserts nothing.
 - **Re-expansion ↔ the same displacement polynomial** (`slce/effective.jl`,
   `test/unit/test_effective.jl`): `effective_model(model; u0)` is the THIRD consumer of
   `SolidHarmonics.solid_harmonic_poly`, after the ASR builder and the force constants —

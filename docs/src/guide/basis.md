@@ -104,8 +104,28 @@ admitting sector grants it. A sector-expressed pure-spin spec builds the same
 basis, bit for bit, as the dense form.
 
 Spin configurations alone cannot train a displacement-decorated basis — the
-spin-configuration `SLCEDataset` path refuses such a basis (the joint data
-layer with displacements and forces is scheduled work).
+spin-configuration `SLCEDataset` path refuses such a basis. Build the dataset from
+[`TrainingDatum`](@ref) vectors instead, which carry the displacements and forces;
+see [Persistence and I/O](@ref).
+
+### Which sector feeds which deliverable
+
+A sector's displacement `degree` is the *total polynomial degree* in `u`, and
+[`force_constants`](@ref) at `order = n` collects exactly the terms of degree `n`.
+So the `dJ/dr` row above (`degree = 1`) contributes to the energy and the **forces**,
+and contributes nothing to the harmonic constants: a basis whose only spin-carrying
+displacement sector is `degree = 1` produces force constants that are bit-identical
+for every magnetic state. For magnetic-state-dependent phonons, give a spin-carrying
+sector `disp = (degree = 2,)` (`force_constants` warns when the basis is shaped the
+other way).
+
+The same care applies to the *symmetry* the basis imposes. A basis with spin content
+is projected with the paramagnetic grey group, and evaluating it at a fixed magnetic
+state reduces that to the magnetic space group of the state — antiunitary elements
+included, which is what makes the force constants right without the magnetic group
+ever being declared. A lattice-only basis has no such reduction available: it imposes
+the paramagnetic group unconditionally, which for an ordered state is too large. This
+is documented with measured parameter counts under [`force_constants`](@ref).
 
 ## Periodic resolvability: which pairs are physical
 

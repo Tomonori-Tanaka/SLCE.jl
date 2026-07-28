@@ -7,7 +7,8 @@
 
 using Test
 using SLCE
-using SLCE: build_asr, salcs
+using SLCE: build_asr, salcs, _assemble_spacegroup, build_neighbor_list,
+            build_clusters, build_salc_basis, _superset_cutoff, has_spin
 using LinearAlgebra
 using Random
 using StaticArrays
@@ -43,6 +44,105 @@ function _gamma_sum(fcs, nat)
         end
     end
     return S
+end
+
+# ---------------------------------------------------------------------------
+# Magnetic-symmetry ledger (the stripe-AFM fixture used by the last testset).
+# ---------------------------------------------------------------------------
+
+# `SLCEBasis` derives the space group from the crystal, and the core test env has no
+# Spglib — so assemble the group by hand and feed it to the same three builders the
+# constructor calls. `_assemble_spacegroup` validates closure, so a generation that
+# missed an element throws here rather than silently under-symmetrizing the basis.
+function _basis_with_sg(cr, sg, spec)
+    nl = build_neighbor_list(cr, _superset_cutoff(spec), MinimumImage())
+    cl = build_clusters(cr, nl, sg; nbody = spec.nbody, selection = MinimumImage(),
+                        cutoff = spec.cutoff)
+    sb = build_salc_basis(cr, sg, cl, spec; neighbors = nl, selection = MinimumImage())
+    return SLCEBasis(cr, sg, sb, spec)
+end
+
+# Simple-tetragonal a = 3, doubled in x and y: four Fe sites, P4/mmm, 64 operations
+# (16 point ops × 4 sublattice translations). The spins are a stripe antiferromagnet
+# along z whose sign follows x, so the doubling translations are exactly the elements
+# that flip it — the antiunitary half of the magnetic group.
+function _stripe_afm()
+    lat = Lattice(SMatrix{3,3,Float64}([6.0 0 0; 0 6.0 0; 0 0 3.0]))
+    frac = [0.0 0.5 0.0 0.5; 0.0 0.0 0.5 0.5; 0.0 0.0 0.0 0.0]
+    cr = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
+    C4 = SMatrix{3,3,Float64}([0 -1 0; 1 0 0; 0 0 1])   # +90° about z, exact in frac
+    Mx = SMatrix{3,3,Float64}([1 0 0; 0 -1 0; 0 0 -1])  # C2 about x
+    pts = [SMatrix{3,3,Float64}(I)]
+    for _ = 1:6, g in (C4, Mx, SMatrix{3,3,Float64}(-I)), p in copy(pts)
+        q = g * p
+        any(x -> x ≈ q, pts) || push!(pts, q)
+    end
+    trs = [SVector{3,Float64}(0, 0, 0), SVector{3,Float64}(0.5, 0, 0),
+           SVector{3,Float64}(0, 0.5, 0), SVector{3,Float64}(0.5, 0.5, 0)]
+    rots = [p for p in pts for _ in trs]
+    tran = [t for _ in pts for t in trs]
+    sg = _assemble_spacegroup(cr, rots, tran, "P4/mmm", 123; tol = 1e-8)
+    e = [0.0 0.0 0.0 0.0; 0.0 0.0 0.0 0.0; 1.0 -1.0 1.0 -1.0]
+    return cr, sg, e
+end
+
+_opdata(sg, o) = (Matrix(sg.ops[o].rotation_cart), sg.map_sym[:, o])
+
+# Spins are AXIAL: `e → det(R)·R·e`, then permuted by the operation's site map. `:D`
+# preserves the magnetic state, `:Dp` reverses it (so `g·T` is a symmetry and its
+# rotation part still constrains a time-reversal-EVEN tensor), `:out` is neither.
+function _spinclass(sg, o, e)
+    R, p = _opdata(sg, o)
+    ep = zeros(size(e))
+    for a in axes(e, 2)
+        ep[:, p[a]] = det(R) * R * e[:, a]
+    end
+    return isapprox(ep, e; atol = 1e-10) ? :D :
+           isapprox(ep, -e; atol = 1e-10) ? :Dp : :out
+end
+
+# `H_{p(a)p(b)} = R H_{ab} Rᵀ` — the transformation a Γ-Hessian must satisfy.
+function _act(H, R, p, nat)
+    K = zeros(size(H))
+    for a = 1:nat, b = 1:nat
+        K[3(p[a] - 1) + 1:3p[a], 3(p[b] - 1) + 1:3p[b]] =
+            R * H[3(a - 1) + 1:3a, 3(b - 1) + 1:3b] * R'
+    end
+    return K
+end
+
+# Dimension of the space of symmetric Γ-Hessians invariant under `ops`, as the trace
+# of the group-averaging projector written in the symmetric-matrix basis.
+function _invdim(ops, nat)
+    n = 3nat
+    bas = [(i, j) for i = 1:n for j = i:n]
+    M = zeros(length(bas), length(bas))
+    for (c, (i, j)) in enumerate(bas)
+        H = zeros(n, n)
+        H[i, j] += 1
+        H[j, i] += 1
+        i == j && (H[i, j] = 1)
+        A = zeros(n, n)
+        for (R, p) in ops
+            A .+= _act(H, R, p, nat)
+        end
+        A ./= length(ops)
+        for (r, (k, l)) in enumerate(bas)
+            M[r, c] = A[k, l]
+        end
+    end
+    return round(Int, tr(M))
+end
+
+# Σ_R of the anchored constants as a 3N × 3N matrix.
+function _gamma_matrix(model, e, nat)
+    H = zeros(3nat, 3nat)
+    for ((atoms, _), T) in force_constants(model; spins = e, order = 2).constants
+        for α = 1:3, β = 1:3
+            H[3(atoms[1] - 1) + α, 3(atoms[2] - 1) + β] += T[α, β]
+        end
+    end
+    return H
 end
 
 @testset "force constants and the dynamical matrix" begin
@@ -231,5 +331,102 @@ end
         # a zero model has no constants (the all-cancelled tuples are dropped)
         @test isempty(force_constants(SLCEModel(b, 1.0, zeros(n_salcs(b)));
                                       spins = e).constants)
+    end
+
+    # ---------------------------------------------------------------------
+    # The package's headline physics claim, and the two ways to lose it.
+    #
+    # Force constants are time-reversal EVEN, so an antiunitary element `g·T` of the
+    # magnetic space group constrains Φ through its rotation part `g` exactly as a
+    # unitary element does. The correct invariance group is therefore `D ∪ D′`, not
+    # the unitary halving subgroup `D` — and the joint path lands on it for free: the
+    # SALCs are projected with the paramagnetic grey group `G × {1, T}`, and fixing
+    # `spins` reduces that to the magnetic stabilizer with nothing declared.
+    #
+    # The ledger below is the whole argument in three numbers, and neither neighbour
+    # is reachable by accident: a lattice-only basis imposes the paramagnetic group
+    # (too large — it zeroes what the order breaks), and relabelling the sublattices
+    # as distinct species would impose `D` alone (too small — it drops `D′`).
+    # ---------------------------------------------------------------------
+    @testset "magnetic symmetry: the joint path imposes D ∪ D′, exactly" begin
+        cr4, sg4, eafm = _stripe_afm()
+        nat4 = 4
+        @test length(sg4.ops) == 64
+        cls = [_spinclass(sg4, o, eafm) for o in eachindex(sg4.ops)]
+        @test count(==(:D), cls) == 16
+        @test count(==(:Dp), cls) == 16          # the antiunitary half is NOT empty
+        @test count(==(:out), cls) == 32
+        pick(k) = [_opdata(sg4, o) for o in eachindex(sg4.ops) if cls[o] == k]
+        # 78 raw parameters in a symmetric 12 × 12; the three groups admit:
+        @test _invdim([_opdata(sg4, o) for o in eachindex(sg4.ops)], nat4) == 7
+        @test _invdim(vcat(pick(:D), pick(:Dp)), nat4) == 12    # physically correct
+        @test _invdim(pick(:D), nat4) == 16                     # unitary only
+
+        spec4 = BasisSpec(cr4; lmax = 2, pmax = 2, sectors = [
+            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 3.1),
+            Sector(spin = (nbody = 2, lmax = 2), disp = (degree = 2,), nbody = 2,
+                   cutoff = 3.1),
+            Sector(spin = (nbody = 1, lmax = 2), disp = (degree = 2,), nbody = 1:2,
+                   cutoff = 3.1)])
+        bj = _basis_with_sg(cr4, sg4, spec4)
+        mj = SLCEModel(bj, 0.0, randn(MersenneTwister(11), n_salcs(bj)))
+        Hj = _gamma_matrix(mj, eafm, nat4)
+        viol(ops) = maximum(o -> maximum(abs, _act(Hj, o[1], o[2], nat4) - Hj), ops)
+        tol = 1e-10 * norm(Hj)
+        @test viol(pick(:D)) < tol
+        @test viol(pick(:Dp)) < tol              # the kill shot: antiunitary too
+        # and it is not invariant under everything — the constraint has content
+        @test viol(pick(:out)) > 1e-3 * norm(Hj)
+
+        # Over-symmetrization, made concrete. Every operation of the paramagnetic
+        # group survives in a lattice-only basis, including the C4 that exchanges the
+        # x and y axes — so its on-site Φ is forced isotropic in-plane no matter what
+        # the magnetic order does. The stripe breaks that axis exchange, and the
+        # joint model sees it.
+        bl = _basis_with_sg(cr4, sg4, BasisSpec(cr4; lmax = 0, pmax = 2, sectors = [
+            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 3.1)]))
+        Hl = _gamma_matrix(SLCEModel(bl, 0.0, randn(MersenneTwister(12), n_salcs(bl))),
+                           eafm, nat4)
+        @test Hl[1, 1] == Hl[2, 2]               # exactly, by projection
+        @test abs(Hj[1, 1] - Hj[2, 2]) > 1e-3 * norm(Hj)
+
+        # Two magnetic states, one model: the constants really do depend on `spins`.
+        Hfm = _gamma_matrix(mj, ones(3, nat4) ./ √3, nat4)
+        @test norm(Hj - Hfm) > 1e-3 * norm(Hj)
+    end
+
+    # The other silent way to lose it: a joint basis whose only spin-carrying
+    # displacement sector sits at `degree = 1`. That row feeds the FORCES; nothing
+    # reaches order 2, so Φ comes out bit-identical for every magnetic state while
+    # the fit reports a perfect r². The warning is the only signal a user gets.
+    @testset "a spin-blind order: degree = 1 magnetoelastic warns, degree = 2 does not" begin
+        cr4, sg4, eafm = _stripe_afm()
+        # The quiet cases go FIRST: the warning carries `maxlog = 1`, so checking a
+        # silent call after a noisy one would assert nothing.
+        lat_only = BasisSpec(cr4; lmax = 0, pmax = 2,
+                             sectors = [Sector(disp = (degree = 2,), nbody = 1:2,
+                                               cutoff = 3.1)])
+        ml = SLCEModel(_basis_with_sg(cr4, sg4, lat_only), 0.0,
+                       randn(MersenneTwister(13), n_salcs(_basis_with_sg(cr4, sg4,
+                                                                        lat_only))))
+        @test_logs force_constants(ml; spins = eafm)     # no spin content to lose
+        @test_logs force_constants(restrict(model, :spin); spins = e)  # no disp content
+        # the dJ/dr row at degree 2 does reach order 2, and says nothing
+        seeing = _basis_with_sg(cr4, sg4, BasisSpec(cr4; lmax = 2, pmax = 2, sectors = [
+            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 3.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 3.1)]))
+        ms = SLCEModel(seeing, 0.0, randn(MersenneTwister(13), n_salcs(seeing)))
+        @test_logs force_constants(ms; spins = eafm)
+
+        # ...and the same row at degree 1 — the spelling both the README and the
+        # basis guide use for magnetoelastic coupling — does not.
+        blind = _basis_with_sg(cr4, sg4, BasisSpec(cr4; lmax = 2, pmax = 2, sectors = [
+            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 3.1),
+            Sector(spin = [1, 1], disp = (degree = 1,), nbody = 2, cutoff = 3.1)]))
+        mb = SLCEModel(blind, 0.0, randn(MersenneTwister(13), n_salcs(blind)))
+        @test any(s -> any(has_spin, s.decors), salcs(blind))   # spin content exists
+        @test_logs (:warn, r"do not depend on `spins`") force_constants(mb; spins = eafm)
+        # and it is not crying wolf: the constants ARE spin-independent here
+        @test _gamma_matrix(mb, eafm, 4) == _gamma_matrix(mb, ones(3, 4) ./ √3, 4)
     end
 end

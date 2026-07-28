@@ -283,6 +283,17 @@ function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator
     w = Float64(torque_weight)
     wF = Float64(force_weight)
     _validate_fit_request(dataset, w, wF)
+    # The converse of the `wF > 0 && !has_force` error above, and the one that costs
+    # a user something: `force_weight` defaults to 0, so a dataset built from force
+    # data fits its energies alone unless the weight is passed. Nothing downstream
+    # can tell that apart from a deliberate energy-only fit, which is why it is said
+    # here rather than left to the residuals.
+    if wF == 0.0 && has_force(dataset)
+        @warn "fit: the dataset carries forces but force_weight = 0 (the default) — " *
+              "this fit is determined by the energies" *
+              (w > 0 ? " and torques" : "") *
+              " alone. Pass force_weight > 0 to use the force channel." maxlog = 1
+    end
     rep = _resolve_asr_rep(dataset, asr)
     if frozen !== nothing || sector_mask !== :all
         rep = _fit_stage(dataset, rep, frozen, sector_mask, estimator)

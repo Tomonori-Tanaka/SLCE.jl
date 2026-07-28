@@ -68,6 +68,17 @@ From a fitted joint model:
 | `effective_model(model; u0)` | an exact re-expansion around a displaced structure |
 | `decorated_terms(model)` | the raw term contract for downstream samplers |
 
+`force_constants` is where the joint expansion earns its keep. Its output is
+invariant under the **magnetic space group** of the spin state you evaluate at —
+antiunitary elements included — without that group ever being declared: the SALCs
+are projected with the paramagnetic grey group, and fixing `spins` reduces it to the
+magnetic stabilizer automatically. Fitting a *lattice-only* basis to magnetically
+ordered data instead imposes the paramagnetic group, which is too large, and zeroes
+the components the order breaks. Note which sector feeds which deliverable, though:
+the `degree = 1` magnetoelastic row above contributes to the **forces**; harmonic
+constants that depend on the magnetic state need `degree = 2` under a spin-carrying
+sector.
+
 ## Usage
 
 ```julia

@@ -267,6 +267,24 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
                                                    disps = ds.disps[1:1])
     end
 
+    # The mirror of the `wF > 0 && !has_force` error below, and the one that costs a
+    # user something rather than stopping them: `force_weight` defaults to 0, so a
+    # dataset assembled from force data fits its energies alone unless the weight is
+    # passed. An ALAMODE-shaped workflow — forces are THE observable there — lands
+    # here by doing nothing wrong, and nothing downstream can tell the result apart
+    # from a deliberate energy-only fit.
+    @testset "forces present but unweighted: the default says so" begin
+        said(f) = any(l -> occursin("carries forces but force_weight = 0", string(l.message)),
+                      first(Test.collect_test_logs(f)))
+        # The quiet cases go FIRST: the warning carries `maxlog = 1`, so asserting
+        # silence after it has already fired would assert nothing.
+        dsq = SLCEDataset(basis, [mkdatum(withT = false, withF = false) for _ = 1:8];
+                          use_torque = false, use_force = false)
+        @test !said(() -> fit(SLCEFit, dsq, OLS(); asr = false))
+        @test !said(() -> fit(SLCEFit, ds, OLS(); force_weight = 0.5, asr = false))
+        @test said(() -> fit(SLCEFit, ds, OLS(); asr = false))
+    end
+
     @testset "fit / dataset error surface" begin
         @test_throws ArgumentError fit(SLCEFit, ds, OLS(); force_weight = 1.5)
         @test_throws ArgumentError fit(SLCEFit, ds, OLS(); force_weight = -0.1)
