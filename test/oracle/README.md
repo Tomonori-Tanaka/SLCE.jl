@@ -32,8 +32,20 @@ gitignored.
 Raw SALC coefficients and individual design-matrix columns are **not** compared
 directly — they are gauge-dependent.
 
-## Pinning
+## Pinning — there isn't any
 
-Both packages are `[sources]`-deved from local paths. The pinned Magesty rev is
-recorded in `Project.toml`; keep the local `../../../Magesty.jl` checkout at that
-rev for reproducible comparisons.
+Both packages are `[sources]`-deved from local paths, and a path source **cannot
+carry a rev**. `Project.toml` has no rev and no `[compat]` for Magesty, so this
+suite compares against whatever `../../../Magesty.jl` happens to be checked out
+at. This file used to claim a pin was "recorded in `Project.toml`"; it never was.
+
+Two consequences, both of which are the price of a path source and neither of
+which is fixed by wishing:
+
+- A result from this suite is only meaningful together with the Magesty rev it
+  ran against. `runtests.jl` therefore logs that rev (and whether the checkout is
+  dirty) as its first line — quote it with any comparison you report.
+- Reproducing an old comparison means checking Magesty out at the rev in that
+  run's log, not at "the pinned rev".
+
+Last verified against Magesty `ab898fc` (2026-07-28).

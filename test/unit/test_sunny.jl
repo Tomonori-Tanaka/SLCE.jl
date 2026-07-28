@@ -147,6 +147,51 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         @test isapprox(_reconstruct_energy(terms, eu), ntran * e_prim; atol = 1e-10)
     end
 
+    @testset "primitive unfold: two sublattices, no inversion" begin
+        # The fixture above has ONE sublattice, so the `sublattice` translation-orbit
+        # grouping, the per-sublattice origin, and `cellof`'s subtraction of it are all
+        # exercised at their trivial value — a bug that mixes sublattices up cannot
+        # show. It is also centrosymmetric, so a bond and its reverse are related by a
+        # symmetry the unfold does not have to distinguish.
+        #
+        # This one is a 2× supercell of a TWO-atom primitive cell whose basis is
+        # Fe at 0 and Co at 0.3 along z: two sublattices of different species, hence
+        # no inversion centre anywhere (inversion would have to exchange Fe with Co).
+        lat = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
+        cr = Crystal(lat, [0 0 0 0; 0 0 0 0; 0.0 0.15 0.5 0.65],
+                     [1, 2, 1, 2], ["Fe", "Co"])
+        rots = fill(SMatrix{3,3,Float64}(I), 2)
+        trans = [SVector{3,Float64}(0, 0, t) for t in (0.0, 0.5)]
+        sg = _assemble_spacegroup(cr, rots, trans, "chainZ2-FeCo", 1; tol = 1e-8)
+        nl = build_neighbor_list(cr, 3.6, MinimumImage())
+        cls = build_clusters(cr, nl, sg; nbody = 2, selection = MinimumImage())
+        salcs = build_salc_basis(cr, sg, cls; lmax_by_species = [1, 1], isotropy = false)
+        basis = SLCEBasis(cr, sg, salcs,
+                         BasisSpec(; nbody = 2, cutoff = 3.6, lmax = [1, 1], soc = true))
+        rng = MersenneTwister(11)
+        model = SLCEModel(basis, 0.25, randn(rng, n_salcs(basis)), basis.salc_basis.keys)
+
+        prim = _sunny_primitive(model)
+        @test prim.clean
+        @test length(prim.positions) == 2                     # two sublattices
+        @test Set(prim.types) == Set(["Fe", "Co"])            # and they are told apart
+        @test all(p -> all(0 .<= p .< 1), prim.positions)      # inside the primitive cell
+        ntran = round(Int, abs(det(Matrix(prim.reshape))))
+        @test ntran == 2
+        @test length(prim.bonds) * ntran == length(_bilinear_terms(model).pairs)
+        # every primitive bond joins two REAL sublattices at a resolvable offset
+        for ((i, j, n), _) in prim.bonds
+            @test 1 <= i <= 2 && 1 <= j <= 2
+            @test (i, j, Tuple(n)) != (i, i, (0, 0, 0))       # no self-bond at zero
+        end
+
+        terms = _bilinear_terms(model)
+        e0 = (v = randn(rng, 3); v / norm(v))
+        eu = repeat(e0, 1, n_atoms(cr))
+        e_prim = sum(dot(e0, M * e0) for (_, M) in prim.bonds; init = 0.0)
+        @test isapprox(_reconstruct_energy(terms, eu), ntran * e_prim; atol = 1e-10)
+    end
+
     @testset "no symmetry ⇒ primitive fold is the supercell itself (clean, trivial)" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])

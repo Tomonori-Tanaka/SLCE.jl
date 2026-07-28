@@ -47,6 +47,19 @@ end
                  [1/6 -1/6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     nat = 2
 
+    @testset "the field list is part of the contract" begin
+        # `RowLayout`'s `==` and `hash` are written out field by field (the default
+        # `==` would compare the vector fields by identity, so a freshly derived
+        # layout would never equal a stored one — and "did the support move?" is
+        # exactly what a consumer asks across a coefficient hot-swap or a
+        # checkpoint reload). Hand-written means a NEW field is silently excluded:
+        # two layouts differing only in it would compare equal, and every
+        # layout-change gate downstream would go quiet. Adding a field is fine —
+        # extend `==`, `hash`, and this tuple together.
+        @test fieldnames(SLCE.RowLayout) ==
+              (:nrows, :spin_lmax, :disp_offset, :disp_factors, :disp_starts)
+    end
+
     @testset "pure spin: the layout IS the existing lm_index numbering" begin
         # the whole point of putting SPIN first at offset 0 — a spin-only consumer's
         # row tables must not move when the displacement channel is added to the

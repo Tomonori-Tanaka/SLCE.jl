@@ -102,9 +102,12 @@ function _sunny_primitive(model::SLCEModel)::SunnyPrimitive
         end
     end
     nsubl = length(reps)
-    positions = [SVector{3,Float64}(mod.(Lp \ SVector{3,Float64}(cart[1, reps[i]],
-                                                                 cart[2, reps[i]],
-                                                                 cart[3, reps[i]]), 1.0))
+    # `_wrap01`, not a bare `mod`: a sublattice origin landing at exactly 1.0
+    # instead of 0.0 is handed to Sunny as a position outside the unit cell, and
+    # two sublattices at 0.0 and 1.0 are the same site described twice.
+    positions = [SVector{3,Float64}(_wrap01.(Lp \ SVector{3,Float64}(cart[1, reps[i]],
+                                                                     cart[2, reps[i]],
+                                                                     cart[3, reps[i]])))
                  for i = 1:nsubl]
     types = [crystal.species_labels[crystal.species[reps[i]]] for i = 1:nsubl]
 

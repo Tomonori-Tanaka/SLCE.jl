@@ -26,8 +26,9 @@ jobs:
           version: ${{ matrix.version }}
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
-      # TEST_MODE=all: unit + Aqua + JET (the oracle / Sunny / GLMNet suites carry
-      # heavy optional deps and stay local-only — see CLAUDE.md's test table).
+      # TEST_MODE=all: unit + Aqua + JET. The extension suites (Sunny / GLMNet) run
+      # in their own job below; only the oracle stays local-only, because it needs a
+      # Magesty checkout that is not published anywhere CI can reach.
       #
       # JULIA_NUM_THREADS > 1 is REQUIRED, not a speed knob: the threaded-vs-serial
       # gates (`test_threading.jl`, and the deterministic basis build in
@@ -38,6 +39,35 @@ jobs:
       - uses: julia-actions/julia-runtest@v1
         env:
           TEST_MODE: all
+          JULIA_NUM_THREADS: "4"
+
+  extensions:
+    name: extension suite — ${{ matrix.suite }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [sunny, glmnet]
+    steps:
+      # `ext/SLCESunnyExt.jl` and `ext/SLCEGLMNetExt.jl` are only loaded when their
+      # trigger package is present, so NOTHING in the main job compiles them — the
+      # extensions were shipping on the strength of a local run. Both triggers are
+      # registered packages that install fine here; the suites carry their own
+      # environment (`test/<suite>/Project.toml`, `[sources]`-deved onto this
+      # checkout) and their own Manifest, so this also catches a resolver break.
+      #
+      # The oracle suite is deliberately NOT here: it needs a sibling Magesty
+      # checkout, which is not a registered package.
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.12"
+      - uses: julia-actions/cache@v2
+      - name: Instantiate the ${{ matrix.suite }} environment
+        run: julia --project=test/${{ matrix.suite }} -e 'using Pkg; Pkg.instantiate()'
+      - name: Run the ${{ matrix.suite }} suite
+        run: julia --project=test/${{ matrix.suite }} test/${{ matrix.suite }}/runtests.jl
+        env:
           JULIA_NUM_THREADS: "4"
 
   examples:

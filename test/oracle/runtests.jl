@@ -1,11 +1,17 @@
 # Oracle validation: SLCE's from-scratch numerics vs Magesty.jl.
 #
 # Conventions are pinned independently by the core suite (closed forms, on-sphere
-# finite differences). Here we additionally confirm bit-for-bit agreement with
-# Magesty, which guards the convention all the way to the design matrix and
+# finite differences). Here we additionally confirm agreement with Magesty to a
+# stated tolerance — NOT bit-for-bit, as this header used to claim: the two use
+# different Legendre primitives, so the last ulp differ by construction. What the
+# comparison guards is the convention, all the way to the design matrix and the
 # predictions downstream. Gauge-dependent quantities (raw SALC coefficients) are
 # NOT compared directly — only convention-fixed kernels and gauge-invariant
 # aggregates / predictions (added as later milestones land).
+#
+# There is no rev pin: Magesty enters through a `[sources]` path, which cannot
+# carry one. Whatever the sibling checkout holds is what this ran against, so it
+# is reported below and belongs in any result you quote.
 
 using Test
 using Random
@@ -21,6 +27,25 @@ const MRH = SLCE.Harmonics
 const MRA = SLCE.AngularMomentum
 const MTH = Magesty.TesseralHarmonics
 const MTR = Magesty.RotationMatrix
+
+# Report what this run actually compared against. The `[sources]` path cannot
+# pin a rev, so the answer is "whatever the checkout is at" — which is fine, but
+# only if it is stated rather than assumed.
+function _oracle_provenance()
+    dir = dirname(dirname(pathof(Magesty)))
+    rev = try
+        strip(read(`git -C $dir rev-parse --short HEAD`, String))
+    catch
+        "unknown (not a git checkout, or git unavailable)"
+    end
+    dirty = try
+        isempty(read(`git -C $dir status --porcelain`, String)) ? "" : " +dirty"
+    catch
+        ""
+    end
+    return "$dir @ $rev$dirty"
+end
+@info "oracle: comparing against Magesty at $(_oracle_provenance())"
 
 rand_unit(rng) = (v = SVector{3,Float64}(randn(rng), randn(rng), randn(rng)); v / norm(v))
 

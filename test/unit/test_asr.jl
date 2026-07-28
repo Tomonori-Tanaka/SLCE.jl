@@ -61,13 +61,28 @@ end
     rng = MersenneTwister(0xA5)
 
     @testset "solid_harmonic_poly ≡ kernel (builder's symbolic side)" begin
+        # The bound is scaled to the evaluation's own conditioning. `poly_eval`
+        # sums signed monomials, so its error is bounded by `n·eps·Σ|terms|` — and
+        # the cancellation `Σ|terms| / |result|` reaches 4e5 here, which is a
+        # property of the polynomial form, not a defect. A flat `rtol = 1e-12`
+        # (what this used to be) is therefore two things at once: far too loose
+        # where the sum is benign, and WRONG where it is not — at 200 draws per
+        # (k, l, m) the plain relative error reaches 4.8e-11, 48× over that rtol.
+        # It only ever passed because three fixed draws never hit those points.
+        #
+        # Against `eps·Σ|terms|` the residual is bounded and small: measured max
+        # 20 over three seeds × 2000 draws × |u| spanning 0.05–20, so 128 leaves
+        # ~6× headroom while being far tighter than the old rtol wherever the
+        # evaluation is well conditioned.
         for l = 0:10, mm = -l:l, k = 0:2
             p = solid_harmonic_poly(k, l, mm)
             @test all(key -> sum(key) == 2 * k + l, keys(p))   # homogeneous
-            for _ = 1:3
-                u = randn(rng, 3)
+            for _ = 1:20
+                u = randn(rng, 3) .* rand(rng, (0.05, 1.0, 20.0))
                 r2k = (u[1]^2 + u[2]^2 + u[3]^2)^k
-                @test poly_eval(p, u) ≈ r2k * Rlm(l, mm, u) atol = 1e-12 rtol = 1e-12
+                mag = sum(abs(c) * abs(u[1]^ky[1] * u[2]^ky[2] * u[3]^ky[3])
+                          for (ky, c) in p)
+                @test abs(poly_eval(p, u) - r2k * Rlm(l, mm, u)) <= 128 * eps() * mag
             end
         end
     end

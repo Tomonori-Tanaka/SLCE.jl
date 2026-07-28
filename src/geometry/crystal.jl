@@ -1,3 +1,19 @@
+# Wrap a fractional coordinate into the HALF-OPEN [0, 1).
+#
+# `mod` alone does not deliver it: for a tiny negative input the exact result is
+# below the float resolution near 1, so it rounds UP to exactly 1.0 — verified,
+# `mod(-1e-18, 1.0) === 1.0` (and likewise at -1e-17). The snap is not cosmetic:
+# `build_neighbor_list`'s AllImages image box (`nrange = ceil(cutoff·‖b_d‖)`,
+# neighborlist.jl) is exactly tight and its derivation needs |Δf_d| < 1 STRICTLY,
+# so a coordinate at 1.0 silently drops the shell sitting on the cutoff sphere
+# (measured: 102 pairs against a brute force of 104 on a triclinic cell).
+# `_fp_quant` in io/dftsource.jl documents the same boundary from the other side.
+#
+# Every place that wraps a fractional coordinate goes through this, so the
+# boundary convention is decided once: `Crystal`'s constructor and the primitive
+# unfold in interop/sunny.jl.
+@inline _wrap01(x::Real)::Float64 = (y = mod(Float64(x), 1.0); y >= 1.0 ? 0.0 : y)
+
 """
     Crystal(lattice, frac_positions, species, species_labels) -> Crystal
 
@@ -37,20 +53,7 @@ struct Crystal
             throw(ArgumentError("species index $smax exceeds $(length(species_labels)) labels"))
         fr = Matrix{Float64}(frac_positions)
         @inbounds for a = 1:nat, d = 1:3
-            if lattice.pbc[d]
-                # `mod` alone does NOT deliver the documented half-open [0, 1): for a
-                # tiny negative input the exact result is below the float resolution
-                # near 1, so it rounds UP to exactly 1.0 — verified,
-                # `mod(-1e-18, 1.0) === 1.0` (and likewise at -1e-17). The snap is not
-                # cosmetic: `build_neighbor_list`'s AllImages image box
-                # (`nrange = ceil(cutoff·‖b_d‖)`, neighborlist.jl) is exactly tight and
-                # its derivation needs |Δf_d| < 1 STRICTLY, so a coordinate at 1.0
-                # silently drops the shell sitting on the cutoff sphere (measured: 102
-                # pairs against a brute force of 104 on a triclinic cell). `_fp_quant`
-                # in io/dftsource.jl documents the same boundary from the other side.
-                fr[d, a] = mod(fr[d, a], 1.0)
-                fr[d, a] >= 1.0 && (fr[d, a] = 0.0)
-            end
+            lattice.pbc[d] && (fr[d, a] = _wrap01(fr[d, a]))   # see `_wrap01` above
         end
         return new(lattice, fr, collect(Int, species), collect(String, species_labels))
     end
