@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Verification: angular momentum · SLCE.jl</title><meta name="title" content="Verification: angular momentum · SLCE.jl"/><meta property="og:title" content="Verification: angular momentum · SLCE.jl"/><meta property="twitter:title" content="Verification: angular momentum · SLCE.jl"/><meta name="description" content="Documentation for SLCE.jl."/><meta property="og:description" content="Documentation for SLCE.jl."/><meta property="twitter:description" content="Documentation for SLCE.jl."/><meta property="og:url" content="https://tomonori-tanaka.github.io/SLCE.jl/dev/verification/angular_momentum/"/><meta property="twitter:url" content="https://tomonori-tanaka.github.io/SLCE.jl/dev/verification/angular_momentum/"/><link rel="canonical" href="https://tomonori-tanaka.github.io/SLCE.jl/dev/verification/angular_momentum/"/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">SLCE.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><a class="tocitem" href="../../getting_started/">Getting started</a></li><li><span class="tocitem">Guide</span><ul><li><a class="tocitem" href="../../guide/basis/">Building the basis</a></li><li><a class="tocitem" href="../../guide/fitting/">Data and fitting</a></li><li><a class="tocitem" href="../../guide/io/">Persistence and I/O</a></li><li><a class="tocitem" href="../../guide/introspection/">Reading a fitted model</a></li><li><a class="tocitem" href="../../guide/sunny/">Sunny export</a></li></ul></li><li><span class="tocitem">Tutorials</span><ul><li><a class="tocitem" href="../../tutorials/">Tutorials</a></li><li><a class="tocitem" href="../../tutorials/heisenberg_chain/">Heisenberg chain</a></li><li><a class="tocitem" href="../../tutorials/kagome_threebody/">Kagome three-body</a></li><li><a class="tocitem" href="../../tutorials/case1_bcc_fe/">Case 1: bcc Fe</a></li></ul></li><li><span class="tocitem">Theory</span><ul><li><a class="tocitem" href="../../theory/">Theory</a></li><li><a class="tocitem" href="../../theory/slce/">The spin-cluster expansion</a></li><li><a class="tocitem" href="../../theory/resolvability/">Periodic resolvability</a></li><li><a class="tocitem" href="../../theory/architecture/">Architecture</a></li></ul></li><li><span class="tocitem">Verification</span><ul><li class="is-active"><a class="tocitem" href>Verification: angular momentum</a><ul class="internal"><li><a class="tocitem" href="#Clebsch–Gordan-coefficients:-known-values"><span>Clebsch–Gordan coefficients: known values</span></a></li><li><a class="tocitem" href="#Clebsch–Gordan-coefficients:-orthogonality-sweeps"><span>Clebsch–Gordan coefficients: orthogonality sweeps</span></a></li><li><a class="tocitem" href="#Real-Wigner-D-matrices"><span>Real Wigner-D matrices</span></a></li><li><a class="tocitem" href="#Complexreal-unitary"><span>Complex→real unitary</span></a></li><li><a class="tocitem" href="#Worked-example:-tesseral-CG-coefficients-for-l_1-l_2-1"><span>Worked example: tesseral CG coefficients for <span>$l_1 = l_2 = 1$</span></span></a></li><li><a class="tocitem" href="#What-this-page-does-and-does-not-gate"><span>What this page does and does not gate</span></a></li></ul></li></ul></li><li><a class="tocitem" href="../../api/">API reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Verification</a></li><li class="is-active"><a href>Verification: angular momentum</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Verification: angular momentum</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/Tomonori-Tanaka/SLCE.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/Tomonori-Tanaka/SLCE.jl/blob/main/docs/src/verification/angular_momentum.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Verification:-angular-momentum"><a class="docs-heading-anchor" href="#Verification:-angular-momentum">Verification: angular momentum</a><a id="Verification:-angular-momentum-1"></a><a class="docs-heading-anchor-permalink" href="#Verification:-angular-momentum" title="Permalink"></a></h1><p>The SALC projection rests on three pieces of angular-momentum machinery, all implemented from scratch in the public (unexported) <a href="../../api/#SLCE.AngularMomentum"><code>AngularMomentum</code></a> submodule: the Clebsch–Gordan coefficients (Racah single-sum formula, Condon–Shortley phase), the real Wigner-<span>$D$</span> matrices in the tesseral basis, and the complex→real unitary <span>$U^{(l)}$</span>. This page renders the checks of <code>test/unit/test_angmom.jl</code> in human-readable form — every table and summary below is <strong>computed when the documentation is built</strong>, and each section ends in an assertion, so a regression fails the (strict) docs build just as it fails the test suite. The unit tests remain the machine gate; this page is the same evidence, made readable.</p><h2 id="Clebsch–Gordan-coefficients:-known-values"><a class="docs-heading-anchor" href="#Clebsch–Gordan-coefficients:-known-values">Clebsch–Gordan coefficients: known values</a><a id="Clebsch–Gordan-coefficients:-known-values-1"></a><a class="docs-heading-anchor-permalink" href="#Clebsch–Gordan-coefficients:-known-values" title="Permalink"></a></h2><p>Closed-form values from the standard tables (Varshalovich, <em>Quantum Theory of Angular Momentum</em>), including three selection-rule zeros. The notation <code>⟨j₁ m₁; j₂ m₂ → J M⟩</code> stands for <span>$\langle j_1 m_1\, j_2 m_2 | J M \rangle$</span>:</p><pre><code class="language-julia hljs">using SLCE
+using Printf, Markdown
+
+const CG = SLCE.AngularMomentum.clebsch_gordan
+
+known = [
+    (1, 0, 1, 0, 0, 0,   &quot;−1/√3&quot;,              -1 / sqrt(3)),
+    (1, 1, 1, -1, 0, 0,  &quot;1/√3&quot;,               1 / sqrt(3)),
+    (1, 1, 1, -1, 1, 0,  &quot;1/√2&quot;,               1 / sqrt(2)),
+    (1, 1, 1, -1, 2, 0,  &quot;1/√6&quot;,               1 / sqrt(6)),
+    (2, 0, 2, 0, 0, 0,   &quot;1/√5&quot;,               1 / sqrt(5)),
+    (1, 1, 1, 1, 2, 2,   &quot;1 (stretched)&quot;,      1.0),
+    (1, 1, 1, 1, 0, 0,   &quot;0 (M conservation)&quot;, 0.0),
+    (1, 0, 1, 0, 3, 0,   &quot;0 (triangle rule)&quot;,  0.0),
+    (1, 0, 1, 0, 1, 0,   &quot;0 (odd-J symmetry)&quot;, 0.0),
+]
+
+function known_value_table(rows; atol = 1e-14)
+    io = IOBuffer()
+    println(io, &quot;| coefficient | exact | computed | abs. error | pass |&quot;)
+    println(io, &quot;|:---|:---|---:|---:|:---:|&quot;)
+    worst = 0.0
+    for (j1, m1, j2, m2, J, M, expr, exact) in rows
+        val = CG(j1, m1, j2, m2, J, M)
+        err = abs(val - exact)
+        worst = max(worst, err)
+        @printf(io, &quot;| ⟨%d %d; %d %d → %d %d⟩ | %s | %.15f | %.1e | %s |\n&quot;,
+                j1, m1, j2, m2, J, M, expr, val, err, err &lt;= atol ? &quot;✔&quot; : &quot;✗&quot;)
+    end
+    worst &lt;= atol || error(&quot;Clebsch–Gordan known-value check failed (worst $worst)&quot;)
+    return Markdown.parse(String(take!(io)))
+end
+
+known_value_table(known)</code></pre><div class="markdown"><table><tr><th align="left">coefficient</th><th align="left">exact</th><th align="right">computed</th><th align="right">abs. error</th><th align="center">pass</th></tr><tr><td align="left">⟨1 0; 1 0 → 0 0⟩</td><td align="left">−1/√3</td><td align="right">-0.577350269189626</td><td align="right">1.1e-16</td><td align="center">✔</td></tr><tr><td align="left">⟨1 1; 1 -1 → 0 0⟩</td><td align="left">1/√3</td><td align="right">0.577350269189626</td><td align="right">1.1e-16</td><td align="center">✔</td></tr><tr><td align="left">⟨1 1; 1 -1 → 1 0⟩</td><td align="left">1/√2</td><td align="right">0.707106781186548</td><td align="right">1.1e-16</td><td align="center">✔</td></tr><tr><td align="left">⟨1 1; 1 -1 → 2 0⟩</td><td align="left">1/√6</td><td align="right">0.408248290463863</td><td align="right">5.6e-17</td><td align="center">✔</td></tr><tr><td align="left">⟨2 0; 2 0 → 0 0⟩</td><td align="left">1/√5</td><td align="right">0.447213595499958</td><td align="right">0.0e&#43;00</td><td align="center">✔</td></tr><tr><td align="left">⟨1 1; 1 1 → 2 2⟩</td><td align="left">1 &#40;stretched&#41;</td><td align="right">1.000000000000000</td><td align="right">1.1e-16</td><td align="center">✔</td></tr><tr><td align="left">⟨1 1; 1 1 → 0 0⟩</td><td align="left">0 &#40;M conservation&#41;</td><td align="right">0.000000000000000</td><td align="right">0.0e&#43;00</td><td align="center">✔</td></tr><tr><td align="left">⟨1 0; 1 0 → 3 0⟩</td><td align="left">0 &#40;triangle rule&#41;</td><td align="right">0.000000000000000</td><td align="right">0.0e&#43;00</td><td align="center">✔</td></tr><tr><td align="left">⟨1 0; 1 0 → 1 0⟩</td><td align="left">0 &#40;odd-J symmetry&#41;</td><td align="right">0.000000000000000</td><td align="right">0.0e&#43;00</td><td align="center">✔</td></tr></table>
+</div><h2 id="Clebsch–Gordan-coefficients:-orthogonality-sweeps"><a class="docs-heading-anchor" href="#Clebsch–Gordan-coefficients:-orthogonality-sweeps">Clebsch–Gordan coefficients: orthogonality sweeps</a><a id="Clebsch–Gordan-coefficients:-orthogonality-sweeps-1"></a><a class="docs-heading-anchor-permalink" href="#Clebsch–Gordan-coefficients:-orthogonality-sweeps" title="Permalink"></a></h2><p>Individual values can be right by accident; the two orthogonality relations tie the <em>whole</em> coefficient family together. First,</p><p class="math-container">\[\sum_{m_1 m_2} \langle j_1 m_1\, j_2 m_2 | J M \rangle
+              \langle j_1 m_1\, j_2 m_2 | J&#39; M \rangle = \delta_{J J&#39;},\]</p><p>swept over every <span>$(j_1, j_2, J, J&#39;, M)$</span> with <span>$j_1, j_2 \le 3$</span>:</p><pre><code class="language-julia hljs">function cg_orthonormality(jmax)
+    checked = 0
+    maxdev = 0.0
+    for j1 = 0:jmax, j2 = 0:jmax
+        for J = abs(j1 - j2):(j1 + j2), Jp = abs(j1 - j2):(j1 + j2), M = -J:J
+            s = 0.0
+            for m1 = -j1:j1, m2 = -j2:j2
+                s += CG(j1, m1, j2, m2, J, M) * CG(j1, m1, j2, m2, Jp, M)
+            end
+            maxdev = max(maxdev, abs(s - (J == Jp ? 1.0 : 0.0)))
+            checked += 1
+        end
+    end
+    return (sums_checked = checked, max_deviation = maxdev)
+end
+
+ortho = cg_orthonormality(3)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">(sums_checked = 1092, max_deviation = 4.440892098500626e-16)</code></pre><p>and the completeness relation in the other direction,</p><p class="math-container">\[\sum_{J M} \langle j_1 m_1\, j_2 m_2 | J M \rangle
+           \langle j_1 m_1&#39;\, j_2 m_2&#39; | J M \rangle
+         = \delta_{m_1 m_1&#39;} \delta_{m_2 m_2&#39;},\]</p><p>swept over every <span>$(m_1, m_2, m_1&#39;, m_2&#39;)$</span> for the same <span>$j_1, j_2 \le 3$</span>:</p><pre><code class="language-julia hljs">function cg_completeness(jmax)
+    checked = 0
+    maxdev = 0.0
+    for j1 = 0:jmax, j2 = 0:jmax
+        for m1 = -j1:j1, m2 = -j2:j2, m1p = -j1:j1, m2p = -j2:j2
+            s = 0.0
+            for J = abs(j1 - j2):(j1 + j2)
+                s += CG(j1, m1, j2, m2, J, m1 + m2) *
+                     CG(j1, m1p, j2, m2p, J, m1 + m2)
+            end
+            expected = (m1 == m1p &amp;&amp; m2 == m2p) ? 1.0 : 0.0
+            maxdev = max(maxdev, abs(s - expected))
+            checked += 1
+        end
+    end
+    return (sums_checked = checked, max_deviation = maxdev)
+end
+
+complete = cg_completeness(3)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">(sums_checked = 7056, max_deviation = 3.3306690738754696e-16)</code></pre><pre><code class="language-julia hljs">max(ortho.max_deviation, complete.max_deviation) &lt;= 1e-12 ||
+    error(&quot;Clebsch–Gordan orthogonality sweep failed&quot;)
+println(&quot;both sweeps pass at the 1e-12 tolerance&quot;)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">both sweeps pass at the 1e-12 tolerance</code></pre><h2 id="Real-Wigner-D-matrices"><a class="docs-heading-anchor" href="#Real-Wigner-D-matrices">Real Wigner-D matrices</a><a id="Real-Wigner-D-matrices-1"></a><a class="docs-heading-anchor-permalink" href="#Real-Wigner-D-matrices" title="Permalink"></a></h2><p><a href="../../api/#SLCE.AngularMomentum.wignerD_real"><code>wignerD_real</code></a> must satisfy the functional identity <span>$Z_{l m}(R\hat{\boldsymbol u}) = \sum_{m&#39;} \Delta^{(l)}_{m m&#39;}(R)\, Z_{l m&#39;}(\hat{\boldsymbol u})$</span> for <em>every</em> direction — the SALC projector applies it to arbitrary spin configurations. The sweep below checks that identity on fresh random directions (never used in the internal least-squares construction), for proper <strong>and</strong> improper operations (the second half of the rotations is composed with the inversion), plus orthogonality <span>$\Delta \Delta^{\mathsf T} = I$</span> and the inversion parity <span>$\Delta(-I) = (-1)^l I$</span>:</p><pre><code class="language-julia hljs">using LinearAlgebra, Random
+using SLCE: Harmonics
+
+const Dreal = SLCE.AngularMomentum.wignerD_real
+
+rand_unit(rng) = normalize(randn(rng, 3))
+function rand_rotation(rng)
+    Q = Matrix(qr(randn(rng, 3, 3)).Q)
+    Q[:, 1] .*= sign(det(Q))            # make it proper; improper = -Q below
+    return Q
+end
+
+function wignerD_deviations(; lmax = 4, nrot = 20, npts = 5, seed = 7)
+    rng = MersenneTwister(seed)
+    dev_orth = 0.0
+    dev_fun = 0.0
+    for k = 1:2nrot
+        R = rand_rotation(rng)
+        k &gt; nrot &amp;&amp; (R = -R)            # improper half: inversion ∘ rotation
+        for l = 0:lmax
+            Δ = Dreal(l, R)
+            dev_orth = max(dev_orth, opnorm(Δ * Δ&#39; - I))
+            for _ = 1:npts
+                u = rand_unit(rng)
+                lhs = [Harmonics.Zlm(l, m, R * u) for m = -l:l]
+                rhs = Δ * [Harmonics.Zlm(l, m, u) for m = -l:l]
+                dev_fun = max(dev_fun, maximum(abs.(lhs - rhs)))
+            end
+        end
+    end
+    parity = maximum(0:lmax) do l
+        opnorm(Dreal(l, -Matrix(1.0I, 3, 3)) - (-1.0)^l * I)
+    end
+    return (orthogonality = dev_orth, functional_identity = dev_fun,
+            inversion_parity = parity)
+end
+
+wd = wignerD_deviations()</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">(orthogonality = 2.6254391707004967e-15, functional_identity = 1.5543122344752192e-15, inversion_parity = 6.243609629718195e-16)</code></pre><pre><code class="language-julia hljs">maximum(wd) &lt;= 1e-9 || error(&quot;Wigner-D verification failed&quot;)
+println(&quot;all Wigner-D checks pass at the 1e-9 tolerance &quot;,
+        &quot;(200 operations × l ≤ 4 × 5 fresh directions)&quot;)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">all Wigner-D checks pass at the 1e-9 tolerance (200 operations × l ≤ 4 × 5 fresh directions)</code></pre><h2 id="Complexreal-unitary"><a class="docs-heading-anchor" href="#Complexreal-unitary">Complex→real unitary</a><a id="Complexreal-unitary-1"></a><a class="docs-heading-anchor-permalink" href="#Complexreal-unitary" title="Permalink"></a></h2><p><a href="../../api/#SLCE.AngularMomentum.c2r_matrix"><code>c2r_matrix</code></a> is compared against the closed form of the tesseral transformation (the paper&#39;s Eq. B2) — a convention-independent anchor written out digit by digit, plus unitarity:</p><pre><code class="language-julia hljs">const c2r = SLCE.AngularMomentum.c2r_matrix
+
+function c2r_deviations(lmax)
+    dev_form = 0.0
+    dev_unit = 0.0
+    for l = 0:lmax
+        U = c2r(l)
+        ix(m) = m + l + 1
+        ref = zeros(ComplexF64, 2l + 1, 2l + 1)
+        ref[ix(0), ix(0)] = 1
+        for m = 1:l
+            s = 1 / sqrt(2.0)
+            ref[ix(m), ix(m)] = (-1.0)^m * s
+            ref[ix(m), ix(-m)] = s
+            ref[ix(-m), ix(-m)] = im * s
+            ref[ix(-m), ix(m)] = -im * (-1.0)^m * s
+        end
+        dev_form = max(dev_form, maximum(abs.(U - ref)))
+        dev_unit = max(dev_unit, opnorm(U&#39; * U - I))
+    end
+    return (closed_form = dev_form, unitarity = dev_unit)
+end
+
+u = c2r_deviations(3)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">(closed_form = 0.0, unitarity = 2.4441574809578864e-16)</code></pre><pre><code class="language-julia hljs">maximum(u) &lt;= 1e-12 || error(&quot;complex→real unitary verification failed&quot;)
+println(&quot;closed form and unitarity pass at the 1e-12 tolerance (l ≤ 3)&quot;)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">closed form and unitarity pass at the 1e-12 tolerance (l ≤ 3)</code></pre><h2 id="Worked-example:-tesseral-CG-coefficients-for-l_1-l_2-1"><a class="docs-heading-anchor" href="#Worked-example:-tesseral-CG-coefficients-for-l_1-l_2-1">Worked example: tesseral CG coefficients for <span>$l_1 = l_2 = 1$</span></a><a id="Worked-example:-tesseral-CG-coefficients-for-l_1-l_2-1-1"></a><a class="docs-heading-anchor-permalink" href="#Worked-example:-tesseral-CG-coefficients-for-l_1-l_2-1" title="Permalink"></a></h2><p>The SALC construction couples products of <em>tesseral</em> harmonics, so it needs the CG coefficients <strong>in the real basis</strong> — this section derives them from the familiar complex ones for the simplest case, two <span>$l = 1$</span> sites, using the exact code path of the basis build (<a href="../../api/#SLCE.AngularMomentum.coeff_tensor_complex"><code>coeff_tensor_complex</code></a> → <a href="../../api/#SLCE.AngularMomentum.complex_to_real_tensor"><code>complex_to_real_tensor</code></a>).</p><p><strong>Step 1 — the complex CG coefficients.</strong> The standard coupling</p><p class="math-container">\[|L\, M\rangle = \sum_{m_1 m_2}
+    \langle 1\, m_1\, 1\, m_2 | L\, M \rangle\, |1\, m_1\rangle |1\, m_2\rangle,
+\qquad L \in \{0, 1, 2\},\]</p><p>conserves <span>$M = m_1 + m_2$</span>, so the nonzero coefficients form one <span>$3 \times 3$</span> matrix per <span>$L$</span>: <span>$C^{(L)}_{m_1 m_2} = \langle 1 m_1\, 1 m_2 | L,\, m_1{+}m_2 \rangle$</span>, rows <span>$m_1 = -1, 0, +1$</span> top to bottom and columns <span>$m_2$</span> likewise. Computed from the package&#39;s <code>clebsch_gordan</code> and pretty-printed by matching each entry against <span>$\pm p/\sqrt{q}$</span> (an unmatched entry throws — the display <em>is</em> a check):</p><pre><code class="language-julia hljs">using LaTeXStrings
+
+function exact_string(x; tol = 1e-12)
+    abs(x) &lt; tol &amp;&amp; return &quot;0&quot;
+    for q = 1:12, p = 1:3
+        if abs(abs(x) - p / sqrt(q)) &lt; tol
+            sign = x &lt; 0 ? &quot;-&quot; : &quot;&quot;
+            return q == 1 ? string(sign, p) :
+                   string(sign, &quot;\\frac{&quot;, p, &quot;}{\\sqrt{&quot;, q, &quot;}}&quot;)
+        end
+    end
+    error(&quot;no exact form ±p/√q matched for $x&quot;)
+end
+
+function texmatrix(A)
+    rows = [join([exact_string(A[i, j]) for j = 1:size(A, 2)], &quot; &amp; &quot;)
+            for i = 1:size(A, 1)]
+    return &quot;\\begin{pmatrix} &quot; * join(rows, &quot; \\\\ &quot;) * &quot; \\end{pmatrix}&quot;
+end
+
+displaymath(tex) = LaTeXString(&quot;\$\$\\begin{gathered}&quot; * tex * &quot;\\end{gathered}\$\$&quot;)
+
+Ccg = [[CG(1, m1, 1, m2, L, m1 + m2) for m1 = -1:1, m2 = -1:1] for L = 0:2]
+
+displaymath(&quot;C^{(0)} = &quot; * texmatrix(Ccg[1]) *
+            &quot; \\qquad C^{(1)} = &quot; * texmatrix(Ccg[2]) *
+            &quot; \\\\[0.8em] C^{(2)} = &quot; * texmatrix(Ccg[3]))</code></pre><p class="math-container">\[\begin{gathered}C^{(0)} = \begin{pmatrix} 0 &amp; 0 &amp; \frac{1}{\sqrt{3}} \\ 0 &amp; -\frac{1}{\sqrt{3}} &amp; 0 \\ \frac{1}{\sqrt{3}} &amp; 0 &amp; 0 \end{pmatrix} \qquad C^{(1)} = \begin{pmatrix} 0 &amp; -\frac{1}{\sqrt{2}} &amp; -\frac{1}{\sqrt{2}} \\ \frac{1}{\sqrt{2}} &amp; 0 &amp; -\frac{1}{\sqrt{2}} \\ \frac{1}{\sqrt{2}} &amp; \frac{1}{\sqrt{2}} &amp; 0 \end{pmatrix} \\[0.8em] C^{(2)} = \begin{pmatrix} 1 &amp; \frac{1}{\sqrt{2}} &amp; \frac{1}{\sqrt{6}} \\ \frac{1}{\sqrt{2}} &amp; \frac{2}{\sqrt{6}} &amp; \frac{1}{\sqrt{2}} \\ \frac{1}{\sqrt{6}} &amp; \frac{1}{\sqrt{2}} &amp; 1 \end{pmatrix}\end{gathered}\]</p><p><strong>Step 2 — the complex→real change of basis.</strong> The tesseral harmonics are <span>$Z_{1,\mu} = \sum_m U^{(1)}_{\mu m} Y_1^m$</span> with the (verified-above) closed form</p><p class="math-container">\[\begin{pmatrix} Z_{1,-1} \\ Z_{1,0} \\ Z_{1,+1} \end{pmatrix}
+  = U^{(1)}
+\begin{pmatrix} Y_1^{-1} \\ Y_1^{0} \\ Y_1^{+1} \end{pmatrix},
+\qquad
+U^{(1)} = \frac{1}{\sqrt{2}}
+\begin{pmatrix} i &amp; 0 &amp; i \\ 0 &amp; \sqrt{2} &amp; 0 \\ 1 &amp; 0 &amp; -1 \end{pmatrix},\]</p><p>which is exactly the statement <span>$\bigl(Z_{1,-1}, Z_{1,0}, Z_{1,+1}\bigr) \propto (y, z, x)$</span>. Inverting (<span>$U$</span> is unitary, <span>$Y = U^\dagger Z$</span>) and substituting into Step 1 turns the coupled function <span>$T_{L M} = \sum C^{(L)} Y_1^{m_1} Y_1^{m_2}$</span> into an expansion over products <span>$Z_{1\mu_1} Z_{1\mu_2}$</span> — each site axis picks up <span>$\overline{U^{(1)}}$</span> — and rotating the multiplet axis <span>$\tilde{T}_{L \tilde{M}} = \sum_M U^{(L)}_{\tilde{M} M} T_{L M}$</span> makes the resulting family itself tesseral:</p><p class="math-container">\[\tilde{C}^{(L)}_{\mu_1 \mu_2, \tilde{M}}
+  = i^{\,L - l_1 - l_2} \sum_{m_1 m_2 M}
+    \overline{U^{(1)}_{\mu_1 m_1}}\, \overline{U^{(1)}_{\mu_2 m_2}}\,
+    U^{(L)}_{\tilde{M} M}\,
+    \langle 1\, m_1\, 1\, m_2 | L\, M \rangle .\]</p><p>Without the prefactor the entries come out purely real for even <span>$l_1 + l_2 - L$</span> and purely imaginary for odd; the global phase <span>$i^{L - l_1 - l_2}$</span> (one number per <span>$L$</span>, physically irrelevant) makes every sector real. This is precisely what <code>complex_to_real_tensor</code> implements — it errors if any imaginary residue survives.</p><p><strong>Step 3 — the tesseral CG coefficients.</strong> Running that pipeline (<code>build_real_bases([1, 1])</code>) and printing each <span>$\tilde{M}$</span> slice:</p><pre><code class="language-julia hljs">const AM = SLCE.AngularMomentum
+real11 = Dict(Lf =&gt; T for (_, Lf, T) in AM.build_real_bases([1, 1]))
+
+slices(L) = [&quot;\\tilde C^{(&quot; * string(L) * &quot;)}_{\\tilde M = &quot; * string(k - L - 1) *
+             &quot;} = &quot; * texmatrix(real11[L][:, :, k]) for k = 1:(2L + 1)]
+
+displaymath(slices(0)[1] *
+            &quot; \\\\[0.8em] &quot; * join(slices(1), &quot; \\quad &quot;) *
+            &quot; \\\\[0.8em] &quot; * join(slices(2)[1:3], &quot; \\quad &quot;) *
+            &quot; \\\\[0.8em] &quot; * join(slices(2)[4:5], &quot; \\quad &quot;))</code></pre><p class="math-container">\[\begin{gathered}\tilde C^{(0)}_{\tilde M = 0} = \begin{pmatrix} \frac{1}{\sqrt{3}} &amp; 0 &amp; 0 \\ 0 &amp; \frac{1}{\sqrt{3}} &amp; 0 \\ 0 &amp; 0 &amp; \frac{1}{\sqrt{3}} \end{pmatrix} \\[0.8em] \tilde C^{(1)}_{\tilde M = -1} = \begin{pmatrix} 0 &amp; 0 &amp; 0 \\ 0 &amp; 0 &amp; \frac{1}{\sqrt{2}} \\ 0 &amp; -\frac{1}{\sqrt{2}} &amp; 0 \end{pmatrix} \quad \tilde C^{(1)}_{\tilde M = 0} = \begin{pmatrix} 0 &amp; 0 &amp; -\frac{1}{\sqrt{2}} \\ 0 &amp; 0 &amp; 0 \\ \frac{1}{\sqrt{2}} &amp; 0 &amp; 0 \end{pmatrix} \quad \tilde C^{(1)}_{\tilde M = 1} = \begin{pmatrix} 0 &amp; \frac{1}{\sqrt{2}} &amp; 0 \\ -\frac{1}{\sqrt{2}} &amp; 0 &amp; 0 \\ 0 &amp; 0 &amp; 0 \end{pmatrix} \\[0.8em] \tilde C^{(2)}_{\tilde M = -2} = \begin{pmatrix} 0 &amp; 0 &amp; \frac{1}{\sqrt{2}} \\ 0 &amp; 0 &amp; 0 \\ \frac{1}{\sqrt{2}} &amp; 0 &amp; 0 \end{pmatrix} \quad \tilde C^{(2)}_{\tilde M = -1} = \begin{pmatrix} 0 &amp; \frac{1}{\sqrt{2}} &amp; 0 \\ \frac{1}{\sqrt{2}} &amp; 0 &amp; 0 \\ 0 &amp; 0 &amp; 0 \end{pmatrix} \quad \tilde C^{(2)}_{\tilde M = 0} = \begin{pmatrix} -\frac{1}{\sqrt{6}} &amp; 0 &amp; 0 \\ 0 &amp; \frac{2}{\sqrt{6}} &amp; 0 \\ 0 &amp; 0 &amp; -\frac{1}{\sqrt{6}} \end{pmatrix} \\[0.8em] \tilde C^{(2)}_{\tilde M = 1} = \begin{pmatrix} 0 &amp; 0 &amp; 0 \\ 0 &amp; 0 &amp; \frac{1}{\sqrt{2}} \\ 0 &amp; \frac{1}{\sqrt{2}} &amp; 0 \end{pmatrix} \quad \tilde C^{(2)}_{\tilde M = 2} = \begin{pmatrix} -\frac{1}{\sqrt{2}} &amp; 0 &amp; 0 \\ 0 &amp; 0 &amp; 0 \\ 0 &amp; 0 &amp; \frac{1}{\sqrt{2}} \end{pmatrix}\end{gathered}\]</p><p>Rows and columns are <span>$\mu_1, \mu_2 = -1, 0, +1$</span>, i.e. the <span>$(y, z, x)$</span> components of the two spins. Reading the slices back as functions of two unit vectors:</p><ul><li><span>$L = 0$</span>: <span>$\tilde{C}^{(0)} = \delta_{\mu_1 \mu_2} / \sqrt{3}$</span> — the Heisenberg invariant <span>$\hat{\boldsymbol e}_1 \cdot \hat{\boldsymbol e}_2 / \sqrt{3}$</span>.</li><li><span>$L = 1$</span>: the three slices are the Levi-Civita tensor, <span>$\tilde{C}^{(1)} = \varepsilon / \sqrt{2}$</span> — the cross product <span>$(\hat{\boldsymbol e}_1 \times \hat{\boldsymbol e}_2) / \sqrt{2}$</span>, an <strong>axial</strong> vector (parity <span>$(-1)^{l_1 + l_2} = +1$</span>, not <span>$(-1)^L$</span>), which is why the SALC projector must treat proper and improper operations differently.</li><li><span>$L = 2$</span>: the five quadrupole combinations — reading <span>$\tilde{M} = -2 \dots 2$</span>: <span>$xy$</span>-, <span>$yz$</span>-type, <span>$(2 z_1 z_2 - x_1 x_2 - y_1 y_2)/\sqrt{6}$</span>, <span>$zx$</span>-type, and <span>$(x_1 x_2 - y_1 y_2)/\sqrt{2}$</span>.</li></ul><p>The closed forms and the defining property — the coupled products transform under simultaneous (proper) rotation of both spins exactly like <span>$Z_{L, \tilde{M}}$</span>,</p><p class="math-container">\[\tilde{T}_{L \tilde M}(R \hat{\boldsymbol e}_1, R \hat{\boldsymbol e}_2)
+  = \sum_{\tilde M&#39;} \Delta^{(L)}_{\tilde M \tilde M&#39;}(R)\,
+    \tilde{T}_{L \tilde M&#39;}(\hat{\boldsymbol e}_1, \hat{\boldsymbol e}_2)\]</p><p>— are asserted:</p><pre><code class="language-julia hljs">function coupled_eval(T, e1, e2)
+    z1 = [Harmonics.Zlm(1, m, e1) for m = -1:1]
+    z2 = [Harmonics.Zlm(1, m, e2) for m = -1:1]
+    return [z1&#39; * T[:, :, k] * z2 for k = 1:size(T, 3)]
+end
+
+function equivariance_deviation(real11; nrot = 20, seed = 11)
+    rng = MersenneTwister(seed)
+    dev = 0.0
+    for _ = 1:nrot
+        R = rand_rotation(rng)         # proper only: the L = 1 channel is axial
+        e1, e2 = rand_unit(rng), rand_unit(rng)
+        for (Lf, T) in real11
+            lhs = coupled_eval(T, R * e1, R * e2)
+            rhs = Dreal(Lf, R) * coupled_eval(T, e1, e2)
+            dev = max(dev, maximum(abs.(lhs - rhs)))
+        end
+    end
+    return dev
+end
+
+# δ/√3 and ε/√2 closed forms; μ = (-1, 0, +1) ↔ the (y, z, x) = xyz-axes (2, 3, 1)
+ax = (2, 3, 1)
+eps3 = zeros(3, 3, 3)
+for (i, j, k) in ((1, 2, 3), (2, 3, 1), (3, 1, 2))
+    eps3[i, j, k] = 1.0
+    eps3[i, k, j] = -1.0
+end
+dot_dev = maximum(abs.(real11[0][:, :, 1] - Matrix(1.0I, 3, 3) / sqrt(3)))
+cross_dev = maximum(abs(real11[1][b, c, a] - eps3[ax[a], ax[b], ax[c]] / sqrt(2))
+                    for a = 1:3, b = 1:3, c = 1:3)
+eq_dev = equivariance_deviation(real11)
+
+max(dot_dev, cross_dev) &lt;= 1e-12 || error(&quot;tesseral CG closed-form check failed&quot;)
+eq_dev &lt;= 1e-9 || error(&quot;tesseral CG equivariance check failed&quot;)
+(dot_form = dot_dev, cross_form = cross_dev, rotation_equivariance = eq_dev)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">(dot_form = 2.220446049250313e-16, cross_form = 0.0, rotation_equivariance = 1.3877787807814457e-16)</code></pre><h2 id="What-this-page-does-and-does-not-gate"><a class="docs-heading-anchor" href="#What-this-page-does-and-does-not-gate">What this page does and does not gate</a><a id="What-this-page-does-and-does-not-gate-1"></a><a class="docs-heading-anchor-permalink" href="#What-this-page-does-and-does-not-gate" title="Permalink"></a></h2><ul><li>Every number above is recomputed on each docs build; <code>warnonly = false</code> means a failed assertion breaks the build, so the published page can never show a stale green.</li><li>The sweeps here mirror (and slightly extend — the completeness relation, <span>$j \le 3$</span>) the unit tests in <code>test/unit/test_angmom.jl</code>; the test suite is still the primary, faster gate run on every change.</li><li>Downstream consistency — that these pieces assemble into symmetry-invariant SALCs — is checked elsewhere: the invariance and idempotency gates of <code>test/unit/test_salc.jl</code> / <code>test_nbody.jl</code> and the pinned-oracle comparison in <code>test/oracle/</code>.</li></ul></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../theory/architecture/">« Architecture</a><a class="docs-footer-nextpage" href="../../api/">API reference »</a><div class="flexbox-break"></div><p class="footer-message">Built with <a href="https://documenter.juliadocs.org">Documenter.jl</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Tuesday 28 July 2026 09:09">Tuesday 28 July 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
