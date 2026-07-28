@@ -356,7 +356,12 @@ capability consumed by both the introspection and the Sunny interop.
   SVD with cut `1e-10·σ_max` and a forbidden band `[1e-12, 1e-8]·σ_max`
   (ambiguous rank errors); `Z` orthonormal, identity on pure-spin columns;
   `rank(A)` gated for exact equality against the numerical translation
-  image through `accumulate_grad!`. Built once at `SLCEDataset`
+  image through `accumulate_grad!`. The lift `γ → β` is one function
+  (`_lift_gamma`, used by both `fit` and `refit`) and emits **exact zeros**
+  on columns the constraint forbids: a dead row of `Z` is numerically
+  (~1e-16), not structurally, zero, and the plain product would leave junk
+  that `select_support`'s alive rule and SLCEMonteCarlo's `t.coef != 0.0`
+  prune — both exact tests — read as a live term. Built once at `SLCEDataset`
   construction (`dataset.asr`, the `force_cols` discipline; `nothing` on
   pure-spin bases — bitwise-identity fast path, gated);
   `_assemble_problem` applies it per block. `fit(...; asr = true)` default;
@@ -712,7 +717,8 @@ capability consumed by both the introspection and the Sunny interop.
   axis; fingerprint-checked against the training basis), and applies the same
   Pareto rule. Needed because real-data group-magnitude spectra are continuous (no
   alive/dead gap for the λ path to expose). `SupportPath` is a Tables.jl source
-  (`threshold`/`n_alive`/`cost`/`score`/`rmse_energy`/`rmse_torque`/`selected`).
+  (`threshold`/`n_alive`/`cost`/`score`/`rmse_energy`/`rmse_torque`/`rmse_force`/
+  `selected`).
   `n_alive`/`cost` are read off the **returned refits**, not off the pre-threshold
   magnitudes — the two agree without a constraint, but under an ASR a support that
   splits a constraint-coupled column set structurally zeroes some survivors, so the

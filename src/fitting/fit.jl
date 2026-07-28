@@ -357,7 +357,7 @@ function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator
     gamma = solve_coefficients(estimator, X, y; row_groups = groups,
                                nullspace = rep === nothing ? nothing : rep.Z)
     j0 = ybar - dot(xbar, gamma)          # = ȳ − x̄_βᵀβ (γ-space x̄ under rep)
-    jphi = rep === nothing ? gamma : rep.beta_p .+ rep.Z * gamma
+    jphi = rep === nothing ? gamma : _lift_gamma(rep, gamma)
     residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
     # `asr` records the CONSTRAINT, not the reparameterization: a mask-only stage
     # on a pure-spin basis carries a `Z` but no constraint rows. (Written as a
@@ -524,15 +524,21 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
             dead = [j for j in support
                     if norm(@view stage.Z[j, :]) < _ASR_DEAD_ROW &&
                        norm(@view rep.Z[j, :]) >= _ASR_DEAD_ROW]
+            # Truncated like its three siblings in `_warn_unidentified`, and for the
+            # same reason: the count is the actionable part and the indices are a
+            # sample. NOT `maxlog`-limited and not suppressible — this reports a
+            # property of THIS support, so a `select_support` sweep that fires it at
+            # `k` thresholds is reporting `k` different facts, which is the
+            # informative direction (the argument at `_warn_unidentified` above).
             isempty(dead) ||
                 @warn "refit: the support splits an ASR-coupled column set — " *
-                      "these surviving columns are structurally zeroed by the " *
-                      "constraint" columns = dead
+                      "$(length(dead)) surviving column(s) are structurally zeroed " *
+                      "by the constraint" columns = first(dead, 10)
             Xs = X * stage.Z
             ys = any(!iszero, stage.beta_p) ? y .- X * stage.beta_p : y
             gamma = solve_coefficients(estimator, Xs, ys;
                                        row_groups = groups, nullspace = stage.Z)
-            jphi = stage.beta_p .+ stage.Z * gamma
+            jphi = _lift_gamma(stage, gamma)
         end
     end
     j0 = ybar - dot(xbar, jphi)

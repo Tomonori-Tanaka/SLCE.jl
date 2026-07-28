@@ -199,6 +199,25 @@ const _ASR_BAND = (1e-12, 1e-8)
 # rules (fit.jl), and `group_costs`' structural discount (selection.jl).
 const _ASR_DEAD_ROW = 1e-12
 
+# β = beta_p + Z·γ, with the numerically dead rows of `Z` snapped back to the
+# particular solution. `Z`'s row for a column no feasible model can carry is a
+# NUMERICALLY zero row (~1e-16 out of the SVD), not a structurally zero one, so the
+# plain product leaves ~1e-15 on a direction the constraint forbids. That junk is not
+# cosmetic — two consumers test coefficients EXACTLY: `select_support`'s alive rule
+# (`!= 0.0`) would report the group alive and charge its Monte-Carlo cost, and
+# SLCEMonteCarlo's term prune (`hamiltonian.jl`, `t.coef != 0.0`) would buy it a full
+# set of site programs. The correct value is `beta_p[j]` alone: exactly 0.0 under a
+# homogeneous reparameterization, and the particular-solution value on an affine stage,
+# where a free column the constraint zeroes may still legitimately carry one. Used by
+# both lifts — `fit`'s basis-level one and `refit`'s per-support sub-stage.
+function _lift_gamma(rep::ASRReparam, gamma::Vector{Float64})::Vector{Float64}
+    beta = rep.beta_p .+ rep.Z * gamma
+    @inbounds for j in axes(rep.Z, 1)
+        norm(@view rep.Z[j, :]) < _ASR_DEAD_ROW && (beta[j] = rep.beta_p[j])
+    end
+    return beta
+end
+
 """
     _asr_nullspace(A) -> (Z::Matrix{Float64}, rank::Int)
 

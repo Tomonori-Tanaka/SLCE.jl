@@ -452,7 +452,16 @@ Easy to break silently — confirm before touching the algorithm.
   Z is not — never persist or pin Z/γ), and **`refit` must re-derive the null
   space on its support columns** (`A[:, support]`) — a support splitting a
   constraint-coupled column set changes the feasible space (survivors may be
-  structurally zeroed, warned). The structurally-zeroed test is **one constant**,
+  structurally zeroed, warned). **γ → β is one function, `_lift_gamma` (asr.jl), with
+  two readers** (`fit`'s basis-level lift and `refit`'s per-support sub-stage): the
+  plain product `beta_p + Z·γ` leaves ~1e-15 on forbidden directions because a dead row
+  of `Z` is NUMERICALLY zero (an SVD null row), not structurally zero, and that junk is
+  load-bearing — `select_support`'s alive rule and SLCEMonteCarlo's term prune
+  (`hamiltonian.jl`, `t.coef != 0.0`) are both EXACT tests, so it charges MC cost and
+  buys site programs for a direction no feasible model can carry. Never "simplify" a
+  lift back to the raw product, and never soften either exact test to a tolerance —
+  the exactness of the consumers is what obliges the producer to emit exact zeros.
+  The structurally-zeroed test is **one constant**,
   `_ASR_DEAD_ROW` (`‖Z[j, :]‖ < 1e-12`, absolute because `Z` is orthonormal), with four
   readers: `build_asr`'s basis-level warning, `refit`'s movable-column and
   split-coupled-set rules, and `group_costs`' structural discount. Its group-resolved

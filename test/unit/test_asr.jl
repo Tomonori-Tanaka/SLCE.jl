@@ -151,13 +151,18 @@ end
         c_plain = SLCE.group_costs(b1x, lab_z)
         c_disc = SLCE.group_costs(b1x, lab_z; asr = bz)
         @test all(iszero, c_disc[dead_g]) && all(>(0), c_plain[dead_g])
-        live_g = setdiff(eachindex(s_z), dead_g)
-        @test c_disc[live_g] == c_plain[live_g]         # live groups untouched
+        # the discount drops dead COLUMNS before the entry union, so a live group can
+        # only lose entries its dead columns contributed uniquely — never gain
+        @test all(c_disc .<= c_plain)
         @test sum(c_disc) < 0.1 * sum(c_plain)          # the dead group dominated
-        # no dead group ⇒ the discount is the identity
+        # no dead column ⇒ the discount is the identity
         @test SLCE.group_costs(basis, lab_a; asr = rep) ==
               SLCE.group_costs(basis, lab_a)
         @test_throws DimensionMismatch SLCE.group_costs(b1x, lab_z; asr = rep)
+        # affine (staged) reparameterization: a Z-zeroed column may still carry a
+        # particular-solution value, so the discount would UNDER-report — refuse
+        aff = ASRReparam(rep.A, rep.Z, fill(1e-3, n_salcs(basis)), rep.rank)
+        @test_throws ArgumentError SLCE.group_costs(basis, lab_a; asr = aff)
 
         # The ASR's own granularity is NOT the group: no displacement-touched group
         # has a feasible subspace on its own, which is why a small s_g is a diagnostic
@@ -275,6 +280,14 @@ end
     @testset "gate (k): exact recovery, translation invariance, Σf = 0" begin
         @test maximum(abs, f.jphi .- beta_true) < 1e-8
         @test f.asr && f.asr_residual < 1e-13           # the smoke-test residual
+        # `fit`'s own lift must emit EXACT zeros on the basis-level structurally dead
+        # columns (the ones `build_asr` warns about), not the ~1e-16 the product
+        # `Z·γ` leaves there: `Z`'s row for such a column is numerically, not
+        # structurally, zero. Downstream both `select_support`'s alive rule and
+        # SLCEMonteCarlo's term prune test coefficients exactly.
+        basisdead = [j for j in axes(rep.Z, 1) if norm(@view rep.Z[j, :]) < 1e-12]
+        @test !isempty(basisdead)                       # the fixture has them
+        @test all(iszero, f.jphi[basisdead])
         @test abs(predict_energy(mfit, e0, u0 .+ tvec) -
                   predict_energy(mfit, e0, u0)) / Escale < 1e-12
         @test maximum(abs, sum(predict_force(mfit, e0, u0); dims = 2)) < 1e-12
@@ -390,6 +403,14 @@ end
             mi = SLCEModel(fri)
             @test asr_residual(mi) < 1e-10
             @test maximum(abs, sum(predict_force(mi, e0, u0); dims = 2)) < 1e-10
+            # No numerical junk on constraint-killed directions. A survivor the
+            # re-derived null space kills has a NUMERICALLY zero `stage.Z` row (~1e-16
+            # from the SVD, not a structural zero), so `Z·γ` used to leave ~1e-15
+            # there — enough for the exact alive rule above to call the group alive,
+            # and for SLCEMonteCarlo's `t.coef != 0.0` prune to buy it a full set of
+            # site programs. Every coefficient must be exactly zero or honest.
+            nzv = [abs(v) for v in fri.jphi if v != 0.0]
+            isempty(nzv) || @test minimum(nzv) > 1e-10 * maximum(nzv)
         end
         @test sc.fit.jphi == refit(f, OLS();
                                    threshold = sc.threshold[sc.selected]).jphi

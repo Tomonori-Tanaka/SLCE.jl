@@ -485,6 +485,17 @@ upper bound), and `group_costs(...; asr)` prices structurally infeasible groups 
 which matters: on a `pmax = 1` truncation whose displacement content the ASR kills
 outright, the dead group carried 94.7 % of `Σ_g c_g`.
 
+One implementation consequence deserves its own sentence, because a review found it
+live and the test suite could not: **a constrained fit must emit exact zeros on
+forbidden directions.** A column no feasible model can carry has a *numerically* zero
+row of `Z` — an SVD null row at ~1e-16, not a structural zero — so the plain lift
+`beta_p + Z·γ` leaves ~1e-15 there. Two consumers test coefficients exactly
+(`select_support`'s alive rule and SLCEMonteCarlo's `t.coef != 0.0` term prune), so
+that junk buys a full set of Monte-Carlo site programs for a direction the constraint
+forbids. The exactness of the consumers is deliberate — the cost reported must be the
+cost the engine pays — so the obligation falls on the producer, and both lifts go
+through one `_lift_gamma` that snaps dead rows back to the particular solution.
+
 The per-group quantity that *is* well defined under the constraint is
 `s_g = ‖Z[g, :]‖_F²` (`group_freedom`), with `Σ_g s_g ≡ q` exactly and `s_g = 0` ⟺ the
 group is structurally zeroed. It is gauge-invariant (a trace of the projector `Z·Z'`,

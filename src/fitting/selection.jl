@@ -125,13 +125,20 @@ distinct sorted slot labels). `column_groups` may also be any coarser contiguous
 partition of the columns — the per-entry slot count keeps the sum additive under
 coarsening, which a per-group multiplier would not.
 
-Pass `asr` (a [`SLCEDataset`](@ref)'s `.asr`) to price **structurally infeasible**
-groups at zero. A group every one of whose columns is annihilated by the constraint
-([`group_freedom`](@ref) `s_g == 0`) can never be nonzero in a translation-invariant
-model, so charging a Monte-Carlo sweep cost for it is a pure over-report — and not a
-small one: on a `pmax = 1` spin+displacement truncation whose displacement content the
-ASR kills outright, the dead group carries 94.7 % of `Σ_g c_g`. The discount is opt-in
-so that a cost computed from the basis alone stays a property of the basis.
+Pass `asr` (a [`SLCEDataset`](@ref)'s `.asr`) to drop **structurally infeasible**
+columns — those with `‖Z[j, :]‖ < 1e-12`, which no translation-invariant model can
+carry at any support. They are skipped before the entry union, so a group loses only
+the entries its dead columns contributed *uniquely*, and a group all of whose columns
+are dead costs zero. Charging for those is a pure over-report, and not a small one: on
+a `pmax = 1` spin+displacement truncation whose displacement content the ASR kills
+outright, the dead group carries 94.7 % of `Σ_g c_g`. The discount is opt-in so that a
+cost computed from the basis alone stays a property of the basis.
+
+Requires a **homogeneous** reparameterization (`beta_p ≡ 0`), which is what
+`build_asr` produces and what every `fit`/`refit` path constructs for a plain ASR. On
+an affine stage a column with a zero `Z` row can still carry a particular-solution
+value, so it is reachable and dropping it would under-report; that case is refused
+rather than silently mispriced.
 """
 function group_costs(basis::SLCEBasis,
                      column_groups::AbstractVector{<:Integer} =
@@ -139,8 +146,22 @@ function group_costs(basis::SLCEBasis,
                      asr::Union{Nothing,ASRReparam} = nothing)::Vector{Int}
     sl = basis.salc_basis.salcs
     G = _validate_labels(column_groups, length(sl), "group_costs")
+    if asr !== nothing
+        size(asr.Z, 1) == length(sl) || throw(DimensionMismatch(
+            "asr covers $(size(asr.Z, 1)) columns but the basis has $(length(sl))"))
+        any(!iszero, asr.beta_p) &&
+            throw(ArgumentError("group_costs: the structural discount needs a " *
+                                "homogeneous reparameterization (beta_p ≡ 0); on " *
+                                "an affine stage a column with a zero Z row can " *
+                                "still carry a particular-solution value, so " *
+                                "dropping it would under-report the cost"))
+    end
     sets = [Set{_EntryKey}() for _ = 1:G]
     for j in eachindex(sl)
+        # Dropping dead columns HERE rather than zeroing whole groups afterwards is a
+        # strict refinement: a group that keeps some feasible columns still loses the
+        # entries only its dead ones contributed.
+        asr === nothing || norm(@view asr.Z[j, :]) >= _ASR_DEAD_ROW || continue
         set = sets[column_groups[j]]
         for m in sl[j].members, t in m.terms
             _push_entries!(set, m.atoms, m.shifts, _slotkeys(t), t.folded)
@@ -149,18 +170,7 @@ function group_costs(basis::SLCEBasis,
     # `length(k[3])` is the entry's slot count — the number of site programs the MC
     # emits for it. Reading it off the key (rather than off a per-group constant)
     # is what keeps the sum additive under a coarser `column_groups`.
-    c = [sum(k -> length(k[3]), s; init = 0) for s in sets]
-    asr === nothing && return c
-    size(asr.Z, 1) == length(sl) || throw(DimensionMismatch(
-        "asr covers $(size(asr.Z, 1)) columns but the basis has $(length(sl))"))
-    # A group survives the discount if ANY of its columns is feasible — the discount
-    # must not fire on a group the constraint merely restricts.
-    live = falses(G)
-    for j in eachindex(sl)
-        norm(@view asr.Z[j, :]) < _ASR_DEAD_ROW && continue
-        live[column_groups[j]] = true
-    end
-    return [live[g] ? c[g] : 0 for g = 1:G]
+    return [sum(k -> length(k[3]), s; init = 0) for s in sets]
 end
 
 """
@@ -170,16 +180,25 @@ end
 How much freedom the ASR leaves each group: `s_g = ‖Z[g, :]‖_F²`, the squared Frobenius
 norm of the group's row block of the null-space basis `Z`.
 
-`Z` is orthonormal, so `Σ_g s_g == q = size(Z, 2)` **exactly** — `s_g` reads as "how
-many of the `q` feasible directions this group holds", and `0 ≤ s_g ≤ p_g`. Despite
-being written in terms of `Z`, it is gauge-invariant: it is `tr` of the orthogonal
-projector `Z·Z'` onto `null(A)` restricted to the group's rows, so it does not depend
-on the factorization that produced `Z` (which nothing may persist).
+`Z` is orthonormal, so `Σ_g s_g == q = size(Z, 2)` — exactly as mathematics, to about
+`1e-14` in floating point. `s_g` reads as "how many of the `q` feasible directions this
+group holds", and `0 ≤ s_g ≤ p_g`. Despite being written in terms of `Z`, it is
+invariant under the regauging `Z → Z·Q` for orthogonal `Q` — everything
+`_asr_nullspace` can produce — because it is `tr` of the orthogonal projector `Z·Z'`
+onto `null(A)` restricted to the group's rows. (It is *not* invariant under a general
+change of basis `Z → Z·M`; that would not be an orthonormal null-space basis.)
 
-`s_g == 0` ⟺ every column of the group is structurally zeroed — no translation-
-invariant model can carry the group at any support. That is the condition
-[`group_costs`](@ref)`(...; asr)` prices at zero, and the group-resolved form of the
-basis-level warning `build_asr` emits.
+A structurally zeroed group has `s_g` at **roundoff**, not at zero: `Z`'s row for a
+column no feasible model can carry comes out of an SVD at ~`1e-16`, so `s_g` lands
+around `p_g·1e-32`. Test it the way the rest of the package does — per column against
+`_ASR_DEAD_ROW` (`‖Z[j, :]‖ < 1e-12`) — which is also the predicate
+[`group_costs`](@ref)`(...; asr)` applies, not a cut on `s_g` itself; for a large group
+the two are not interchangeable.
+
+On an **affine** stage (`beta_p ≠ 0`, from `frozen` / `sector_mask`) a group with
+`s_g ≈ 0` is not necessarily unreachable: a column the constraint zeroes in `Z` may
+still carry a particular-solution value. `s_g` remains well defined there — it is a
+statement about `Z` alone — but "no model can carry this group" is not.
 
 !!! note "Groups are not the ASR's own granularity"
     A small `s_g` is not a licence to drop the group independently. The constraint's
@@ -966,10 +985,21 @@ Per threshold `t` the point's fit is `refit(f, estimator; threshold = t)`, keepi
 *columns* with `|jϕⱼ|·‖X[:, j]‖ > t` on `f`'s assembled design (the [`refit`](@ref)
 rule). The reported `n_alive` and `cost` are then read back off that refit — the alive
 groups are those holding a nonzero de-biased coefficient, and the predicted cost is
-`Σ_{g alive} c_g`. Reading them off the *pre*-threshold magnitudes instead would agree
-without a constraint but over-report under one (below). Note that a weak column of an
-alive group may still be dropped; the group's cost is paid either way. The `score` is
-the fit's own objective
+`Σ_{g alive} c_g`. The test is exact (`!= 0.0`), mirroring the downstream engine's own
+term prune. Note that a weak column of an alive group may still be dropped; the group's
+cost is paid either way, and `npoints` therefore bounds the number of *thresholds*, not
+the number of distinct `(n_alive, cost)` values — the grid is built from the
+pre-threshold magnitude spectrum, and several of its points can realize the same
+support.
+
+!!! note "The cost axis needs an estimator that produces exact zeros"
+    `OLS` (the default) zeroes everything off the support, and so does a sparse
+    `estimator`. [`AdaptiveRidge`](@ref) / [`GroupAdaptiveRidge`](@ref) do **not** —
+    their iteration crushes dead groups towards `1e-16` but never to zero — so a front
+    de-biased with one of them reports every support column alive and its `cost` column
+    degenerates. Use those to *shape* the fit `f`; de-bias with `OLS`.
+
+The `score` is the fit's own objective
 `(1 − w_T − w_F)·MSE_E + w_T·MSE_T + w_F·MSE_F` (the weights taken from `f`) evaluated
 on `evalset` — pass a held-out `SLCEDataset` (built on the same basis; see dataset
 slicing) for an honest error axis; the default is the in-sample training set.
@@ -1087,12 +1117,17 @@ function select_support(f::SLCEFit;
         fr = refit(f, estimator; threshold = thr[i])
         fits[i] = fr
         # Alive groups are read off the REFIT, not off the pre-threshold magnitudes
-        # `m_g > thr[i]`. The two agree without a constraint, and this is already the
-        # convention the front is pinned to; under an ASR they do not, because `refit`
-        # re-derives the null space on the support and a support that splits a
-        # constraint-coupled column set structurally zeroes some survivors. Deriving
-        # the row from `fr.jphi` is what makes the reported cost the cost of the model
-        # actually returned, rather than an upper bound on it.
+        # `m_g > thr[i]` — the convention the front is already pinned to. The two agree
+        # only for an estimator that does not itself produce exact zeros (OLS, the
+        # ridge family); a sparse `estimator` legitimately zeroes support columns, and
+        # under an ASR `refit` re-derives the null space on the support and zeroes the
+        # survivors a split coupled set kills. In both cases reading `fr.jphi` reports
+        # the model actually returned rather than an upper bound on it.
+        #
+        # `!= 0.0` is exact ON PURPOSE and must stay so: it mirrors SLCEMonteCarlo's
+        # own term prune (`t.coef != 0.0`), so a magnitude cut here would report a cost
+        # below what the engine pays. That exactness is why `refit` must emit exact
+        # zeros rather than ~1e-15 (see its constrained branch).
         alive = falses(G)
         for j in eachindex(fr.jphi)
             fr.jphi[j] != 0.0 && (alive[lab[j]] = true)

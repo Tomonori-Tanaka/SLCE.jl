@@ -6,6 +6,32 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — constrained fits left numerical junk on forbidden directions
+
+`fit` and `refit` lifted `γ` to `β` as `beta_p + Z·γ`. A column that no feasible model
+can carry has a **numerically** zero row of `Z` (~1e-16 out of the SVD), not a
+structurally zero one, so the product left ~1e-15 to 1e-16 on directions the constraint
+forbids. Both lifts now go through one `_lift_gamma`, which snaps those rows back to the
+particular solution — exactly `0.0` under a homogeneous reparameterization, and the
+particular-solution value on an affine stage, where a `Z`-zeroed free column may
+legitimately carry one.
+
+This is not cosmetic, because two consumers test coefficients **exactly**:
+`select_support`'s alive rule (`!= 0.0`) charged the group's full Monte-Carlo cost for
+the junk, and SLCEMonteCarlo's term prune (`hamiltonian.jl`, `t.coef != 0.0`) would have
+bought it a complete set of site programs. Measured on the D4h fixture, 171 of 198
+realized supports carried at least one such column (worst |jϕ| = 3.8e-15), and 31 of 198
+reported a different alive-group set than the honest one — at only `G = 4`. The
+basis-level case is separate and was also live: `fit` itself left ~1e-16 on the four
+columns `build_asr` warns are structurally zeroed for every support.
+
+Found by review, not by the test suite — the front's own test re-derived the alive set
+with the same predicate, so it was self-consistent by construction, and the fixture's
+supports happened to land in the regime where the dead row *is* exactly zero (it is,
+when the column's whole connected component of `A[:, S]` is full rank). Both cases are
+now pinned: `fit`'s output on the basis-dead columns, and a no-junk invariant at every
+point of a constrained front.
+
 ### Changed — `select_support` runs under an ASR, and prices it honestly
 
 `select_support` no longer refuses a plain ASR-constrained fit. The refusal was
@@ -20,13 +46,23 @@ the reported cost is the cost of the model handed back. The staged (`frozen` /
 `sector_mask`) refusal stays; `select_fit`'s ASR refusal stays, because its λ path
 genuinely does solve on an unconstrained Gram.
 
-`group_costs` gains an opt-in `asr` keyword that prices **structurally infeasible**
-groups at zero — groups every column of which the constraint annihilates, so no
-translation-invariant model can ever carry them. Not a rounding error: on a `pmax = 1`
-spin+displacement truncation whose displacement content the ASR kills outright, the dead
-group carried 94.7 % of `Σ_g c_g`. `select_support` passes the fit's own constraint by
-default; a cost computed from the basis alone still ignores it, so the plain call stays a
-property of the basis.
+`group_costs` gains an opt-in `asr` keyword that drops **structurally infeasible
+columns** before the entry union, so a group keeping some feasible columns loses only
+the entries its dead ones contributed uniquely, and a group that is dead throughout costs
+zero. Not a rounding error: on a `pmax = 1` spin+displacement truncation whose
+displacement content the ASR kills outright, the dead group carried 94.7 % of `Σ_g c_g`.
+`select_support` passes the fit's own constraint by default; a cost computed from the
+basis alone still ignores it, so the plain call stays a property of the basis. An affine
+(staged) reparameterization is refused rather than mispriced — there a `Z`-zeroed column
+can still carry a particular-solution value, so dropping it would *under*-report.
+
+Two claims made in an earlier draft of this entry were wrong and are corrected here. The
+post-refit and pre-threshold rules agree only for an estimator that does not itself
+produce exact zeros (OLS, the ridge family) — a sparse `estimator` legitimately zeroes
+support columns, where the new rule is simply the better one. And `AdaptiveRidge` /
+`GroupAdaptiveRidge` never return exact zeros at all, so a front de-biased with one of
+them reports every support column alive and its `cost` column degenerates; that caveat is
+now in the `select_support` docstring.
 
 New public helper `SLCE.group_freedom(rep, column_groups)` = `s_g = ‖Z[g, :]‖_F²`, with
 `Σ_g s_g ≡ q` exactly and `s_g = 0` ⟺ the group is structurally zeroed. It is
