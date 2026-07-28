@@ -183,9 +183,28 @@ end
 """
     restrict(model::SLCEModel, channel::Symbol) -> SLCEModel
 
-The exact sub-model of one channel. `channel` must be `:spin`: the result is the
-**clamped-ion** model — the energy surface of `model` at `u = 0` — carrying the
-pure-spin SALCs of the original basis with their fitted coefficients unchanged, so
+The exact sub-model of one channel, `:spin` or `:lattice`.
+
+`:lattice` keeps the SALCs carrying **no spin factor at all** — the part of the
+energy surface no magnetic state can change. Its predictions are independent of `e`
+by construction, so it takes `nothing` in the spin slot and needs no `spins` argument
+anywhere:
+
+```julia
+lat = restrict(model, :lattice)
+predict_energy(lat, nothing, u)          # ≡ predict_energy(lat, any_e, u)
+force_constants(lat; order = 2)          # the spin-independent force constants
+```
+
+The complement is the physics the joint expansion exists to separate:
+`predict_energy(model, e, u) − predict_energy(lat, nothing, u)` is everything that
+depends on the magnetic state. Note that this is *not* a spin average — a term with a
+rank-0 spin factor is constant in `e` yet still carries a spin slot, so it lives in
+the remainder, not in `:lattice`.
+
+`:spin` is the **clamped-ion** model — the energy surface of `model` at `u = 0` —
+carrying the pure-spin SALCs of the original basis with their fitted coefficients
+unchanged, so
 
 ```julia
 predict_energy(restrict(model, :spin), e) == predict_energy(model, e, zeros(3, n))
@@ -212,15 +231,22 @@ already pure spin is returned unchanged.
     thermodynamic average over the joint model, not a restriction of it.
 """
 function restrict(model::SLCEModel, channel::Symbol)::SLCEModel
-    channel === :spin || throw(ArgumentError(
-        "restrict supports channel = :spin (the clamped-ion sub-model); got " *
-        ":$channel"))
+    channel in (:spin, :lattice) || throw(ArgumentError(
+        "restrict supports channel = :spin (the clamped-ion sub-model) or " *
+        ":lattice (the spin-independent sub-model); got :$channel"))
     basis = model.basis
-    _basis_has_disp(basis) || return model         # already the p = 0 view
-    keep = findall(is_pure_spin, basis.salc_basis.keys)
+    if channel === :spin
+        _basis_has_disp(basis) || return model     # already the p = 0 view
+        keep = findall(is_pure_spin, basis.salc_basis.keys)
+        spec = _spin_spec(basis.spec)
+    else
+        _basis_has_spin(basis) || return model     # already spin-free
+        keep = findall(k -> !any(has_spin, k.decors), basis.salc_basis.keys)
+        spec = _lattice_spec(basis.spec)
+    end
     ks = basis.salc_basis.keys[keep]
     sb = SALCBasis(basis.salc_basis.salcs[keep], ks)
-    b2 = SLCEBasis(basis.crystal, basis.spacegroup, sb, _spin_spec(basis.spec))
+    b2 = SLCEBasis(basis.crystal, basis.spacegroup, sb, spec)
     return SLCEModel(b2, model.j0, model.jphi[keep], ks)
 end
 
@@ -238,6 +264,18 @@ function _spin_spec(spec::BasisSpec)::BasisSpec
                                 r.spin_lsum, (0, 0), r.nbody, r.soc, r.cutoff))
     end
     return BasisSpec(spec.nbody, spec.lmax, zeros(Int, length(spec.pmax)), spec.lsum,
+                     spec.cutoff, spec.soc, rules, spec.disp_scale,
+                     spec.species_labels)
+end
+
+# The mirror for `:lattice`: `lmax` zeroed and every sector reduced to its spin-free
+# rows. Same honesty requirement as `_spin_spec`, pointing the other way — the spec is
+# what `_basis_has_spin` reads, so a restricted model that still advertised a spin
+# sector would keep demanding the very `spins` argument `restrict` exists to remove.
+function _lattice_spec(spec::BasisSpec)::BasisSpec
+    rules = SectorRule[r for r in spec.sectors
+                       if r.spin_mode === :none && r.disp_degree[2] > 0]
+    return BasisSpec(spec.nbody, zeros(Int, length(spec.lmax)), spec.pmax, spec.lsum,
                      spec.cutoff, spec.soc, rules, spec.disp_scale,
                      spec.species_labels)
 end

@@ -6,6 +6,45 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the lattice channel's exit, and its other restriction
+
+- **`write_phonopy(dir, fcs)`** writes a `ForceConstantSet` as a phonopy calculation
+  (`POSCAR` + `FORCE_CONSTANTS`), so band structures, DOS, thermal properties and
+  thermal conductivity come from phonopy instead of from reimplementations here. The
+  magnetic state is already in `fcs`: export two states and the difference between the
+  band structures is the model's magnetoelastic content.
+
+  `FORCE_CONSTANTS` is a **positional** format — a matrix over supercell atom indices,
+  with the supercell built by phonopy from the unit cell and `--dim` — so a
+  disagreement about its ordering yields a permuted force-constant matrix that still
+  diagonalizes and still has three acoustic modes at Γ. The ordering was therefore not
+  taken from documentation but read off phonopy, and it is gated by running phonopy and
+  comparing its dynamical matrix against `dynamical_matrix` (`test/phonopy/`, its own
+  environment and CI job; phonopy is never a dependency of `Pkg.test()`). Agreement is
+  7.4e-16.
+
+  Three properties of that gate's fixture are load-bearing, each found by mutation
+  testing rather than by design:
+  - the comparison is **mass-weighted**, with two species of different mass — phonopy's
+    phase depends only on the lattice translation, so permuting basis atoms is a
+    similarity transform. Dropping the species permutation moves an unweighted
+    comparison by 8e-16 (i.e. not at all) and a mass-weighted one by 1.7e-2.
+  - **species are interleaved** (`[Fe, Ni, Fe]`), so the POSCAR's species grouping is a
+    real permutation. The `POSCAR` and `FORCE_CONSTANTS` are written together for
+    exactly this reason: the former fixes the atom order of the latter.
+  - **the lattice shifts are not symmetric under swapping the first two axes.** The
+    first fixture tried had `R ∈ {(0,0,0), ±(1,1,0)}`, which is, and reversing the
+    lattice-point axis order produced a *byte-identical* file — a gate that passed
+    before and after the violation. With the shift set fixed, that mutation moves the
+    comparison by 1.8e-1, and swapping the atom / lattice-point nesting by 3.2e-1.
+- **`restrict(model, :lattice)`** — the spin-independent sub-model, the mirror of
+  `restrict(model, :spin)`. Its predictions are independent of the magnetic state by
+  construction, so it needs no `spins` anywhere, and
+  `predict_energy(model, e, u) − predict_energy(lat, nothing, u)` is everything the
+  magnetic state controls. It is *not* a spin average: a rank-0 spin factor is constant
+  in `e` yet still carries a spin slot, so it lives in the remainder.
+
+
 ### Added — the lattice-only entry path
 
 The same API review walked a phonons-only workflow end to end and counted where the

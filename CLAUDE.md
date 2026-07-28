@@ -212,6 +212,24 @@ Easy to break silently — confirm before touching the algorithm.
   guards against cross-basis confusion. This reload is realized by persistence
   (`SLCE.load(SLCEModel, …)` rebuilds `jphi` in basis-key order from the
   per-`SALCKey` coefficients).
+- **`write_phonopy`'s supercell ordering is an EXTERNAL convention** (`io/phonopy.jl`
+  ↔ `test/phonopy/`): `FORCE_CONSTANTS` is a matrix over supercell atom indices that
+  phonopy builds itself from the unit cell and `--dim`, so a disagreement produces a
+  permuted force-constant matrix that still diagonalizes and still has three acoustic
+  modes at Γ. **No self-contained round trip can gate it** — the core suite's checks
+  (`test_latticeonly.jl`) pin the tiling and the wraparound, and pass under any
+  *consistent* map. The convention was read off phonopy (`s(a,l) = (a−1)·∏d + l₁ +
+  d₁(l₂ + d₂l₃) + 1`, atom slowest, `l₁` fastest) and only the phonopy suite defends
+  it. Three fixture properties there are load-bearing and were each found by mutation,
+  not by design: the comparison is MASS-WEIGHTED with two different masses (phonopy's
+  phase depends only on the lattice translation, so permuting basis atoms is a
+  similarity transform — the species-permutation bug moves an unweighted comparison by
+  8e-16 and a weighted one by 1.7e-2); species are INTERLEAVED (the POSCAR grouping is
+  a real permutation, which is why POSCAR and FORCE_CONSTANTS are written together);
+  and the shift set is NOT symmetric under swapping the first two axes (the first
+  fixture had `R ∈ {0, ±(1,1,0)}`, and reversing the lattice-axis order produced a
+  BYTE-IDENTICAL file). Change the writer → re-run the phonopy suite, and if you
+  change the fixture, re-verify all three mutations still bite.
 - **The spin-free entry path shares ONE predicate** (`slce/model.jl`
   `_basis_has_spin` ↔ `io/dftsource.jl` `SLCEDataset`'s `use_torque = nothing` ↔
   `slce/forceconstants.jl` `force_constants(; spins = nothing)` ↔ `fitting/fit.jl`

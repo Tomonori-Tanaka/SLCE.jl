@@ -53,6 +53,27 @@ function _lo_basis(cr, sg, spec)
     return SLCEBasis(cr, sg, sb, spec)
 end
 
+# Minimal reader for phonopy's full-form FORCE_CONSTANTS, so the export is checked
+# against a parse rather than against the writer's own buffer.
+function _read_force_constants(path::AbstractString)
+    toks = split(read(path, String))
+    n1 = parse(Int, toks[1])
+    n2 = parse(Int, toks[2])
+    n1 == n2 || error("expected the square (full) form; got $n1 × $n2")
+    Φ = zeros(Float64, 3n1, 3n1)
+    k = 3
+    for _ = 1:(n1 * n2)
+        i = parse(Int, toks[k])
+        j = parse(Int, toks[k + 1])
+        k += 2
+        for α = 1:3, β = 1:3
+            Φ[3(i - 1) + α, 3(j - 1) + β] = parse(Float64, toks[k])
+            k += 1
+        end
+    end
+    return Φ, n1
+end
+
 @testset "the lattice-only entry path" begin
     cr, sg = _bcc_im3m()
     nat = 2
@@ -238,5 +259,76 @@ end
         dsj = SLCEDataset(joint, jd; use_torque = false)
         @test_logs((:warn, r"carry no information"), match_mode = :any,
                    fit(SLCEFit, dsj, OLS(); force_weight = 1.0, asr = false))
+    end
+
+    # `write_phonopy`'s real gate — that the supercell ordering agrees with phonopy's —
+    # lives in `test/phonopy/`, because only phonopy can settle it: a permuted export
+    # still diagonalizes and still has three acoustic modes at Γ. What IS checkable
+    # here is everything on this side of that boundary: the tiling, the shift-to-
+    # supercell arithmetic, the species permutation, and the refusals.
+    @testset "write_phonopy: the half that does not need phonopy" begin
+        rng = MersenneTwister(0x20)
+        mj = SLCEModel(joint, 0.0, randn(rng, n_salcs(joint)))
+        ez = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:nat])
+        fcs = force_constants(mj; spins = ez, order = 2)
+        shifts = unique([Tuple(Int.(k[2][2] - k[2][1])) for k in keys(fcs.constants)])
+        want = ntuple(k -> 2 * maximum(abs(R[k]) for R in shifts) + 1, 3)
+
+        mktempdir() do dir
+            out = write_phonopy(dir, fcs)
+            @test out.dim == want                      # smallest wraparound-free box
+            @test out.n_super == nat * prod(want)
+            # The written FORCE_CONSTANTS reproduces `dynamical_matrix` when D(q) is
+            # rebuilt from it by the standard supercell sum. This does NOT pin the
+            # ordering (any consistent map passes), which is the whole reason the
+            # phonopy suite exists — but it does pin the tiling and the wraparound.
+            Φ, n = _read_force_constants(out.force_constants)
+            @test n == out.n_super
+            ncell = prod(want)
+            for q in ([0.0, 0.0, 0.0], [0.21, 0.34, 0.11])
+                D = zeros(ComplexF64, 3nat, 3nat)
+                for a = 1:nat, b = 1:nat, l3 = 0:(want[3] - 1),
+                    l2 = 0:(want[2] - 1), l1 = 0:(want[1] - 1)
+
+                    i = (a - 1) * ncell + 1                       # lattice point 0
+                    j = (b - 1) * ncell + (l1 + want[1] * (l2 + want[2] * l3)) + 1
+                    # the shift a supercell atom sits at, folded to (−n/2, n/2]
+                    R = ntuple(k -> (l = (l1, l2, l3)[k];
+                                     l > want[k] ÷ 2 ? l - want[k] : l), 3)
+                    ph = cis(2π * (q[1] * R[1] + q[2] * R[2] + q[3] * R[3]))
+                    for α = 1:3, β = 1:3
+                        D[3(a - 1) + α, 3(b - 1) + β] +=
+                            Φ[3(i - 1) + α, 3(j - 1) + β] * ph
+                    end
+                end
+                @test maximum(abs, D .- dynamical_matrix(fcs, q)) <
+                      1e-10 * max(1.0, norm(D))
+            end
+        end
+
+        # The POSCAR groups species and the force constants follow it. `joint`'s
+        # crystal is single-species, so build one that actually interleaves.
+        inter = Crystal(Lattice(Matrix(3.0 * I(3))),
+                        [0.0 0.25 0.5; 0.0 0.25 0.5; 0.0 0.25 0.5], [1, 2, 1],
+                        ["Fe", "Ni"])
+        @test SLCE._species_grouped_perm(inter) == [1, 3, 2]
+        mktempdir() do dir
+            fake = ForceConstantSet(2, inter, zeros(3, 3),
+                Dict(([1, 2], [SVector{3,Int}(0, 0, 0), SVector{3,Int}(0, 0, 0)]) =>
+                     ones(3, 3)))
+            write_phonopy(dir, fake)
+            lines = readlines(joinpath(dir, "POSCAR"))
+            @test split(lines[6]) == ["Fe", "Ni"]
+            @test split(lines[7]) == ["2", "1"]
+        end
+
+        # refusals and the aliasing warning
+        @test_throws ArgumentError write_phonopy(mktempdir(),
+                                                 force_constants(mj; spins = ez,
+                                                                 order = 3))
+        @test_throws ArgumentError write_phonopy(mktempdir(), fcs; dim = (0, 1, 1))
+        # a dim below the wraparound-free one folds shifts, and says how many
+        @test_logs((:warn, r"too small"), match_mode = :any,
+                   write_phonopy(mktempdir(), fcs; dim = (1, 1, 1)))
     end
 end

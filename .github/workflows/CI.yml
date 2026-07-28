@@ -70,6 +70,36 @@ jobs:
         env:
           JULIA_NUM_THREADS: "4"
 
+  phonopy:
+    name: phonopy export — convention gate
+    runs-on: ubuntu-latest
+    steps:
+      # `write_phonopy` writes a POSITIONAL format: a matrix over supercell atom
+      # indices, with the supercell built by phonopy from the unit cell and `--dim`.
+      # Disagree with phonopy's ordering and the export is a permuted force-constant
+      # matrix that still diagonalizes and still has three acoustic modes at Γ — no
+      # self-contained round trip can see it. Only phonopy can settle the question,
+      # so it is installed here and the comparison is against its own dynamical
+      # matrix. The core suite keeps the half that does not need it
+      # (`test/unit/test_latticeonly.jl`), because phonopy must never become a
+      # dependency of `Pkg.test()`.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install phonopy
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.12"
+      - uses: julia-actions/cache@v2
+      - name: Instantiate the phonopy environment
+        run: julia --project=test/phonopy -e 'using Pkg; Pkg.instantiate()'
+      - name: Run the phonopy suite
+        run: julia --project=test/phonopy test/phonopy/runtests.jl
+        env:
+          PHONOPY_PYTHON: python
+          JULIA_NUM_THREADS: "4"
+
   examples:
     name: runnable examples
     runs-on: ubuntu-latest

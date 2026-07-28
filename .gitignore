@@ -13,6 +13,7 @@ lcov.info
 /test/oracle/Manifest.toml
 /test/sunny/Manifest.toml
 /test/glmnet/Manifest.toml
+/test/phonopy/Manifest.toml
 /examples/Manifest.toml
 
 # Documenter build output

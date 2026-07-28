@@ -132,6 +132,26 @@ one does, and lands on different couplings — which is the whole point: those t
 numbers answer different questions, and only the joint model can tell you which
 part of the coupling came from the lattice.
 
+## Handing the lattice channel to phonopy
+
+[`write_phonopy`](@ref) writes a `ForceConstantSet` as a phonopy calculation — a
+`POSCAR` and a `FORCE_CONSTANTS` — so band structures, DOS, thermal properties,
+group velocities and thermal conductivity come from phonopy rather than from
+reimplementations here:
+
+```julia
+fcs = force_constants(model; spins = afm, order = 2)
+out = write_phonopy("phonons/afm", fcs)     # out.dim is the --dim to pass
+```
+
+The magnetic state is already baked into `fcs`, and phonopy has no notion of one:
+export two states to two directories and the difference between the band structures
+*is* the magnetoelastic content of the model. Note the two files must be used
+together — the `POSCAR` is what fixes the atom order the `FORCE_CONSTANTS` is written
+in, and phonopy's supercell ordering is pinned by a test that runs phonopy itself
+(`test/phonopy/`), because a permuted export still diagonalizes and still has three
+acoustic modes at Γ.
+
 ## Force constants and phonons
 
 [`force_constants`](@ref) differentiates the energy with respect to displacements at

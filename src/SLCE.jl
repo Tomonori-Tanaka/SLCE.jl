@@ -15,6 +15,7 @@ using LinearAlgebra: norm, det, I, eigen, eigvals, svd, svdvals, cholesky, Symme
 using StaticArrays
 using Statistics: mean
 using Random: AbstractRNG, default_rng, MersenneTwister
+using Printf: @printf
 import TOML
 import Tables
 # Extend the StatsAPI generics rather than shadow them, so `coef` / `fit` / `nobs` /
@@ -95,6 +96,7 @@ include("io/persist.jl")
 include("io/input.jl")
 include("io/dftsource.jl")
 include("io/embset.jl")
+include("io/phonopy.jl")   # harmonic force constants -> phonopy FORCE_CONSTANTS
 
 # --- Public API (exported) --------------------------------------------------------
 # The fitting workflow a user reaches for. Construction internals (cluster / neighbor /
@@ -146,6 +148,7 @@ export EffectiveModel, EffectiveTerm, effective_model
 export AbstractDFTSource, TrainingDatum, DatumProvenance, SpinDatum,
        LatticeDatum, read_configs
 export crystal_fingerprint
+export write_phonopy
 export EmbsetFile, read_embset
 
 # --- Public, unexported -----------------------------------------------------------

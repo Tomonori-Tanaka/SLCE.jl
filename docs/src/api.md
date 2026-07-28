@@ -288,6 +288,7 @@ model actually satisfies shows up here as three zero eigenvalues of `D(0)` — s
 ForceConstantSet
 force_constants
 dynamical_matrix
+write_phonopy
 ```
 
 ## Effective models at a displaced structure
