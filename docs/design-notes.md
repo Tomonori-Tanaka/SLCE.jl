@@ -595,6 +595,23 @@ The two missing families are genuinely independent of each other and of the
 The minimal witness needs no rank computation — simple cubic, nearest neighbours,
 `Φ_d = 1`: the Huang residual is identically zero while `Q = 4·1 ≠ 0`.
 
+This is not new physics — it is **Gazis & Wallis, Phys. Rev. 151, 578 (1966)**,
+whose abstract states that the Born–Huang conditions "are necessary but not
+sufficient for rotational invariance" and whose Eq. (12) is the `Q = 0` family.
+But it is contested in the literature in a way that matters here, and the
+resolution is domain-dependent. **Sarkar & Sengupta, phys. stat. sol. (b) 83, 263
+(1977)** argue the extra conditions are "nothing new" — merely Born–Huang plus
+vanishing stress — and modern reviews inherit that (Lin, Poncé & Marzari, npj
+Comput. Mater. 8, 236 (2022)). Measured: on a **central-force-parametrized** model
+their claim is exactly right, including their count — the 15 Huang functionals
+collapse to rank 5 there, the anisotropic stress lies in that span, and only the
+isotropic pressure escapes (which S&S themselves except). On a **freely fitted**
+`Φ_d` — a general symmetric 3×3 per shell, which is what this package and every
+other force-constant fitter produces — the Huang rank returns to 15 and both parts
+of `Q` leave its span. **So the "Born–Huang is complete" result does not cover the
+regime this package operates in.** That is the concrete reason the layer-2 gap
+above is a real gap and not a bookkeeping one.
+
 **When the gap is benign, and when it is not.**
 
 - **Harmonic order, training data from a relaxed structure: benign.** The six
