@@ -61,6 +61,24 @@ only at a stress-free reference, and a spin–lattice cell can be stress-free fo
 magnetic state), and the sum rule buys origin independence only where the affine field is
 periodic, which is `ε = 0`.
 
+### Fixed — the term list depended on the coefficient values
+
+`decorated_terms` and `spin_multipole_terms` skipped any SALC whose coefficient was exactly
+zero. That makes the emitted list — and the index → SALC map a consumer addresses it by —
+a function of the coefficient *values* rather than of the basis. It is harmless for a
+reader and wrong for anything that rewrites coefficients in place: sparse estimators and
+`refit` produce exact zeros routinely, so two models built on the *same* basis (two points
+of a `StrainedModels` grid, an active-learning refit) can emit lists of equal length whose
+maps are shifted relative to each other — and a coefficient hot-swap then writes each value
+onto a neighbouring cluster while every length check passes.
+
+Both surfaces now take `keep_zero`, which emits one term per SALC member unconditionally
+and makes the index map a property of the SALC basis alone — the object a volume grid
+already asserts identical across its points. The default is `false`, so every existing
+consumer, byte-comparison and benchmark is unaffected; a consumer that will rewrite
+coefficients must opt in. The test demonstrates the hazard next to the fix rather than
+asserting the fix alone.
+
 ### Added — volume grids, and the acceptance gate that catches what they get wrong
 
 `StrainedModels(models, scales)` holds a K(ε) grid: the same crystal at a set of isotropic

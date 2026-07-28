@@ -52,7 +52,7 @@ end
 n_atoms(model::SLCEModel)::Int = n_atoms(model.basis.crystal)
 
 """
-    spin_multipole_terms(model::SLCEModel) -> Vector{SpinMultipoleTerm}
+    spin_multipole_terms(model::SLCEModel; keep_zero = false) -> Vector{SpinMultipoleTerm}
 
 A code-neutral, flat view of a fitted SLCE: one [`SpinMultipoleTerm`](@ref) per cluster member
 and `l`-ordering of every SALC with a nonzero coefficient. This is the stable public
@@ -73,8 +73,13 @@ The trigger is the **spec**, not the surviving coefficients: a basis whose displ
 sector happened to produce no SALC (or whose displacement couplings all fitted to zero)
 was still built and fitted in a `p ≥ 1` setting, and reporting it as pure spin would
 fail open on exactly the invariant this refusal exists to enforce.
+
+`keep_zero = true` emits a term for every SALC member regardless of its coefficient — see
+[`decorated_terms`](@ref) for why that matters to any consumer that rewrites coefficients
+in place.
 """
-function spin_multipole_terms(model::SLCEModel)::Vector{SpinMultipoleTerm}
+function spin_multipole_terms(model::SLCEModel;
+                              keep_zero::Bool = false)::Vector{SpinMultipoleTerm}
     salcs = model.basis.salc_basis.salcs
     _basis_has_disp(model.basis) &&
         throw(ArgumentError(
@@ -87,7 +92,7 @@ function spin_multipole_terms(model::SLCEModel)::Vector{SpinMultipoleTerm}
     out = SpinMultipoleTerm[]
     @inbounds for k in eachindex(model.jphi)
         j = model.jphi[k]
-        j == 0.0 && continue
+        (keep_zero || j != 0.0) || continue
         salc = salcs[k]
         for mem in salc.members
             for t in mem.terms
@@ -151,7 +156,7 @@ _slot_scale(slots::AbstractVector{Slot})::Float64 =
     (4π)^(count(s -> s.factor.channel == SPIN, slots) / 2)
 
 """
-    decorated_terms(model::SLCEModel) -> Vector{DecoratedTerm}
+    decorated_terms(model::SLCEModel; keep_zero = false) -> Vector{DecoratedTerm}
 
 A code-neutral, flat view of a fitted SLCE of any channel content: one
 [`DecoratedTerm`](@ref) per cluster member and slot layout of every SALC with a
@@ -162,13 +167,32 @@ rather than leaving consumers to re-derive it.
 
 On a pure-spin model the returned terms are the same terms `spin_multipole_terms` reports,
 with `scale == (4π)^(body/2)` — the two rules agree exactly there.
+
+!!! warning "`keep_zero = true` when the coefficients will be rewritten in place"
+    By default a SALC whose coefficient is exactly zero emits no term, so **the term list
+    — and therefore the index → SALC map a consumer addresses it by — is a function of the
+    coefficient VALUES, not of the basis**. That is harmless for a reader and wrong for a
+    rewriter: sparse estimators and `refit` produce exact zeros routinely, so two models
+    on the SAME basis (two points of a [`StrainedModels`](@ref) grid, an active-learning
+    refit) can emit lists that differ in length — or, worse, lists of EQUAL length whose
+    maps are shifted relative to each other, at which point a coefficient hot-swap writes
+    each value onto a neighbouring cluster and every length check still passes.
+
+    `keep_zero = true` emits one term per SALC member unconditionally, making the index
+    map a property of `salc_basis` alone — which is exactly the object a volume grid
+    asserts identical across its points. Any consumer that will later rewrite coefficients
+    in place (`SLCEMonteCarlo.set_coefficients!`) must build from this view.
+
+    The default stays `false` so every existing consumer, byte-comparison and benchmark is
+    unaffected.
 """
-function decorated_terms(model::SLCEModel)::Vector{DecoratedTerm}
+function decorated_terms(model::SLCEModel;
+                         keep_zero::Bool = false)::Vector{DecoratedTerm}
     salcs = model.basis.salc_basis.salcs
     out = DecoratedTerm[]
     @inbounds for k in eachindex(model.jphi)
         j = model.jphi[k]
-        j == 0.0 && continue
+        (keep_zero || j != 0.0) || continue
         salc = salcs[k]
         for mem in salc.members
             for t in mem.terms

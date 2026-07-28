@@ -528,15 +528,83 @@ slots; packed-integer cleverness; per-species row layouts.
   > `w(ε, {s}, {ê}) ∝ V(ε)^{N_mobile} · exp[ −β( E(ε, u, ê) + P·V(ε) ) ]`,
   > `V(ε) = V₀ det(I + ε)`; the observable is `G(T, P)`.
 
-  Three preconditions the `N ln(V′/V)` Jacobian silently assumes, each a
+  Three preconditions the Jacobian silently assumes, each a
   classic bug if left implicit: (i) **the move must rescale the displacements
   affinely**, `u_i → (F′F⁻¹)·u_i`, together with the reference — at fixed
   Cartesian `u` the configurational measure is unchanged and the Jacobian is
-  **1**, not `(V′/V)^N`; (ii) **N is the number of atoms with active
+  **1**, not a power of `V′/V`; (ii) **N is the number of atoms with active
   displacement DoF**, not `n_atoms` — clamped species (pmax = 0 ligands) have
-  no configurational integral, and a centre-of-mass-free sampler uses N − 1;
-  (iii) the exponent is `N ln(V′/V)` for a proposal uniform in V and
-  `(N+1) ln(V′/V)` for one uniform in ln V. Two docstring obligations:
+  no configurational integral; (iii) the exponent depends on the PROPOSAL
+  VARIABLE, not only on the ensemble.
+
+  **CORRECTED 2026-07-29 (panel review), and the correction has teeth.** The
+  text above said "a centre-of-mass-free sampler uses N − 1" and gave the pair
+  `N ln(V′/V)` / `(N+1) ln(V′/V)`. Both are wrong in this package. Write the
+  weight from the DIMENSION of the sampled displacement space:
+
+  > `D = 3·N_mob − count(H.comp_free)`, `N_mob = H.n_disp_active`;
+  > the measure carries `V^{D/3}`, so for a symmetric proposal in `y`:
+  > `ln A = ln|dV/dy|_{y′} − ln|dV/dy|_y + D·ln(s′/s) − β[ΔE_int + n_c·Δj0 + P·ΔV]`,
+  > i.e. the volume power is **`D/3`** (`y = V`), **`D/3 + 1`** (`y = ln V`),
+  > **`D/3 + 2/3`** (`y = s`).
+
+  (α) `_recenter!` is per **(Cartesian direction, displacement component)** and
+  `comp_free` is `3 × n_disp_comps` (`hamiltonian.jl:388`, whose own comment says
+  "the flat space is 3 × n_disp_comps, not 3"). Each removed direction removes
+  ONE dimension, and there are `n_disp_comps` independent centres of mass — so
+  `N − 1` is right only for a single displacement component, and `D` need not be
+  a multiple of 3. Read it off `H`; never hard-code 1 or 3.
+  (β) **The grid is labelled by `s`, so "propose `s` uniformly and use the
+  `V`-uniform exponent" is the live trap** — it is off by `(V′/V)^{2/3}`, i.e.
+  `~(2/3)/N` relative in the equilibrium volume: invisible on a production cell
+  and a few percent on the fixtures the gates run on. Classic green-gate error.
+  (γ) Do not assert the exponent — **measure** it: on a lattice-only fixture with
+  one on-site `degree = 2` term whose coefficient is identical at every grid point,
+  `j0 ≡ 0` and `P = 0`, the `s^D` Jacobian cancels the `s^{−D}` of the Gaussian
+  integral exactly and the stationary marginal is UNIFORM in the proposal
+  variable; an exponent error `δ` shows as `p(y) ∝ exp(δ·y)`, a straight line on a
+  log-histogram whose slope recovers `δ`. Run it on a translation-invariant and on
+  a pinned fixture: the two exact answers differ by exactly `3·n_disp_comps` in
+  `D`, which is the only test that isolates the COM bookkeeping. Running BOTH
+  proposal arms is a second differential check, since their exponents differ by
+  exactly 1.
+  (δ) **Which cell, for each of three quantities.** `P·V` and `N_mob` are
+  **supercell**; `j0` is per **training cell** and needs `n_c`. And
+  `n_c ≠ prod(H.dims)` whenever `reduce_cell` was used — derive it as
+  `H.n_sites / n_atoms(reference crystal)` and assert integrality. Mixing the two
+  cells is a factor-`n_c` error in the applied pressure; getting `n_c` wrong is a
+  pure EOS scaling error with every other gate green.
+  (ε) **Pressure units** follow the package's `temperature` XOR `kT` discipline:
+  `pressure_GPa` XOR `pressure` (model units, eV/Å³), never a bare number. GPa vs
+  kbar is a silent factor 10; GPa vs eV/Å³ is a factor 160 that reads as an
+  instability rather than a unit slip.
+  (ζ) **The one production-scale check available** is the mechanical-equilibrium
+  identity `P = (D/3)·kT/⟨V⟩ + ⟨−∂E_total/∂V⟩`, the second term at fixed scaled
+  coordinates (`grid_strain_derivative` supplies it). It tests the Jacobian
+  exponent, the `Δj0` bookkeeping, `n_c` and the pressure units at once, and
+  belongs in the observable set, not only in a test. Note its first term exists
+  BECAUSE of the Jacobian: a run that omitted the Jacobian satisfies the identity
+  at a pressure wrong by `(D/3)kT/V` ≈ 0.13 GPa at 300 K and 10⁴ Å³.
+  (η) Write the weight as `det(U)^{...}` rather than `V(ε)^{...}`, so the §9b/§9c
+  widening inherits it without re-derivation — the same reason §9e refuses a
+  second label.
+  (θ) Unstated but real: `step_u` and `_check_escape!`'s radius are **absolute
+  lengths**. Under a fluctuating cell they are a state-dependent restriction of
+  the displacement space; `step_u` re-adapts so it is a transient, but the escape
+  radius must be expressed as a fraction of `s·d_NN` or its warnings become a
+  function of volume. An accepted strain move is a phase boundary and must
+  `_reset_escape!`.
+  **Two v0 scope refusals (2026-07-29).** `run_pt` passes ONE `TiledHamiltonian`
+  to every lane by reference (`pt.jl:220,264`) while `set_coefficients!` mutates it
+  in place, so per-lane strain is a data race before it is a physics question; and
+  `_attempt_swap!` (`pt.jl:113`) is the NVT rule, while NPT needs
+  `(β_a − β_b)[(E_b + P·V_b) − (E_a + P·V_a)]` plus the strain in the payload.
+  PT + strain therefore **throws** in v0 and becomes its own slice. GPU is the
+  opposite case: `_GPUTables.sent_w` is copied once at construction and there is no
+  re-upload hook, so the device silently keeps pre-swap coefficients — the fix is
+  small (a `sent_w`-only `copyto!`) and shipping it with a host≡device gate is
+  strictly safer than refusing, so it is implemented and its per-move cost
+  measured, with the refusal held in reserve. Two docstring obligations:
   constant-strain (fixed cell) is a DIFFERENT ensemble giving `F(T, ε)` with
   neither Jacobian nor PV term — magnetostriction needs the former, and the
   constant-strain and constant-stress specific heats differ; and v0 is
@@ -1269,8 +1337,46 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
     A zero-coefficient site now counts as active, which is the honest accounting:
     it is sampled with every move accepted at `ΔE = 0`, i.e. a free spin that
     belongs in `⟨m⟩`, unlike a structurally absent site, which is frozen.
-  - **M5-5 — finite-T.** SCP-style ⟨uu⟩ → J_eff(T), ⟨Φ_spin⟩ →
-    magnetic-state-dependent force constants (§9d template).
+    **The fix was HALF a fix, found 2026-07-29 by two independent reviewers and
+    verified.** `keep_zero_terms` freezes the support of the list it is handed, but
+    `TiledHamiltonian(model)` obtains that list from `decorated_terms(model)`
+    (`hamiltonian.jl:880`), which prunes on the coefficient value itself
+    (`introspect.jl:170`, `j == 0.0 && continue`). So the emitted term list — and the
+    index → SALC map a consumer addresses it by — is a function of the coefficient
+    VALUES, not of the basis, and no MC-side flag can resurrect a term upstream never
+    emitted. On a grid whose points come from sparse / group-L0 / `refit` estimators
+    (which produce exact zeros routinely, as this record says elsewhere) two points
+    with the same NUMBER of zeros at DIFFERENT keys emit equal-length lists with
+    shifted maps, and a hot-swap writes each coefficient onto a neighbouring cluster
+    while every length check passes. The reference model that built `H` is itself a
+    grid point, so this is the default path, not a corner.
+    **RESOLVED 2026-07-29** — `decorated_terms(model; keep_zero = false)` and
+    `spin_multipole_terms(...; keep_zero)` upstream, default `false` so every existing
+    consumer and byte-comparison is untouched; the MC builds with `keep_zero = true`,
+    which makes the index map a property of `salc_basis` — exactly the object a
+    `StrainedModels` grid already asserts identical across its points. Gated in
+    `test/unit/test_introspect.jl` by DEMONSTRATING the hazard (two models on one basis,
+    equal-length lists, different maps) next to the fix (structurally identical lists,
+    differing only in `coef`).
+  - **M5-5 — finite-T. SCOPE CORRECTED 2026-07-29: this was never a request to
+    implement a self-consistent solver.** §9d cites Masuki–Nomoto–Arita–Tadano as
+    the source of the MECHANISM — the re-expansion `u → u₀ + δu` is an exact
+    finite linear map, lower-triangular in degree — and that mechanism has already
+    shipped, as `effective_model` (M5-1). The wording here ("SCP-style ⟨uu⟩ →
+    J_eff(T)") read as a deliverable and was taken as one in a 2026-07-29 review;
+    it is a reference note.
+    Two things worth keeping from that review, for whenever a finite-T utility is
+    actually wanted. (i) **An SCP loop would be wrong here anyway.** Self-consistency
+    exists to repair a HARMONIC solver; this sampler samples the full anharmonic
+    PES, so its `⟨uu⟩` is already renormalized and feeding a `J_eff` built from it
+    back into the same sampler renormalizes twice — the §9a double-count in another
+    costume, with every gate green. Any such utility is a post-hoc OUTPUT
+    (`effective_model(model; u0 = ⟨u⟩, C = ⟨δuδu⟩)`, exact by Wick for a polynomial
+    basis), never a feedback path. (ii) Under a strain move the moments must be
+    accumulated in the reference frame `w = u/s`, not in Cartesian `u`, or they
+    pick up `⟨s²⟩` instead of `⟨s⟩²`; and a classical sampler carries no zero-point
+    motion, so `J_eff(T→0)` converges to the clamped-ion value — SLCEDynamics' QTB
+    supplies quantum moments on the same PES if that matters.
   Global strain channel (§9b) only after its two holes are resolved AND a felt
   need exists — and note §9b hole (i) is wider than the record said before
   Revision 2.

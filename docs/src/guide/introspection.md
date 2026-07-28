@@ -71,6 +71,33 @@ A displacement-decorated model is refused by [`spin_multipole_terms`](@ref) rath
 mis-scaled, and the error names the two ways forward: `decorated_terms(model)`, or
 `spin_multipole_terms(restrict(model, :spin))`.
 
+### If you are going to *rewrite* coefficients, pass `keep_zero = true`
+
+By default both surfaces skip a SALC whose coefficient is exactly zero. That makes the term
+list — and the index a consumer addresses it by — a function of the coefficient *values*
+rather than of the basis. For a reader that is harmless. For anything that later rewrites
+coefficients in place against those indices (a Monte Carlo hot-swap across a volume grid, an
+active-learning refit) it is not: sparse estimators and [`refit`](@ref) produce exact zeros
+routinely, so two models built on the *same* basis can emit lists of **equal length whose
+maps are shifted**, and every length check still passes while each coefficient lands on a
+neighbouring cluster.
+
+```@example introspect
+zeroed = SLCEModel(basis, 0.0, [i == 2 ? 0.0 : c for (i, c) in enumerate(model.jphi)])
+other  = SLCEModel(basis, 0.0, [i == 3 ? 0.0 : c for (i, c) in enumerate(model.jphi)])
+shape(t) = (t.atoms, t.shifts, [(s.site, s.factor) for s in t.slots])
+println("pruned:    equal length = ",
+        length(decorated_terms(zeroed)) == length(decorated_terms(other)),
+        ",  same map = ", shape.(decorated_terms(zeroed)) == shape.(decorated_terms(other)))
+println("keep_zero: same map = ",
+        shape.(decorated_terms(zeroed; keep_zero = true)) ==
+        shape.(decorated_terms(other; keep_zero = true)))
+```
+
+With `keep_zero = true` the map is a property of the SALC basis alone — which is exactly the
+object a [`StrainedModels`](@ref) grid asserts identical across its points. The default stays
+`false` so existing consumers are untouched.
+
 ## `restrict` is not a refit
 
 [`restrict(model, :spin)`](@ref restrict) returns the joint model evaluated at

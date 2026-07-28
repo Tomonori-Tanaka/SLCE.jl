@@ -303,4 +303,51 @@ end
         @test predict_energy(back, _rand_config(rng, 2)) isa Float64
         rm(path)
     end
+    @testset "keep_zero: the index map is a property of the basis, not of the values" begin
+        # THE HAZARD. By default a SALC with an exactly-zero coefficient emits no term, so
+        # the term list — and the index → SALC map a consumer addresses it by — depends on
+        # the coefficient VALUES. Two models on the SAME basis (two points of a volume
+        # grid, an active-learning refit) can then emit lists of EQUAL LENGTH whose maps
+        # are shifted relative to each other, and a coefficient hot-swap writes each value
+        # onto a neighbouring cluster with every length check passing.
+        rng = MersenneTwister(0x4b30)
+        b = _multichannel_basis()
+        K = n_salcs(b)
+        @test K >= 4
+        base = randn(rng, K)
+        ja, jb = copy(base), copy(base)
+        ja[2] = 0.0                       # same NUMBER of exact zeros...
+        jb[3] = 0.0                       # ...at different keys
+        ma, mb = SLCEModel(b, 0.0, ja), SLCEModel(b, 0.0, jb)
+
+        shape(t) = (t.body, t.atoms, t.shifts, [(s.site, s.factor) for s in t.slots],
+                    t.scale, t.folded)
+        da, db = decorated_terms(ma), decorated_terms(mb)
+        # the hazard, demonstrated rather than asserted away: equal length, different map
+        @test length(da) == length(db)
+        @test shape.(da) != shape.(db)
+
+        # ...and the fix: with `keep_zero` the two lists are structurally IDENTICAL and
+        # differ only in the coefficients, which is what makes an index-addressed rewrite
+        # sound. This is the precondition `SLCEMonteCarlo.set_coefficients!` needs across a
+        # `StrainedModels` grid.
+        ka, kb = decorated_terms(ma; keep_zero = true), decorated_terms(mb; keep_zero = true)
+        @test shape.(ka) == shape.(kb)
+        @test length(ka) > length(da)
+        @test [t.coef for t in ka] != [t.coef for t in kb]
+        # every term of the pruned view survives in the kept one, unchanged
+        @test issubset(Set(shape.(da)), Set(shape.(ka)))
+
+        # the default is byte-identical to the pre-keyword behaviour, on both surfaces
+        @test shape.(decorated_terms(ma)) == shape.(da)
+        sa = spin_multipole_terms(ma)
+        @test length(spin_multipole_terms(ma; keep_zero = true)) > length(sa)
+        @test [t.coef for t in sa] == [t.coef for t in
+                                       spin_multipole_terms(ma; keep_zero = true)
+                                       if t.coef != 0.0]
+        # a model with no exact zeros is unaffected by the keyword
+        mfull = SLCEModel(b, 0.0, base)
+        @test shape.(decorated_terms(mfull)) ==
+              shape.(decorated_terms(mfull; keep_zero = true))
+    end
 end

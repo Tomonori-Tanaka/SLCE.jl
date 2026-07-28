@@ -415,7 +415,21 @@ capability consumed by both the introspection and the Sunny interop.
   one spin factor). `spin_multipole_terms` stays the frozen p = 0 view and refuses any
   displacement model on the SPEC trigger `_basis_has_disp`, naming both hatches.
   `restrict(model, :spin)` = the clamped-ion sub-model (pure-spin SALCs + `_spin_spec`:
-  `pmax` zeroed, sectors cut to their degree-0 row). Gates
+  `pmax` zeroed, sectors cut to their degree-0 row).
+  **`keep_zero` — added 2026-07-29, and it is a correctness keyword, not a convenience.**
+  Both surfaces prune SALCs whose coefficient is exactly zero, so the emitted list — and
+  the index → SALC map a consumer addresses it by — is a function of the coefficient
+  VALUES, not of the basis. Harmless for a reader, wrong for a REWRITER: sparse
+  estimators and `refit` produce exact zeros routinely, so two models on ONE basis (two
+  points of a `StrainedModels` grid, an active-learning refit) can emit equal-length lists
+  whose maps are shifted, at which point `SLCEMonteCarlo.set_coefficients!` writes each
+  coefficient onto a neighbouring cluster with every length check passing. This is the
+  other half of the M5-4 blocker whose MC-side half (`keep_zero_terms`) was resolved
+  2026-07-27 — the flag froze the support of an ALREADY-pruned list. `keep_zero = true`
+  emits one term per SALC member unconditionally, making the map a property of
+  `salc_basis`, which is exactly what a volume grid asserts identical across its points.
+  Default `false`: every existing consumer, byte-comparison and benchmark is untouched.
+  Gates
   (`test/unit/test_introspect.jl`): independent slot-by-slot reconstruction of
   `predict_energy(model, e, u) − j0`, the shortcut-scale reconstruction FAILING on the
   same fixture (teeth), pure-spin agreement with `spin_multipole_terms`, the refusal surface

@@ -641,6 +641,20 @@ Easy to break silently — confirm before touching the algorithm.
   `(γ, δ)` convention is contract and not an accident. The per-bond split is
   origin-dependent whenever a bond's own displacement content is not relative — measured on
   every call in the same idiom, never assumed from the model-wide ASR.
+- **`decorated_terms`' index map ↔ `keep_zero` ↔ an in-place coefficient rewrite**
+  (`slce/introspect.jl`, `test/unit/test_introspect.jl`): both introspection surfaces prune
+  exactly-zero coefficients by default, which makes the term list — and the index a
+  consumer addresses it by — depend on the coefficient VALUES. Fine for a reader; wrong for
+  a rewriter. **Anything that will later call `SLCEMonteCarlo.set_coefficients!` must build
+  its term list with `keep_zero = true`**, so the map is a property of `salc_basis` (the
+  object `StrainedModels` asserts identical across a grid) rather than of one fit. The
+  failure is silent in the worst way: two models with the same NUMBER of exact zeros at
+  different keys give equal-length lists with shifted maps, so every length check passes and
+  each coefficient lands on a neighbouring cluster. **Do not change the default to `true`**
+  — that would move every existing consumer's byte comparisons — and do not "simplify" the
+  two surfaces to share one pruning rule with the MC's `keep_zero_terms`: they are different
+  halves of the same hazard (upstream emission vs downstream support freezing), and the MC
+  flag cannot resurrect a term upstream never emitted.
 - **Volume grids ↔ re-expansion closure ↔ the SALC gauge** (`slce/strainedmodels.jl`,
   `test/unit/test_strainedmodels.jl`): the grid invariant is a SIMILARITY (`A_i = s_i·A₀`,
   fractional basis untouched), which is what licenses `_scaled_basis`' surgery — carrying
