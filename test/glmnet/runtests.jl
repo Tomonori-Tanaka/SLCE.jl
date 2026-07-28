@@ -1,4 +1,4 @@
-# GLMNet-export validation: fit SCE coefficients with the Lasso / ElasticNet
+# GLMNet-export validation: fit SLCE coefficients with the Lasso / ElasticNet
 # estimators and confirm the penalized solver honors the column-centered contract,
 # recovers a sparse signal, and selects the penalty by cross-validation. Runs in a
 # separate environment (heavy GLMNet / Fortran binary dependency), mirroring

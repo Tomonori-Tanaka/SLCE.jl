@@ -10,7 +10,7 @@ representation can change without breaking them.
 | function | what you get |
 |:--|:--|
 | [`decorated_terms`](@ref) | every term, any channel — the general surface |
-| [`multipole_terms`](@ref) | the frozen pure-spin view (refuses displacement models) |
+| [`spin_multipole_terms`](@ref) | the frozen pure-spin view (refuses displacement models) |
 | [`bilinear_terms`](@ref) | `ls = [1,1]` pairs and `ls = [2]` single-ion terms as Cartesian `3×3` matrices |
 | [`restrict`](@ref) | the clamped-ion (`u = 0`) sub-model of a joint model |
 | [`to_sunny`](@ref) | a `Sunny.System` (see [Sunny export](sunny.md)) |
@@ -67,9 +67,9 @@ shortcut invents a `√(4π)` per site out of nothing. (A coupled term whose eve
 happens to hold a spin factor as well as a displacement one agrees by coincidence,
 which is exactly why the shortcut survived so long.)
 
-A displacement-decorated model is refused by [`multipole_terms`](@ref) rather than
+A displacement-decorated model is refused by [`spin_multipole_terms`](@ref) rather than
 mis-scaled, and the error names the two ways forward: `decorated_terms(model)`, or
-`multipole_terms(restrict(model, :spin))`.
+`spin_multipole_terms(restrict(model, :spin))`.
 
 ## `restrict` is not a refit
 

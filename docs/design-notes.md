@@ -204,7 +204,7 @@ force-loading Spglib at `using` time.
 ## 6. Torque as the energy surface's exact derivative
 
 The torque `τ_a = −e_a × ∂E/∂e_a` (the physical / Landau–Lifshitz torque
-`m_a × B_eff,a`) is the SCE's second observable. Rather than
+`m_a × B_eff,a`) is the SLCE's second observable. Rather than
 treat the torque design matrix as an independently-derived object (a place a sign
 or normalization can silently drift out of step with the energy kernel), the
 rebuild builds the per-site gradient `accumulate_grad!` from the *same*
@@ -277,7 +277,7 @@ quantity. The same contract is the natural entry point for the reverse direction
 
 ## 9. DFT-code-agnostic data boundary
 
-The SCE pipeline must not care which DFT code produced its training data. So the
+The SLCE pipeline must not care which DFT code produced its training data. So the
 code-specific I/O is confined to a single boundary: the only objects the fitting
 machinery consumes are `TrainingDatum` (per-configuration observables: energy + spin
 directions + moment magnitudes, plus optional displacements / forces / constraining
@@ -315,7 +315,7 @@ wrong convention would pass every gauge-invariant comparison.
 ## 11. Sunny export: conversion in the core, assembly in the extension
 
 Exporting a fitted model to Sunny.jl (for linear spin-wave theory) is the one place an
-SCE coefficient becomes a *physics-package object*, so a wrong factor would silently
+SLCE coefficient becomes a *physics-package object*, so a wrong factor would silently
 corrupt a downstream Hamiltonian. Two decisions keep this safe.
 
 **The conversion math lives in the core, the Sunny object in the extension.** Sunny is
@@ -333,7 +333,7 @@ proven correct without ever loading Sunny; the extension only places the core-co
 matrices and is checked end-to-end (Sunny's own `energy`) in a separate environment.
 
 **Only what Sunny can represent is exported — the rest is reported, not dropped.** Sunny's
-bilinear-exchange-plus-single-ion model covers exactly the `ls=[1,1]` and `ls=[2]` SCE
+bilinear-exchange-plus-single-ion model covers exactly the `ls=[1,1]` and `ls=[2]` SLCE
 channels; `ls=[0…]` is a constant (absorbed in `j0`), and every other SALC (3-body and up,
 higher `l`) is collected into a `skipped` list and surfaced via `@warn`. Silently dropping
 them would make an exported model look complete when it is not.
@@ -347,7 +347,7 @@ primitive bond without multiplicity** — Sunny's periodic replication then rest
 supercell multiplicity — giving the unfolded dispersion. This is exact only when the model
 genuinely lives on the primitive cell (the interaction range stays below the supercell
 boundary, the same `L/2` resolvability limit as §1b); a `clean` flag detects when it does
-not and falls back to the exact supercell route. Spin enters only at assembly: the SCE
+not and falls back to the exact supercell route. Spin enters only at assembly: the SLCE
 couplings are fit with unit directions, so the `scaling = :moment` route sets
 `J = M/(SₐS_b)` to make Sunny's length-`S` dipoles
 reproduce the unit-vector energy (half-integer `S_eff` only — Sunny's `Moment`
@@ -358,7 +358,7 @@ energy rescaled). The single-ion term carries the classical
 
 ## 12. GLMNet estimators: sparse selection inside the centered-`X` contract
 
-An SCE basis with many channels (high `l`, several body orders) easily out-runs the
+An SLCE basis with many channels (high `l`, several body orders) easily out-runs the
 available DFT configurations, so a sparse / shrinkage estimator that selects which
 couplings matter is the natural next estimator after `OLS`/`Ridge`. GLMNet (the Fortran
 elastic-net) is a heavy, binary-backed dependency, so it follows the §5 pattern exactly:
@@ -406,7 +406,7 @@ column dominates, the model is genuinely sparse), with `:lambda_1se` shrinking m
 ## 13. Cost-weighted group selection: Group Adaptive Ridge + GCV + a Pareto λ rule
 
 **The objective is a weighted group-L0, so approximate that — not a surrogate.** A
-Monte-Carlo sweep over a fitted SCE pays per surviving *contraction entry*, and an
+Monte-Carlo sweep over a fitted SLCE pays per surviving *contraction entry*, and an
 entry is shared by every SALC of one `(body, orbit_id, ls)` group (the MC engine folds
 their coefficients into a single contraction weight). The entry vanishes only when the
 *whole group* is zero, so the real objective is
@@ -486,7 +486,7 @@ harvested.
 
 The joint spin–lattice truncation is a **union of sectors** (`Sector` rows →
 resolved `SectorRule`s), not a product grid: the physically meaningful models —
-force constants ∪ pure-spin SCE ∪ a handful of coupled rows — are sparse in the
+force constants ∪ pure-spin SLCE ∪ a handful of coupled rows — are sparse in the
 (spin content × displacement degree × body order × radius) product, and a
 product-grid spec would either admit the whole block or force per-cell
 exceptions. Three decisions carry the design:

@@ -1,4 +1,4 @@
-# Heisenberg chain end-to-end: build the SCE basis for a spin chain, fit synthetic
+# Heisenberg chain end-to-end: build the SLCE basis for a spin chain, fit synthetic
 # energies E = J Σ_⟨ij⟩ e_i·e_j, and recover the coupling J.
 #
 # Run:  julia --project=examples examples/heisenberg_chain.jl

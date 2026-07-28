@@ -1,5 +1,11 @@
 # Spin–lattice CE — D0 design-discussion record
 
+> **Naming note (2026-07-28).** This is a dated decision record and is kept as
+> written; the names below are the ones the decision was taken under. Renamed
+> since, in the family-wide naming batch: `MultipoleTerm` → `SpinMultipoleTerm`, `multipole_terms` → `spin_multipole_terms`. The current spelling is what
+> the code, `SPEC.md` and the API reference use.
+
+
 **Status**: CLOSED 2026-07-25 — all conflicts settled. The normative design is
 **`spin-lattice-ce-design.md`** (the decision record); this file remains as the
 discussion record (proposals, adversarial report, and rationale). Companion

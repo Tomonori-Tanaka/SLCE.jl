@@ -4,6 +4,14 @@
 CurrentModule = SLCE
 ```
 
+This page derives the **spin channel** of the expansion — the classical spin-cluster
+expansion of Drautz and Fähnle, where every cluster factor is a function of the spin
+directions alone. That is the sector the package started from and still the one most
+models use. The full spin–lattice cluster expansion (SLCE) the package now implements
+decorates the same clusters with displacement factors as well; its construction is the
+decision record `docs/specs/spin-lattice-ce-design.md`, and its user-facing surface is
+[Reading a fitted model](../guide/introspection.md).
+
 ## The problem
 
 A noncollinear spin-DFT calculation returns, for one fixed set of spin directions
@@ -21,8 +29,8 @@ quantity.
 
 ## The expansion
 
-The SCE writes the energy as a sum over *clusters* of atoms — single sites, pairs,
-triplets, … — each contributing a basis function of the spins on its atoms:
+The spin-cluster expansion writes the energy as a sum over *clusters* of atoms — single
+sites, pairs, triplets, … — each contributing a basis function of the spins on its atoms:
 
 ```math
 E\bigl(\{\hat{\boldsymbol e}_a\}\bigr)
@@ -93,7 +101,7 @@ the chosen [`AbstractEstimator`](@ref) (OLS, ridge, or a GLMNet Lasso / elastic 
 
 ## The torque
 
-The SCE's second observable is the per-atom torque — the Landau–Lifshitz / physical
+Its second observable is the per-atom torque — the Landau–Lifshitz / physical
 torque ``\boldsymbol m_a \times \boldsymbol B_{\mathrm{eff},a}``, i.e. the negative of the
 energy's rotation gradient:
 

@@ -6,6 +6,51 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the documentation is published
+
+- **<https://tomonori-tanaka.github.io/SLCE.jl/dev/>** — the Documenter site is
+  now deployed to GitHub Pages by the `documentation build` CI job (`deploydocs`
+  in `docs/make.jl`, `permissions: contents: write` on the job). It was being
+  built on every push and then thrown away.
+- **Per-line source links work**: `remotes = nothing` / `edit_link = nothing` are
+  gone in favour of the real repository, so every docstring on the site links to
+  its own lines on GitHub and each page has an "Edit on GitHub" link.
+- README carries a docs badge, a CI badge and the site URL.
+
+### Changed — BREAKING: the third naming batch, across the four-package family
+
+The audit's cross-package tier: names that are only wrong when you look at two
+packages at once, which is why none of the four suites could see them. Landed together
+in the four repositories.
+
+- **`MultipoleTerm` / `multipole_terms` → `SpinMultipoleTerm` /
+  `spin_multipole_terms`.** This is the **pure-spin** term view — it refuses a
+  displacement-decorated model — and its general successor is
+  `DecoratedTerm` / `decorated_terms`. The unqualified name promised the general
+  surface and delivered the restricted one, with the restriction announced only by an
+  error message. Renamed as a pair: a `SpinMultipoleTerm` returned by
+  `multipole_terms` would be half a rename. SLCEMonteCarlo.jl and SLCETools.jl move
+  with it.
+- **`KB_EV` and `resolve_kt` now live here** (`src/units.jl`, `public`, unexported).
+  SLCEMonteCarlo and SLCETools each carried a private copy — character for character
+  identical, which is what makes the duplication dangerous rather than obviously
+  broken: two copies of a unit conversion can drift while both suites stay green.
+  The fitting core has no temperature of its own; what it owns is the *convention*,
+  and it is the one package all three samplers already depend on. SLCEMonteCarlo
+  re-exports `KB_EV` unchanged, so its users see no difference.
+- **The acronym is `SLCE`, expanded "spin–lattice cluster expansion"** — the name
+  ratified in `docs/specs/spin-lattice-ce-design.md`. Prose across the family still
+  said `SCE`, expanded three different ways, one of them ("symmetry-adapted cluster
+  expansion", in SLCEMonteCarlo) simply wrong: *symmetry-adapted* describes the basis,
+  not the expansion. Documentary only — no identifier changed. Literature citations
+  (Drautz and Fähnle's *spin-cluster expansion*), the dated decision records under
+  `docs/specs/`, and the `CHANGELOG` history keep their original wording; so does the
+  theory page for the spin channel, which really is describing the spin-only formalism.
+
+Also landing in the sibling packages: `SLCEMonteCarlo.has_disp` and
+`SLCETools`' `natoms` fields, both folded into this package's generics
+(`has_disp`, `n_atoms`); and `SLCEDynamics.run_llg_gpu` → `gpu_run_llg`.
+
 ### Changed — BREAKING: the second naming batch, and the joint datum finally has a name
 
 The same audit's next tier: names that are wrong but were not *silently* wrong, plus

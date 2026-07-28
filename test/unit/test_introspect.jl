@@ -1,4 +1,4 @@
-# Fitted-model introspection (src/slce/introspect.jl): the code-neutral `multipole_terms` /
+# Fitted-model introspection (src/slce/introspect.jl): the code-neutral `spin_multipole_terms` /
 # `bilinear_terms` view downstream packages (e.g. the SLCETools.jl samplers) read instead of
 # the SALC-basis internals. The gates are energy reconstructions: summing the per-term
 # tesseral contraction must reproduce `predict_energy − j0`.
@@ -104,10 +104,10 @@ end
         @test n_atoms(model) == 2
     end
 
-    @testset "multipole_terms reproduces predict_energy − j0" begin
+    @testset "spin_multipole_terms reproduces predict_energy − j0" begin
         j0 = 0.37
         model = SLCEModel(b, j0, 0.1 .* randn(rng, K), keys)
-        terms = multipole_terms(model)
+        terms = spin_multipole_terms(model)
         @test !isempty(terms)
         # The raw coefficient is the fitted jϕ (no (4π)^(N/2) baked in); the body order spans
         # both 1-body (single-ion) and 2-body channels.
@@ -119,12 +119,12 @@ end
         end
     end
 
-    @testset "MultipoleTerm field contract (downstream consumers pin on this)" begin
+    @testset "SpinMultipoleTerm field contract (downstream consumers pin on this)" begin
         # SLCETools.jl's bridge reads exactly these fields; a rename/retype must fail here
         # (and then be synchronized downstream), not slip through the energy gates.
-        @test fieldnames(MultipoleTerm) == (:coef, :body, :atoms, :shifts, :ls, :folded)
-        terms = multipole_terms(SLCEModel(b, 0.0, randn(MersenneTwister(3), K), keys))
-        @test terms isa Vector{MultipoleTerm}
+        @test fieldnames(SpinMultipoleTerm) == (:coef, :body, :atoms, :shifts, :ls, :folded)
+        terms = spin_multipole_terms(SLCEModel(b, 0.0, randn(MersenneTwister(3), K), keys))
+        @test terms isa Vector{SpinMultipoleTerm}
         t = terms[1]
         @test t.coef isa Float64 && t.body isa Int
         @test t.atoms isa Vector{Int} && t.ls isa Vector{Int}
@@ -136,7 +136,7 @@ end
     @testset "zero-coefficient SALCs are dropped" begin
         jphi = zeros(K)
         jphi[1] = 0.5
-        terms = multipole_terms(SLCEModel(b, 0.0, jphi, keys))
+        terms = spin_multipole_terms(SLCEModel(b, 0.0, jphi, keys))
         @test all(t -> t.coef == 0.5, terms)        # only the one nonzero SALC's members
     end
 
@@ -211,9 +211,9 @@ end
               (:coef, :scale, :body, :atoms, :shifts, :slots, :folded)
     end
 
-    @testset "decorated_terms ≡ multipole_terms on a pure-spin model" begin
+    @testset "decorated_terms ≡ spin_multipole_terms on a pure-spin model" begin
         model = SLCEModel(b, 0.0, 0.1 .* randn(rng, K), keys)
-        mt = multipole_terms(model)
+        mt = spin_multipole_terms(model)
         dt = decorated_terms(model)
         @test length(dt) == length(mt)
         for (d, m) in zip(dt, mt)
@@ -226,7 +226,7 @@ end
         @test decorated_terms(SLCEModel(b, 0.0, zeros(K), keys)) == DecoratedTerm[]
     end
 
-    @testset "multipole_terms refuses a displacement model and names both hatches" begin
+    @testset "spin_multipole_terms refuses a displacement model and names both hatches" begin
         crj = Crystal(Lattice(Matrix(3.0 * I(3))),
                       [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         specj = BasisSpec(crj; lmax = 1, pmax = 2, sectors = [
@@ -236,7 +236,7 @@ end
         bj = SLCEBasis(crj, specj)
         mj = SLCEModel(bj, 0.5, randn(rng, n_salcs(bj)))
         err = try
-            multipole_terms(mj)
+            spin_multipole_terms(mj)
             nothing
         catch e
             e
@@ -248,7 +248,7 @@ end
         # still a p ≥ 1 model and must still be refused (fail loud, never open)
         zeroed = SLCEModel(bj, 0.5, [any(SLCE.has_disp, k.decors) ? 0.0 : 1.0
                                      for k in bj.salc_basis.keys])
-        @test_throws ArgumentError multipole_terms(zeroed)
+        @test_throws ArgumentError spin_multipole_terms(zeroed)
     end
 
     @testset "restrict(model, :spin) is the exact clamped-ion sub-model" begin
@@ -277,8 +277,8 @@ end
         # and the restricted spec is honest, so the pure-spin surfaces accept it
         @test !SLCE._basis_has_disp(ms.basis)
         @test all(iszero, ms.basis.spec.pmax)
-        @test !isempty(multipole_terms(ms))
-        @test length(decorated_terms(ms)) == length(multipole_terms(ms))
+        @test !isempty(spin_multipole_terms(ms))
+        @test length(decorated_terms(ms)) == length(spin_multipole_terms(ms))
         # a LATTICE-ONLY model has no spin content to keep: the clamped-ion sub-model
         # is the empty one, whose energy is j0 alone — which is still exactly the joint
         # model at u = 0, so the contract holds rather than degenerating
@@ -289,7 +289,7 @@ end
         @test n_salcs(rlat.basis) == 0 && isempty(rlat.basis.spec.sectors)
         @test predict_energy(rlat, _rand_config(rng, 2)) == 0.7 ==
               predict_energy(mlat, _rand_config(rng, 2), z)
-        @test multipole_terms(rlat) == MultipoleTerm[]
+        @test spin_multipole_terms(rlat) == SpinMultipoleTerm[]
         # idempotent; a pure-spin model is returned untouched; only :spin is a channel
         @test restrict(ms, :spin) === ms
         @test restrict(SLCEModel(b, 0.0, ones(K), keys), :spin) isa SLCEModel

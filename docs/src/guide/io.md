@@ -120,7 +120,7 @@ table / IO / plotting package.
 
 DFT-code I/O is isolated at the *training-data boundary*. The core owns only the
 **abstract seam**: a source implements [`read_configs`](@ref)`(src) -> Vector{TrainingDatum}`,
-and the SCE pipeline only ever sees the code-agnostic [`TrainingDatum`](@ref) /
+and the SLCE pipeline only ever sees the code-agnostic [`TrainingDatum`](@ref) /
 [`SLCEDataset`](@ref) — once you have the data, the originating code is irrelevant.
 
 ```julia

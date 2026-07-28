@@ -66,7 +66,7 @@ j0 = intercept(f)    # the reference energy
 
 ## Energy + torque co-fit
 
-The SCE's second observable is the per-atom torque
+The SLCE's second observable is the per-atom torque
 ``\boldsymbol\tau_a = -\hat{\boldsymbol e}_a \times \partial E / \partial \hat{\boldsymbol e}_a``
 (the Landau–Lifshitz / physical torque ``\boldsymbol m_a \times \boldsymbol B_{\mathrm{eff},a}``).
 Because [`predict_torque`](@ref) is the analytic gradient of the same surface
@@ -292,7 +292,7 @@ co-fit whitening is identical.
 
 ## Cost-weighted group selection
 
-A Monte-Carlo sweep over a fitted SCE pays per **contraction entry**, and an entry
+A Monte-Carlo sweep over a fitted SLCE pays per **contraction entry**, and an entry
 vanishes only when *every* SALC of its `(body, orbit, l-multiset)` group has a zero
 coefficient — so the quantity to minimize alongside the fit error is the summed cost of
 the surviving groups, not the coefficient count. The workflow prices each group up

@@ -5,7 +5,7 @@ CurrentModule = SLCE
 ```
 
 This chapter collects the design choices that distinguish the rebuild from Magesty.jl. The
-goal of the rebuild is a clean, extensible re-architecture of the same SCE method; these are
+goal of the rebuild is a clean, extensible re-architecture of the same SLCE method; these are
 the seams that make it so.
 
 ## Pluggable seams via package extensions

@@ -1,4 +1,4 @@
-# Three-body SCE on a kagome lattice: the three sites of a kagome triangle are
+# Three-body SLCE on a kagome lattice: the three sites of a kagome triangle are
 # symmetry-equivalent (C₃ᵥ permutes them), so a 3-body term with unequal site angular
 # momenta — e.g. l = (1,1,2) — must combine the three l-orderings into one
 # multi-term SALC. This example builds the arbitrary-body-order basis, shows the

@@ -58,7 +58,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         @test _classify_salc([SLCE.SiteDecor(; disp = (0, 1))]) === :unsupported
     end
 
-    # Reconstruct the SCE energy from the exported matrices: for a model whose only
+    # Reconstruct the SLCE energy from the exported matrices: for a model whose only
     # channels are ls=[1,1] / ls=[2], this must equal predict_energy − j0.
     function _recon_max_err(basis; seed = 7, ntrial = 30)
         rng = MersenneTwister(seed)

@@ -194,7 +194,7 @@ end
 #
 # Read off the BASIS, never off `jphi`: a coefficient that happens to have fitted to
 # zero is a property of one fit and `refit` moves it, whereas an empty channel is
-# permanent. Same reason `multipole_terms` triggers on the spec.
+# permanent. Same reason `spin_multipole_terms` triggers on the spec.
 function _warn_spin_blind(basis::SLCEBasis, order::Int)
     any_spin = false
     disp_at_order = false

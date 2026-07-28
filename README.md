@@ -1,5 +1,10 @@
 # SLCE.jl
 
+[![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://tomonori-tanaka.github.io/SLCE.jl/dev/)
+[![CI](https://github.com/Tomonori-Tanaka/SLCE.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/Tomonori-Tanaka/SLCE.jl/actions/workflows/CI.yml)
+
+**Documentation:** <https://tomonori-tanaka.github.io/SLCE.jl/dev/>
+
 A clean, extensible, Julia-native rebuild of **Magesty.jl**, extended into a
 **spin–lattice cluster expansion** — one symmetry-adapted basis over spin
 *and* displacement degrees of freedom, fitted to noncollinear DFT data.
@@ -26,7 +31,7 @@ time-reversal-even scalar invariants built from real tesseral spherical harmonic
 over clusters of spins. Fitting recovers the cluster coefficients `J_φ`.
 
 The same coefficients also fix the per-atom **torque** `τ_a = −e_a × ∂E/∂e_a` (the
-physical / Landau–Lifshitz torque `m_a × B_eff,a`), the SCE's other DFT observable. Passing per-configuration torques to `SLCEDataset` and a
+physical / Landau–Lifshitz torque `m_a × B_eff,a`), the SLCE's other DFT observable. Passing per-configuration torques to `SLCEDataset` and a
 `torque_weight ∈ (0, 1]` to `fit` runs an energy+torque co-fit that minimizes
 `(1 − w)·MSE_energy + w·MSE_torque`.
 

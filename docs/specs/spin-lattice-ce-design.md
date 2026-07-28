@@ -1,5 +1,11 @@
 # Spin–lattice cluster expansion (SLCE) — design decision record
 
+> **Naming note (2026-07-28).** This is a dated decision record and is kept as
+> written; the names below are the ones the decision was taken under. Renamed
+> since, in the family-wide naming batch: `MultipoleTerm` → `SpinMultipoleTerm`, `multipole_terms` → `spin_multipole_terms`. The current spelling is what
+> the code, `SPEC.md` and the API reference use.
+
+
 **Status: SETTLED (D0 closed 2026-07-25). This is the normative design.**
 **Revision 1 (2026-07-25): amended after a three-agent review** (numerical /
 d0-consistency / codebase reality). Amendments are integrated in place; the

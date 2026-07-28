@@ -4,7 +4,7 @@
 CurrentModule = SLCE
 ```
 
-A fitted SCE model is an energy surface; for linear spin-wave theory you want it as a
+A fitted SLCE model is an energy surface; for linear spin-wave theory you want it as a
 [Sunny.jl](https://sunnysuite.github.io/Sunny/) `System`. [`to_sunny`](@ref) builds a real
 `Sunny.System` from the Sunny-representable channels of a model. It is provided by an
 extension that activates under `using Sunny`.
@@ -18,7 +18,7 @@ sys = to_sunny(model; spin_length = 3/2)        # a real Sunny.System
 
 Sunny represents two channels, and those are exactly what the conversion keeps:
 
-| SCE channel | Sunny term |
+| SLCE channel | Sunny term |
 |-------------|------------|
 | `ls = [1,1]` 2-body (bilinear) | a `3 × 3` exchange matrix (Heisenberg + Dzyaloshinskii–Moriya + symmetric Γ in one) |
 | `ls = [2]` 1-body | a traceless-symmetric single-ion anisotropy tensor |
@@ -33,7 +33,7 @@ sys = to_sunny(model; spin_length = 3/2)        # @warn lists any skipped channe
 
 ## Spin length, scaling, and mode
 
-Spins enter only at assembly. The SCE couplings are fit with *unit* directions, so they
+Spins enter only at assembly. The SLCE couplings are fit with *unit* directions, so they
 absorb the moment magnitude; `spin_length` supplies the physical effective spin
 ``S_{\text{eff}} = m/(g\mu_B)`` (a number, or a per-species `label => S` mapping), and the
 `scaling` keyword chooses how it enters:
@@ -86,5 +86,5 @@ directed-member folding, the primitive unfold — lives in a **dependency-free c
 and is gated *without Sunny* by reconstructing the energy
 (`_reconstruct_energy ≈ predict_energy − j0`). The thin extension only assembles the
 `Sunny.System` from the core-computed matrices, and a separate test environment checks the
-real `Sunny.System` energy against the SCE energy for both placements. The rationale is in
+real `Sunny.System` energy against the SLCE energy for both placements. The rationale is in
 [Architecture](../theory/architecture.md#The-core/extension-split).

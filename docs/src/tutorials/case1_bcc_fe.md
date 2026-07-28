@@ -21,7 +21,7 @@ training data comes from noncollinear spin-DFT in which the **direction** of eac
 moment is constrained, so that for an arbitrary spin configuration the calculation returns
 the total energy and the per-atom constraining field. The energy and the torque
 ``\boldsymbol\tau_a = \boldsymbol m_a \times \boldsymbol B_a`` derived from that field are
-exactly what the SCE design matrix is fit against.
+exactly what the SLCE design matrix is fit against.
 
 ## The reference data
 
@@ -108,7 +108,7 @@ data   = read_embset(joinpath(inputs, "EMBSET"), poscar.nat)
 
 ## The structure and the basis
 
-Build the crystal from the parsed `POSCAR`, then the symmetry-adapted SCE basis. We keep an
+Build the crystal from the parsed `POSCAR`, then the symmetry-adapted SLCE basis. We keep an
 **isotropic two-body** model: `nbody = 2`, all pairs (`cutoff = Inf`), on-site angular
 momentum `lmax = [1]`, and `soc = false` to restrict to the rotationally invariant
 (``L_f = 0``) channels — i.e. ordinary isotropic exchange. Spglib detects the cubic
@@ -162,7 +162,7 @@ using Printf
 The torque — the fit's primary target — is reproduced to high accuracy (``R^2_\tau \approx 0.998``),
 and the energy, now a secondary observable, is still captured across the 128-atom cell to
 ``R^2_E \approx 0.986`` (a few meV per atom). Parity plots make the agreement visual —
-observed (DFT) against predicted (SCE), for both energies and torques:
+observed (DFT) against predicted (SLCE), for both energies and torques:
 
 ```@example case1
 using CairoMakie
@@ -181,9 +181,9 @@ function parity!(ax, obs, pred)
     xlims!(ax, lo, hi); ylims!(ax, lo, hi)
 end
 ax1 = Axis(fig[1, 1]; aspect = 1, title = "Energy (eV)",
-           xlabel = "DFT", ylabel = "SCE")
+           xlabel = "DFT", ylabel = "SLCE")
 ax2 = Axis(fig[1, 2]; aspect = 1, title = "Torque component (eV)",
-           xlabel = "DFT", ylabel = "SCE")
+           xlabel = "DFT", ylabel = "SLCE")
 parity!(ax1, E_obs, E_pred)
 parity!(ax2, T_obs, T_pred)
 fig
@@ -248,8 +248,8 @@ regularized estimator (see [Data and fitting](../guide/fitting.md)).
 
 The fitted isotropic exchange maps onto a conventional Heisenberg Hamiltonian, which
 [`to_sunny`](@ref) exports to a [Sunny.jl](https://github.com/SunnySuite/Sunny.jl) `System`
-for linear spin-wave theory. The SCE couplings are fit from *unit* spin directions, so they
-absorb the moment magnitude (``J_{\text{SCE}} = J_{\text{phys}}\,S^2``); the magnon
+for linear spin-wave theory. The SLCE couplings are fit from *unit* spin directions, so they
+absorb the moment magnitude (``J_{\text{SLCE}} = J_{\text{phys}}\,S^2``); the magnon
 frequency, however, scales as ``1/S_{\text{eff}}``, so the export needs the physical
 effective spin ``S_{\text{eff}} = m/(g\mu_B) \approx 2.2/2 = 1.1`` — the full ordered moment
 that carries the precessing angular momentum (the ``\approx 1.5\,\mu_B`` inside the VASP
@@ -288,7 +288,7 @@ disp = 1000 .* Sunny.dispersion(swt, path)          # eV → meV
 
 fig = Figure(size = (720, 420))
 ax  = Axis(fig[1, 1]; ylabel = "ℏω (meV)", xticks = path.xticks,
-           title = "bcc Fe magnon dispersion (SCE → Sunny, S_eff = 1.1)")
+           title = "bcc Fe magnon dispersion (SLCE → Sunny, S_eff = 1.1)")
 for b in axes(disp, 1)
     lines!(ax, axes(disp, 2), disp[b, :]; color = :crimson)
 end
@@ -312,14 +312,14 @@ E_exp = [parse(Float64, r[2]) for r in rows]
 
 fig = Figure(size = (560, 420))
 ax  = Axis(fig[1, 1]; xlabel = "q along Γ–N (Å⁻¹)", ylabel = "ℏω (meV)",
-           title = "bcc Fe: SCE (Sunny) vs neutron experiment")
-lines!(ax, q_gn, disp_gn[1, :]; color = :crimson, label = "SCE (S_eff = 1.1)")
+           title = "bcc Fe: SLCE (Sunny) vs neutron experiment")
+lines!(ax, q_gn, disp_gn[1, :]; color = :crimson, label = "SLCE (S_eff = 1.1)")
 scatter!(ax, q_exp, E_exp; color = :black, marker = :diamond, label = "Loong et al. 1984")
 axislegend(ax; position = :lt)
 fig
 ```
 
-The SCE branch closely tracks the measured energies along ``\Gamma\text{–}N`` — using the
+The SLCE branch closely tracks the measured energies along ``\Gamma\text{–}N`` — using the
 physical ``S_{\text{eff}} = 1.1`` and the torque-weighted fit (which constrains the energy
 gradient that sets the dispersion). This reproduces the comparison in the corresponding
 [Magesty.jl tutorial](https://Tomonori-Tanaka.github.io/Magesty.jl/).

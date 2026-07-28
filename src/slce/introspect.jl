@@ -1,12 +1,12 @@
 # Fitted-model introspection — a stable, code-neutral view of the terms of a fitted
-# SCE. Downstream packages (e.g. the mean-field samplers in `SLCETools.jl`) consume the
+# SLCE. Downstream packages (e.g. the mean-field samplers in `SLCETools.jl`) consume the
 # fitted Hamiltonian through this surface instead of reaching into the SALC-basis
 # internals (`model.basis.salc_basis.salcs`, `SALCMember` / `SALCTerm` fields), so the
 # basis representation can evolve without breaking them.
 #
 # `decorated_terms` is the general surface and the one new consumers should read: one
 # term per (member, slot layout), carrying the per-slot (channel, k, l) labels and the
-# scale ALREADY COMPUTED. `multipole_terms` is its frozen pure-spin predecessor — the
+# scale ALREADY COMPUTED. `spin_multipole_terms` is its frozen pure-spin predecessor — the
 # p = 0 view — kept bit-identical for the consumers written against it, and refusing
 # any displacement-decorated model rather than mis-scaling it. `bilinear_terms` is the
 # `3×3` Cartesian extraction (reusing the validated Sunny conversion in
@@ -17,13 +17,13 @@
 # `(4π)^{n_spin_slots/2}` — one `√(4π)` per SPIN slot, because the 4π is an artifact of
 # the spin-sphere measure and the displacement kernel is normalized 4π-free (§3). It is
 # NOT `(4π)^{body/2}`: those agree only when every site carries exactly one spin factor
-# and nothing else, which is precisely the pure-spin case `multipole_terms` covers. Both
+# and nothing else, which is precisely the pure-spin case `spin_multipole_terms` covers. Both
 # existing consumers derive it from `length(atoms)`, which is why a joint model must not
 # reach them. `DecoratedTerm` therefore ships the scale as a field: derive it from slot
 # channels, never from the cluster shape.
 
 """
-    MultipoleTerm
+    SpinMultipoleTerm
 
 One multipole term of a fitted [`SLCEModel`](@ref): the **raw** fitted coefficient
 `coef = jϕ_k` (the per-N scale `(4π)^(body/2)` is *not* applied — apply it once, at the
@@ -36,9 +36,9 @@ columns) is
 coef · (4π)^(body/2) · Σ_μ folded[μ] ∏ᵢ Z_{ls[i], μ_i}(e_{atoms[i]}),   μ_i = idx_i − ls[i] − 1
 ```
 
-(the same kernel as [`evaluate_salc`](@ref) for a single SALC term). See [`multipole_terms`](@ref).
+(the same kernel as [`evaluate_salc`](@ref) for a single SALC term). See [`spin_multipole_terms`](@ref).
 """
-struct MultipoleTerm
+struct SpinMultipoleTerm
     coef::Float64
     body::Int
     atoms::Vector{Int}
@@ -52,19 +52,19 @@ end
 n_atoms(model::SLCEModel)::Int = n_atoms(model.basis.crystal)
 
 """
-    multipole_terms(model::SLCEModel) -> Vector{MultipoleTerm}
+    spin_multipole_terms(model::SLCEModel) -> Vector{SpinMultipoleTerm}
 
-A code-neutral, flat view of a fitted SCE: one [`MultipoleTerm`](@ref) per cluster member
+A code-neutral, flat view of a fitted SLCE: one [`SpinMultipoleTerm`](@ref) per cluster member
 and `l`-ordering of every SALC with a nonzero coefficient. This is the stable public
 contract a downstream consumer (a mean-field sampler, an energy evaluator, …) reads
 *instead of* the SALC-basis internals; the per-N scale `(4π)^(body/2)` is left for the
 consumer to apply once, so the returned `coef` is exactly the fitted `jϕ`.
 
-`multipole_terms` is the frozen **pure-spin** surface: a model whose basis carries a
+`spin_multipole_terms` is the frozen **pure-spin** surface: a model whose basis carries a
 displacement sector throws, and names the two hatches —
 [`decorated_terms`](@ref) (the general view) and
-`multipole_terms(restrict(model, :spin))` (the clamped-ion sub-model). A
-`MultipoleTerm` has no displacement factors, and its consumers derive the scale from
+`spin_multipole_terms(restrict(model, :spin))` (the clamped-ion sub-model). A
+`SpinMultipoleTerm` has no displacement factors, and its consumers derive the scale from
 the term shape as `(4π)^(body/2)`, which is only the same thing as the general
 `(4π)^{n_spin_slots/2}` rule when every site carries exactly one spin factor — so a
 mixed model reaching them would be silently mis-scaled, which is worse than refusing.
@@ -74,24 +74,24 @@ sector happened to produce no SALC (or whose displacement couplings all fitted t
 was still built and fitted in a `p ≥ 1` setting, and reporting it as pure spin would
 fail open on exactly the invariant this refusal exists to enforce.
 """
-function multipole_terms(model::SLCEModel)::Vector{MultipoleTerm}
+function spin_multipole_terms(model::SLCEModel)::Vector{SpinMultipoleTerm}
     salcs = model.basis.salc_basis.salcs
     _basis_has_disp(model.basis) &&
         throw(ArgumentError(
-            "the model's basis carries a displacement sector; multipole_terms is " *
+            "the model's basis carries a displacement sector; spin_multipole_terms is " *
             "the pure-spin introspection surface (its consumers derive the scale " *
             "as (4π)^(body/2), while the general rule is (4π)^(n_spin_slots/2)). " *
             "Use `decorated_terms(model)` for the general per-slot view, or " *
-            "`multipole_terms(restrict(model, :spin))` for the clamped-ion " *
+            "`spin_multipole_terms(restrict(model, :spin))` for the clamped-ion " *
             "(u = 0) sub-model"))
-    out = MultipoleTerm[]
+    out = SpinMultipoleTerm[]
     @inbounds for k in eachindex(model.jphi)
         j = model.jphi[k]
         j == 0.0 && continue
         salc = salcs[k]
         for mem in salc.members
             for t in mem.terms
-                push!(out, MultipoleTerm(j, salc.body, mem.atoms, mem.shifts,
+                push!(out, SpinMultipoleTerm(j, salc.body, mem.atoms, mem.shifts,
                                          _term_spin_ls(t), t.folded))
             end
         end
@@ -103,11 +103,11 @@ end
     DecoratedTerm
 
 One term of a fitted [`SLCEModel`](@ref) in the general (channel-decorated) form —
-the successor of [`MultipoleTerm`](@ref), and the surface new consumers should read.
+the successor of [`SpinMultipoleTerm`](@ref), and the surface new consumers should read.
 
 | field | meaning |
 |:--|:--|
-| `coef` | the **raw** fitted coefficient `jϕ_k` (unscaled, as in `MultipoleTerm`) |
+| `coef` | the **raw** fitted coefficient `jϕ_k` (unscaled, as in `SpinMultipoleTerm`) |
 | `scale` | `(4π)^(n_spin_slots / 2)` — the factor the energy expression needs |
 | `body` | the cluster's site count |
 | `atoms`, `shifts` | the member's sites and their periodic images (`shifts[1] = 0`) |
@@ -153,14 +153,14 @@ _slot_scale(slots::AbstractVector{SlotRef})::Float64 =
 """
     decorated_terms(model::SLCEModel) -> Vector{DecoratedTerm}
 
-A code-neutral, flat view of a fitted SCE of any channel content: one
+A code-neutral, flat view of a fitted SLCE of any channel content: one
 [`DecoratedTerm`](@ref) per cluster member and slot layout of every SALC with a
-nonzero coefficient. This is the general successor of [`multipole_terms`](@ref) —
+nonzero coefficient. This is the general successor of [`spin_multipole_terms`](@ref) —
 it accepts joint (spin + displacement) models, labels every tensor axis with its
 own `(channel, k, l)`, and carries the `(4π)^{n_spin_slots/2}` scale as a field
 rather than leaving consumers to re-derive it.
 
-On a pure-spin model the returned terms are the same terms `multipole_terms` reports,
+On a pure-spin model the returned terms are the same terms `spin_multipole_terms` reports,
 with `scale == (4π)^(body/2)` — the two rules agree exactly there.
 """
 function decorated_terms(model::SLCEModel)::Vector{DecoratedTerm}
@@ -210,7 +210,7 @@ unchanged, so
 predict_energy(restrict(model, :spin), e) == predict_energy(model, e, zeros(3, n))
 ```
 
-holds exactly (bitwise), and the pure-spin surfaces ([`multipole_terms`](@ref),
+holds exactly (bitwise), and the pure-spin surfaces ([`spin_multipole_terms`](@ref),
 [`bilinear_terms`](@ref), [`to_sunny`](@ref)) accept the result. A model that is
 already pure spin is returned unchanged.
 
@@ -284,7 +284,7 @@ end
     bilinear_terms(model::SLCEModel)
 
 The bilinear pair (`ls=[1,1]`: Heisenberg + Dzyaloshinskii–Moriya + symmetric-anisotropic)
-and single-ion (`ls=[2]`) channels of a fitted SCE, extracted as Cartesian `3×3` matrices
+and single-ion (`ls=[2]`) channels of a fitted SLCE, extracted as Cartesian `3×3` matrices
 and folded onto the training supercell. Returns a named tuple `(; pairs, onsites, skipped)`:
 
 - `pairs::Dict{Tuple{Int,Int,SVector{3,Int}}, SMatrix{3,3}}` — one matrix `M` per bond
@@ -296,7 +296,7 @@ and folded onto the training supercell. Returns a named tuple `(; pairs, onsites
 
 Reuses the same validated tesseral→Cartesian conversion as the Sunny export
 ([`to_sunny`](@ref)); the higher-order channels it lists are kept by the full
-[`multipole_terms`](@ref) view.
+[`spin_multipole_terms`](@ref) view.
 """
 function bilinear_terms(model::SLCEModel)
     t = _bilinear_terms(model)

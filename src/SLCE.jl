@@ -1,8 +1,8 @@
 """
     SLCE
 
-Clean, extensible, Julia-native rebuild of `Magesty.jl`: fit spin-cluster-expansion
-(SCE) models to noncollinear DFT data. The numerical core is reimplemented from
+Clean, extensible, Julia-native rebuild of `Magesty.jl`: fit spin–lattice cluster-expansion
+(SLCE) models to noncollinear DFT data. The numerical core is reimplemented from
 scratch; `Magesty.jl` serves only as a pinned numerical oracle in `test/oracle/`.
 
 The v0 feature set (geometry, symmetry, cluster/SALC basis, fitting, prediction,
@@ -22,6 +22,9 @@ import Tables
 # `dof` / `coeftable` / `islinear` / `residuals` / `predict` / `r2` compose with the
 # StatsBase / GLM ecosystem instead of clashing on `using`.
 import StatsAPI: coef, fit, nobs, dof, coeftable, islinear, residuals, predict, r2
+
+# --- units: the kelvin ↔ model-energy boundary the family's samplers share ---
+include("units.jl")
 
 # --- geometry ---
 include("geometry/lattice.jl")
@@ -47,7 +50,7 @@ include("clusters/orbits.jl")
 include("basis/salc.jl")
 include("basis/salcbasis.jl")
 
-# --- fitting + high-level SCE API ---
+# --- fitting + high-level SLCE API ---
 include("fitting/estimators.jl")
 include("slce/truncation.jl")     # BasisSpec sugar → dense canonical resolution
 include("io/provenance.jl")       # DatumProvenance (SLCEDataset stores an identity summary)
@@ -91,7 +94,7 @@ include("interop/sunny.jl")
 
 # --- I/O: persistence (TOML model schema), TOML input files, and the code-agnostic DFT
 # data boundary. Concrete DFT-code adapters (e.g. the VASP reader/writer) live in
-# SLCETools.jl; the SCE pipeline only ever sees `spin_datum` / `SLCEDataset`.
+# SLCETools.jl; the SLCE pipeline only ever sees `spin_datum` / `SLCEDataset`.
 include("io/persist.jl")
 include("io/input.jl")
 include("io/dftsource.jl")
@@ -108,7 +111,7 @@ export Lattice, Crystal, n_atoms, cartesian_positions
 # how periodic images / symmetry are chosen (passed into `SLCEBasis`)
 export AbstractImageSelection, MinimumImage, AllImages
 export AbstractSymmetryBackend, NoSymmetry, SpglibBackend
-# the SCE pipeline
+# the SLCE pipeline
 export BasisSpec, Sector, SLCEBasis, SLCEDataset, SLCEModel, SLCEFit, fit, refit,
     n_salcs, read_setup
 export predict_energy, predict_torque, predict_force, has_torque, has_force
@@ -130,9 +133,9 @@ export gcv, effective_dof, select_fit, SelectionPath, select_support, SupportPat
 export cross_validate, CVResult
 export to_sunny
 # Fitted-model introspection: a code-neutral view of the multipole / bilinear terms of a
-# fitted SCE, the stable contract downstream packages (e.g. the SLCETools.jl mean-field
+# fitted SLCE, the stable contract downstream packages (e.g. the SLCETools.jl mean-field
 # samplers) read instead of the SALC-basis internals.
-export MultipoleTerm, multipole_terms, bilinear_terms
+export SpinMultipoleTerm, spin_multipole_terms, bilinear_terms
 # The general (channel-decorated) successor of the multipole view, plus the bridge that
 # turns a joint model into one the frozen pure-spin surfaces accept.
 export DecoratedTerm, decorated_terms, restrict
@@ -172,6 +175,9 @@ public salc_groups, group_costs, cost_weights                        # MC-cost g
 public ASRReparam, build_asr                                         # ASR machinery
 public sector_columns                                                # staged-fit selectors
 public RowLayout, row_layout, row_index, site_rows!   # sampler row-table contract
+# The kelvin ↔ model-energy conversion every downstream sampler shares. Unexported: the
+# fitting core has no temperature of its own, it only owns the convention.
+public KB_EV, resolve_kt
 public save, load                                                    # TOML persistence
 
 end # module SLCE

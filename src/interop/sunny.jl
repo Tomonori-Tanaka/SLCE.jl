@@ -3,7 +3,7 @@ Sunny export — the code-agnostic core.
 
 Sunny.jl represents only **bilinear pair exchange** (a 3×3 matrix per bond) and
 **single-ion anisotropy** (a quadratic form per site), so the export covers exactly
-the two SCE channels the bilinear extraction (`slce/bilinear.jl`,
+the two SLCE channels the bilinear extraction (`slce/bilinear.jl`,
 [`_bilinear_terms`](@ref)) produces; every other SALC is skipped and reported.
 This file owns the Sunny-specific half: unfolding the supercell matrices onto the
 chemical primitive cell ([`_sunny_primitive`](@ref)) and the [`to_sunny`](@ref)
@@ -162,7 +162,7 @@ exported — bilinear pair (`ls=[1,1]`) exchange and single-ion (`ls=[2]`) aniso
 higher-order / higher-`l` SALCs are skipped and reported via `@warn`.
 
 `spin_length` gives the physical effective spin length `S_eff = m/(g μ_B)` (a number, or a
-per-species `label => S` mapping). The SCE couplings are fit from *unit* spin
+per-species `label => S` mapping). The SLCE couplings are fit from *unit* spin
 directions, so they absorb the moment magnitude (`J_SCE = J_phys S²`); the magnon
 frequency, however, scales as `1/S_eff`, so the export must carry `S_eff` explicitly.
 

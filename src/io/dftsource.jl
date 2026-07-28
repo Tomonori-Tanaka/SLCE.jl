@@ -5,7 +5,7 @@ A source of DFT training data: `read_configs(src::AbstractDFTSource) ->
 Vector{TrainingDatum}` turns some DFT output into fit-ready configurations, and
 `SLCEDataset(basis, src)` goes straight from a source to a dataset. Concrete sources
 (e.g. `SLCETools.VASP.Oszicar`, in the SLCETools.jl package) live alongside their format
-reader, so the SCE pipeline consumes only [`TrainingDatum`](@ref) / [`SLCEDataset`](@ref)
+reader, so the SLCE pipeline consumes only [`TrainingDatum`](@ref) / [`SLCEDataset`](@ref)
 and never depends on the originating DFT code.
 """
 abstract type AbstractDFTSource end
@@ -15,7 +15,7 @@ abstract type AbstractDFTSource end
                   forces = nothing, field = nothing, torques = nothing,
                   provenance = DatumProvenance()) -> TrainingDatum
 
-One training configuration's observables, as consumed by the SCE pipeline — the
+One training configuration's observables, as consumed by the SLCE pipeline — the
 code-agnostic, in-memory form every DFT adapter produces. The spin channel is
 required; every other channel is optional (`nothing` = **not observed**, which is
 distinct from an observed zero):
@@ -46,7 +46,7 @@ distinct from an observed zero):
   noncollinear magnetism). A present all-zero field is different: it asserts the
   field was computed and vanishes.
 - `torques` — `3 × n_atoms` torque targets `τ_a = m_a × B_a = ‖m_a‖ (e_a × B_a)`
-  (eV), the physical / Landau–Lifshitz torque that the SCE torque
+  (eV), the physical / Landau–Lifshitz torque that the SLCE torque
   `τ_a = −e_a × ∂E/∂e_a` is fit to. Derived automatically from `field` when present;
   a caller passing `torques` directly (a code that emits torques without exposing
   `B`) must match this exact convention — `τ = m × B`, the same sign as the model's
@@ -321,7 +321,7 @@ The three-argument form takes the per-atom constraining field `field`
 direction is `e_a = m_a / ‖m_a‖` (a near-zero moment, below `zero_moment_atol`, gets
 the placeholder `ẑ` and a zero torque), the magnitude is `‖m_a‖`, and the torque
 target is `τ_a = m_a × B_a` (eV) — the physical / Landau–Lifshitz torque, matching
-the SCE model torque `−e_a × ∂E/∂e_a`. When `provenance` is not given, it is derived
+the SLCE model torque `−e_a × ∂E/∂e_a`. When `provenance` is not given, it is derived
 as `DatumProvenance(; constrained = c, torque_qualified = c)` with
 `c = any(!iszero, field)`: an all-zero field carries no constraint information, so
 its `τ = 0` rows are **not** admitted by default — if the run really was a converged
@@ -333,7 +333,7 @@ The two-argument form is for sources with no field/torque output at all (colline
 runs, codes without constrained noncollinear magnetism): `field` and `torques` are
 absent (`nothing`), so the datum can only contribute energy rows.
 
-The torque target carries the per-config moment magnitude `‖m_a‖`, while the SCE
+The torque target carries the per-config moment magnitude `‖m_a‖`, while the SLCE
 model torque depends on directions only — so a co-fit assumes the moment magnitudes
 are roughly constant across configurations (large longitudinal variation would bias
 it). A *magnetic* site that quenches to `‖m_a‖ ≈ 0` enters with the fictitious `ẑ`

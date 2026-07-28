@@ -261,7 +261,7 @@ independent of the group size (the same calibration as [`AdaptiveRidge`](@ref), 
 update this reproduces exactly for singleton groups with unit weights).
 
 `column_groups` labels the design-matrix **columns** with contiguous group ids `1:G`
-(every label present; for an SCE fit use `SLCE.salc_groups`); it is unrelated to
+(every label present; for an SLCE fit use `SLCE.salc_groups`); it is unrelated to
 the per-**row** `row_groups` keyword of [`solve_coefficients`](@ref), which this estimator
 ignores. `group_weights` has length `G`. Both vectors are copied at construction.
 `lambda = 0` reduces to [`OLS`](@ref). Like `AdaptiveRidge`, the converged fit is a

@@ -13,7 +13,7 @@ coef(m::SLCEModel) = m.jphi
 """
     intercept(fit_or_model) -> Float64
 
-The reference energy `j0` (the SCE intercept), recovered analytically in [`fit`](@ref).
+The reference energy `j0` (the SLCE intercept), recovered analytically in [`fit`](@ref).
 """
 intercept(f::SLCEFit) = f.j0
 intercept(m::SLCEModel) = m.j0
@@ -281,7 +281,7 @@ function _identifiability(X::AbstractMatrix,
 end
 
 # --- StatsAPI generics defaulting to the energy block ------------------------------
-# An SCE fit has two observable blocks (energy / torque); the unqualified StatsAPI
+# An SLCE fit has two observable blocks (energy / torque); the unqualified StatsAPI
 # generics resolve to the **energy** block by convention (the torque block keeps its
 # explicit `*_torque` accessors). Extending — not shadowing — the generics keeps
 # `using GLM` / `using StatsBase` collision-free.

@@ -162,7 +162,7 @@ function _build_primitive(prim::SunnyPrimitive, plan::_SpinPlan, g::Real)
     latvecs = Matrix{Float64}(prim.latvecs)
     positions = [Vector{Float64}(p) for p in prim.positions]
     types = prim.types
-    # symbol = 1 forces P1: bonds are placed explicitly from the SCE model, so Sunny
+    # symbol = 1 forces P1: bonds are placed explicitly from the SLCE model, so Sunny
     # must not re-derive (and symmetrize over) the crystal symmetry.
     cryst = Sunny.Crystal(latvecs, positions, 1; types = types)
     moments = [i => Sunny.Moment(s = _smom(plan, types[i]), g = Float64(g))

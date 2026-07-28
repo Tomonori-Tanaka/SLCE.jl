@@ -7,14 +7,14 @@
 ## Project goal
 
 Clean, extensible, Julia-native rebuild of `Magesty.jl`: fit a spin-cluster
-expansion (SCE) `E = j0 + Σφ Jφ Φφ({e_a})` to noncollinear DFT data. The numerical
+expansion (SLCE) `E = j0 + Σφ Jφ Φφ({e_a})` to noncollinear DFT data. The numerical
 core (tesseral harmonics, Clebsch–Gordan coupling, symmetry-adapted basis, design
 matrix, regression) is **reimplemented from scratch**; `Magesty.jl` is used only
 as a *pinned numerical oracle* in `test/oracle/`. Priority: numerical correctness
 and reproducibility over stylistic concerns. See `SPEC.md` for the realized
 architecture and `docs/design-notes.md` for the rationale.
 
-Both SCE observables are fitted: the **energy** `E` and the per-atom **torque**
+Both SLCE observables are fitted: the **energy** `E` and the per-atom **torque**
 `τ_a = −e_a × ∂E/∂e_a` (the physical / Landau–Lifshitz torque `m_a × B_eff,a`, the
 analytic derivative of the same energy surface). An
 energy+torque co-fit minimizes `L = (1−w)·MSE_E + w·MSE_T` for a `torque_weight`
@@ -511,7 +511,7 @@ Easy to break silently — confirm before touching the algorithm.
   same three builders `SLCEBasis` does). `_warn_spin_blind` is the other half: a basis
   with spin content and displacement terms at `order`, but no term carrying both,
   yields `Φ` identical for every magnetic state. It reads the BASIS, never `jphi`
-  (`multipole_terms` precedent — a coefficient fitted to zero is one fit's property,
+  (`spin_multipole_terms` precedent — a coefficient fitted to zero is one fit's property,
   `refit` moves it), and its `maxlog = 1` is why the gate checks the SILENT cases
   first: a silence assertion after the warning has fired asserts nothing.
 - **Re-expansion ↔ the same displacement polynomial** (`slce/effective.jl`,
@@ -542,7 +542,7 @@ Easy to break silently — confirm before touching the algorithm.
   shortcut invents a factor out of nothing — that is the case the gate must contain, and
   a fixture whose sites all happen to carry spin makes the whole check vacuous (the
   first docs fixture did exactly that). `decorated_terms` is the general surface;
-  `multipole_terms` is its frozen p = 0 predecessor and REFUSES any displacement model,
+  `spin_multipole_terms` is its frozen p = 0 predecessor and REFUSES any displacement model,
   triggered on `_basis_has_disp` (the spec, not the surviving coefficients — a
   displacement sector whose couplings all fitted to zero is still a p ≥ 1 model), with
   the message naming both hatches. `restrict(model, :spin)` filters the pure-spin SALCs
@@ -565,15 +565,15 @@ Easy to break silently — confirm before touching the algorithm.
   through `_slot_scale`, and is equivalent only because `SiteDecor` admits at most one
   SPIN factor per site.
 - **Fitted-model introspection ↔ the per-term scale convention** (`slce/introspect.jl`,
-  `test/unit/test_introspect.jl`): `multipole_terms` is the **public, stable** view downstream
+  `test/unit/test_introspect.jl`): `spin_multipole_terms` is the **public, stable** view downstream
   packages (the `SLCETools.jl` mean-field samplers) read instead of `model.basis.salc_basis.salcs` /
   `SALCMember` / `SALCTerm`. It returns the **raw** fitted `jϕ` as `coef` and leaves the per-N
   scale `(4π)^(body/2)` to the consumer — the scale lives in exactly one place (the
   reconstruction gate `_energy_from_terms`), so do **not** also apply it inside
-  `multipole_terms`. `bilinear_terms` is a thin public wrapper of the general
+  `spin_multipole_terms`. `bilinear_terms` is a thin public wrapper of the general
   `_bilinear_terms` extraction (in `slce/bilinear.jl`), so its numerics move with the
   Sunny coupled-site above.
-  Add or rename a `MultipoleTerm` field → update the gate and the `SLCETools.jl` consumers
+  Add or rename a `SpinMultipoleTerm` field → update the gate and the `SLCETools.jl` consumers
   (`mfa/bridge.jl` — renamed from `sce_bridge.jl`; grep the package, not this name alone).
 - `solve_coefficients(est, X, y; row_groups)` receives a **column-centered** `X` (⇒ the
   solver adds no intercept; `j0` is recovered analytically in `fit`). Every estimator —
@@ -645,6 +645,23 @@ Easy to break silently — confirm before touching the algorithm.
   combined whitened residual); the diagnostics report energy and torque blocks separately
   (`residuals_energy` returns the stored vector, `residuals_torque`/`rss_torque` recompute
   `y_T − X_T·jϕ` and validate `has_torque`; `r2_*`/`rmse_*` build on `rss_*`).
+- **`src/units.jl` is the family's ONLY definition of `KB_EV` / `resolve_kt`.** This
+  package has no temperature — a fitted model is a zero-temperature energy surface —
+  but it owns the *convention*, because it is the one package SLCEMonteCarlo,
+  SLCEDynamics and SLCETools all depend on. Two of them used to carry private copies,
+  character for character identical; that is the shape a drift hazard has before it
+  drifts, since neither suite can see the other's constant. A downstream package
+  `using SLCE: KB_EV, resolve_kt` and re-exporting is correct; a second `const KB_EV`
+  anywhere in the family is not.
+- **Family generics are extended, never re-defined: `n_atoms`, `has_disp`.** A
+  downstream package that wants the same question at its own granularity writes
+  `import SLCE: has_disp` and adds a method (SLCEMonteCarlo does this for
+  `has_disp(::TiledHamiltonian)` and `n_atoms(::ReducedCell)`, SLCETools for
+  `n_atoms(::ExchangeModel)` / `n_atoms(::MultipoleModel)`). Defining a second generic
+  of the same name compiles, passes both suites, and leaves a user who loads both
+  packages with two functions that cannot both be called unqualified. When adding a
+  predicate here that a sampler will plausibly want, `public` it so the downstream
+  `import` is a supported move rather than a reach into internals.
 
 ## Tests
 
@@ -654,7 +671,7 @@ Easy to break silently — confirm before touching the algorithm.
 | `TEST_MODE=all julia -t 4 --project -e 'using Pkg; Pkg.test()'` | unit + Aqua + JET |
 | `TEST_MODE=jet julia -t 4 --project -e 'using Pkg; Pkg.test()'` | JET type-stability |
 | `julia --project=test/oracle test/oracle/runtests.jl` | from-scratch numerics vs pinned Magesty |
-| `julia --project=test/sunny test/sunny/runtests.jl` | real `Sunny.System` energy vs SCE (extension) |
+| `julia --project=test/sunny test/sunny/runtests.jl` | real `Sunny.System` energy vs SLCE (extension) |
 | `julia --project=test/glmnet test/glmnet/runtests.jl` | GLMNet Lasso / elastic-net solve (extension) |
 | `for f in examples/*.jl; do julia --project=examples $f; done` | the runnable examples' own `@assert` gates |
 

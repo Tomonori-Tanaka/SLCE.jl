@@ -256,7 +256,7 @@ SALC-basis internals.
 `decorated_terms` is the general per-term dump and the surface new consumers should
 read: it accepts joint (spin + displacement) models, labels every tensor axis with its
 own `(channel, k, l)`, and carries the `(4π)^{n_spin_slots/2}` scale as a field — take
-it from there, never from the cluster shape. `multipole_terms` is its frozen pure-spin
+it from there, never from the cluster shape. `spin_multipole_terms` is its frozen pure-spin
 predecessor, kept bit-identical for the consumers written against it and refusing any
 displacement-decorated model; `restrict(model, :spin)` is the bridge that turns a joint
 model into one it accepts (the clamped-ion sub-model — read its warning, it is not a
@@ -270,8 +270,8 @@ with — see the next section.
 DecoratedTerm
 decorated_terms
 restrict
-MultipoleTerm
-multipole_terms
+SpinMultipoleTerm
+spin_multipole_terms
 bilinear_terms
 SLCE.SlotRef
 ```
@@ -402,7 +402,7 @@ AngularMomentum.complex_to_real_tensor
 
 ## DFT data sources
 
-The **code-agnostic boundary** of the training-data input: the SCE pipeline only ever sees
+The **code-agnostic boundary** of the training-data input: the SLCE pipeline only ever sees
 [`TrainingDatum`](@ref) / [`SLCEDataset`](@ref). Concrete DFT-code adapters (the VASP
 POSCAR / OSZICAR reader and INCAR writer) live in the companion
 [SLCETools.jl](https://github.com/Tomonori-Tanaka/SLCETools.jl) package
@@ -426,6 +426,18 @@ for legacy-data reuse:
 ```@docs
 EmbsetFile
 read_embset
+```
+
+## Units
+
+A fitted model is a zero-temperature energy surface, so nothing in this package takes a
+temperature. What lives here is the *convention* the family's samplers
+(`SLCEMonteCarlo`, `SLCEDynamics`, `SLCETools`) share for crossing the kelvin ↔
+model-energy boundary — one definition, so two copies cannot drift apart.
+
+```@docs
+SLCE.KB_EV
+SLCE.resolve_kt
 ```
 
 ## Persistence

@@ -816,7 +816,7 @@ end
     build_salc_basis(crystal, spacegroup, clusters; lmax_by_species,
                      lsum_by_body = nothing, scalar_only = false) -> SALCBasis
 
-Construct the symmetry-adapted (and time-reversal-even) SCE basis for every cluster
+Construct the symmetry-adapted (and time-reversal-even) SLCE basis for every cluster
 orbit and body order. For each `(orbit, l-multiset, Lf)` the stabilizer-invariant
 coefficient subspace (over orderings × coupling paths) is found, gauge-fixed, and
 transported to all orbit members.

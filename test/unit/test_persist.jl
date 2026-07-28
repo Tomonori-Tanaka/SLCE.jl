@@ -230,8 +230,8 @@ end
         @test predict_torque(m2, testcfgs[1]) == predict_torque(model, testcfgs[1])
         # MC program-array proxy: the introspection dump the downstream adjacency
         # build consumes is identical term-by-term.
-        ta = multipole_terms(model)
-        tb = multipole_terms(m2)
+        ta = spin_multipole_terms(model)
+        tb = spin_multipole_terms(m2)
         @test length(ta) == length(tb)
         @test all(a.coef === b.coef && a.body == b.body && a.atoms == b.atoms &&
                   a.shifts == b.shifts && a.ls == b.ls && a.folded == b.folded

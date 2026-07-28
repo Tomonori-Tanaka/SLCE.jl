@@ -1,7 +1,7 @@
 """
 TOML input files.
 
-A human-authored `input.toml` collects an SCE run's *setup* parameters — the
+A human-authored `input.toml` collects an SLCE run's *setup* parameters — the
 crystal, the interaction (cluster) spec, and the symmetry settings — in one
 readable file, so a basis can be built with `SLCEBasis("input.toml")` instead of
 constructing `Crystal` / `BasisSpec` in Julia. Training data and the choice of

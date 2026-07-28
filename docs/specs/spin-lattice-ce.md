@@ -1,5 +1,11 @@
 # Spin–lattice coupled cluster expansion — feasibility and implementation map
 
+> **Naming note (2026-07-28).** This is a dated decision record and is kept as
+> written; the names below are the ones the decision was taken under. Renamed
+> since, in the family-wide naming batch: `MultipoleTerm` → `SpinMultipoleTerm`. The current spelling is what
+> the code, `SPEC.md` and the API reference use.
+
+
 **Status**: feasibility settled (2026-07-25); implementation not started.
 
 Assessment of the unified spin+displacement cluster expansion (the "modified

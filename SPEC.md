@@ -21,6 +21,9 @@ input files use the stdlib `TOML` (no external dependency).
 ```
 src/
 ├── SLCE.jl        top-level module: includes, exports, `public` tier
+├── units.jl             KB_EV / resolve_kt — the family's one kelvin ↔
+│                        model-energy conversion (this package has no
+│                        temperature; it owns the convention)
 ├── geometry/            lattice.jl, crystal.jl, neighborlist.jl
 ├── symmetry/            types.jl, backend.jl (Spglib method in ext/)
 ├── basis/               Harmonics.jl, AngularMomentum.jl (submodules),
@@ -35,7 +38,7 @@ src/
 └── io/                  persist.jl, input.jl, dftsource.jl
 ```
 
-The include order in the SCE layer is `slce/coeftable.jl` → `slce/bilinear.jl` →
+The include order in the SLCE layer is `slce/coeftable.jl` → `slce/bilinear.jl` →
 `slce/introspect.jl` → `interop/sunny.jl`: the bilinear extraction is a core
 capability consumed by both the introspection and the Sunny interop.
 
@@ -61,7 +64,7 @@ capability consumed by both the introspection and the Sunny interop.
   `shift` (R) for later reciprocal-space / spin-spiral rows. Validated against an
   independent over-large-shell brute force (cubic multi-shell + sheared triclinic).
 - `build_neighbor_list(crystal, cutoff, selection)` — periodic-image selection
-  (`AbstractImageSelection`): `MinimumImage()` (the SCE-fitting default) keeps only the
+  (`AbstractImageSelection`): `MinimumImage()` (the SLCE-fitting default) keeps only the
   minimum-image, plain-PBC-resolvable pairs of the Wigner–Seitz cell — with boundary
   ties (`L/2` faces / edges / `(L/2,L/2,L/2)` corners) and **no `i==j` self-pairs**
   (same spin ⇒ not an independent pair) — over an adaptive, skew-safe image box;
@@ -265,7 +268,7 @@ capability consumed by both the introspection and the Sunny interop.
     `L_S = 0` ≡ the all-soc-false rebuild, bitwise;
   - gates (d)/(a) (`test_sectorbasis.jl`): dense ≡ `p = 0`-restricted sector
     build bitwise, down to `==` energy/torque design matrices and
-    field-identical `multipole_terms` (the MC consumption surface);
+    field-identical `spin_multipole_terms` (the MC consumption surface);
   - gate (i) full (`test_sectorbasis.jl`): the pure-spin subset of a mixed
     build IS the dense spin basis, `u = 0` joint evaluation `===` the dense
     evaluation, displacement-decorated SALCs exactly zero.
@@ -372,13 +375,13 @@ capability consumed by both the introspection and the Sunny interop.
   labelled by a `SLCE.SlotRef` (member-site index + `(channel, k, l)` factor), with
   the consumer scale `(4π)^{n_spin_slots/2}` carried as a field (single definition
   `_slot_scale`; NOT `(4π)^{body/2}`, which agrees only when every site holds exactly
-  one spin factor). `multipole_terms` stays the frozen p = 0 view and refuses any
+  one spin factor). `spin_multipole_terms` stays the frozen p = 0 view and refuses any
   displacement model on the SPEC trigger `_basis_has_disp`, naming both hatches.
   `restrict(model, :spin)` = the clamped-ion sub-model (pure-spin SALCs + `_spin_spec`:
   `pmax` zeroed, sectors cut to their degree-0 row). Gates
   (`test/unit/test_introspect.jl`): independent slot-by-slot reconstruction of
   `predict_energy(model, e, u) − j0`, the shortcut-scale reconstruction FAILING on the
-  same fixture (teeth), pure-spin agreement with `multipole_terms`, the refusal surface
+  same fixture (teeth), pure-spin agreement with `spin_multipole_terms`, the refusal surface
   incl. the all-zero-displacement-coefficient case, and bitwise `restrict` ≡ joint at
   `u = 0` plus a persistence round-trip. Docs: `guide/introspection.md` (scale table +
   the mandatory `restrict ≠ refit` box with a measured comparison, design record §13
@@ -411,7 +414,7 @@ capability consumed by both the introspection and the Sunny interop.
   factors) × (displacement monomial), evaluated by
   `predict_energy(em, e, δu)`. **`EffectiveTerm.scaled_coef` takes the OPPOSITE scale
   convention from the other two public term views**, which is why it is not spelled
-  `coef`: `MultipoleTerm.coef` and
+  `coef`: `SpinMultipoleTerm.coef` and
   `DecoratedTerm.coef` are the raw fitted `jϕ` (scale left to the consumer, or shipped
   in `DecoratedTerm.scale`), while `EffectiveTerm.scaled_coef` has `(4π)^{n_spin_slots/2}`,
   the SALC `folded` weight and the shifted polynomial coefficient already folded in —
@@ -477,7 +480,7 @@ capability consumed by both the introspection and the Sunny interop.
   automatically (site-axis rotation by full `R` + even `Σl`). Cross-validated against
   Magesty: per-`(body, ls, Lf)` invariant-subspace dimensions agree through 3-body.
 
-### fitting + SCE API (M8, M9)
+### fitting + SLCE API (M8, M9)
 - `BasisSpec` (validated: `nbody ≥ 1`, symmetric per-body `cutoff` matrices with
   entries `≥ 0` or `Inf`, `lsum ≥ 0` per body order, nonempty `lmax`/`pmax`
   with entries ≥ 0, `disp_scale` finite positive, sector-rule consistency —
@@ -600,15 +603,15 @@ capability consumed by both the introspection and the Sunny interop.
   half-integer spins, else `:coupling`. `placement = :explicit` (exact, folded
   dispersion) / `:primitive` (unfolded) / `:auto`.
 - Validated: Sunny-free conversion + primitive-fold tests (`test/unit/test_sunny.jl`,
-  main suite) and a separate `test/sunny/` environment (real `Sunny.System` energy vs SCE
+  main suite) and a separate `test/sunny/` environment (real `Sunny.System` energy vs SLCE
   for both routes, the primitive system reshaped back to the supercell, mode/spin handling,
   the skip warning).
 
 ### Fitted-model introspection (M12)
-- **Public, stable contract** (`slce/introspect.jl`): `multipole_terms(model) ->
-  Vector{MultipoleTerm}` is the code-neutral view downstream packages (the `SLCETools.jl`
+- **Public, stable contract** (`slce/introspect.jl`): `spin_multipole_terms(model) ->
+  Vector{SpinMultipoleTerm}` is the code-neutral view downstream packages (the `SLCETools.jl`
   mean-field samplers) read **instead of** the SALC-basis internals (`SALCMember` /
-  `SALCTerm`). Each `MultipoleTerm` carries the raw fitted `coef = jϕ`, the cluster
+  `SALCTerm`). Each `SpinMultipoleTerm` carries the raw fitted `coef = jϕ`, the cluster
   `atoms` / `shifts`, the per-site `ls`, and the `folded` tensor; the per-`N` scale
   `(4π)^(body/2)` is **left to the consumer** (applied in exactly one place, the
   `_energy_from_terms` reconstruction gate). `bilinear_terms(model)` is the thin public

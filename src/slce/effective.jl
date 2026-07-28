@@ -47,7 +47,7 @@ lattice content, including the reference forces that a displaced structure carri
 !!! warning "`scaled_coef` already carries the `(4π)` scale — do not apply it again"
     This is the OPPOSITE convention from the package's other two public term views,
     and the difference is deliberate rather than an oversight — which is why the
-    field is **not** called `coef`. [`MultipoleTerm`](@ref)`.coef` and
+    field is **not** called `coef`. [`SpinMultipoleTerm`](@ref)`.coef` and
     [`DecoratedTerm`](@ref)`.coef` are the raw fitted `jϕ`, with the consumer scale
     left to the caller (`(4π)^(body/2)`) or shipped beside it
     (`DecoratedTerm.scale`). `EffectiveTerm.scaled_coef` has

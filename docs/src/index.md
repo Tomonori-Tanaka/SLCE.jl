@@ -5,7 +5,7 @@ CurrentModule = SLCE
 ```
 
 A clean, extensible, Julia-native rebuild of [Magesty.jl](https://github.com/Tomonori-Tanaka/Magesty.jl) —
-fitting **spin-cluster expansion (SCE)** models to noncollinear DFT data.
+fitting **spin–lattice cluster expansion (SLCE)** models to noncollinear DFT data.
 
 Given a crystal and a set of noncollinear spin configurations with their DFT energies
 (and, optionally, torques), the package fits
@@ -20,10 +20,10 @@ spherical harmonics over clusters of spins. Fitting recovers the cluster coeffic
 ``J_\varphi``; the same coefficients fix the per-atom **torque**
 ``\boldsymbol\tau_a = -\hat{\boldsymbol e}_a \times \partial E/\partial\hat{\boldsymbol e}_a``
 (the Landau–Lifshitz / physical torque ``\boldsymbol m_a \times \boldsymbol B_{\mathrm{eff},a}``),
-the SCE's other DFT observable.
+the SLCE's other DFT observable.
 
 !!! note "Status — an architectural exploration (v0)"
-    This is a from-scratch re-architecture of Magesty.jl's SCE fitting, written as a
+    This is a from-scratch re-architecture of Magesty.jl's SLCE fitting, written as a
     clean-room exercise. The numerical core (tesseral harmonics, Clebsch–Gordan
     coupling, the symmetry-adapted basis, design matrices, regression) is reimplemented
     independently and validated against Magesty.jl as a *pinned numerical oracle*.
@@ -53,13 +53,13 @@ Crystal + BasisSpec ──▶ SLCEBasis ──▶ SLCEDataset ──▶ fit ─�
   spin-wave theory.
 
 !!! tip "Sampling and active learning live in SLCETools.jl"
-    This package is focused on **building and fitting** SCE models. To *generate* spin
+    This package is focused on **building and fitting** SLCE models. To *generate* spin
     configurations from a fitted model — finite-temperature mean-field (MFA) sampling, and
     (planned) active-learning model construction — use the companion package
     [SLCETools.jl](https://github.com/Tomonori-Tanaka/SLCETools.jl). It depends on
     SLCE and reads a fitted model only through the public
     [introspection surface](api.md#Fitted-model-introspection)
-    (`multipole_terms`, `bilinear_terms`, `SLCE.Harmonics`).
+    (`spin_multipole_terms`, `bilinear_terms`, `SLCE.Harmonics`).
 
 ## Documentation
 
@@ -71,7 +71,7 @@ Crystal + BasisSpec ──▶ SLCEBasis ──▶ SLCEDataset ──▶ fit ─�
 | [Guide: persistence and I/O](guide/io.md) | Save/reload models, human-authored `input.toml`, the DFT-source (VASP) seam |
 | [Guide: Sunny export](guide/sunny.md) | Turn a fitted model into a `Sunny.System` for linear spin-wave theory |
 | [Tutorials](tutorials/index.md) | Narrated end-to-end runs (Heisenberg chain, kagome three-body) |
-| [Theory](theory/index.md) | The SCE formalism, minimum-image/Wigner–Seitz resolvability, the rebuild's architecture |
+| [Theory](theory/index.md) | The SLCE formalism, minimum-image/Wigner–Seitz resolvability, the rebuild's architecture |
 | [Verification](verification/angular_momentum.md) | Human-readable numerical checks, recomputed at every docs build (Clebsch–Gordan, Wigner-D) |
 | [API reference](api.md) | The exported and public (qualified) types and functions |
 

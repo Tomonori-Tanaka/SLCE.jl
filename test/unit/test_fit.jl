@@ -142,7 +142,7 @@ end
     end
 
     @testset "AdaptiveRidge approximates L0 selection on a synthetic centered design" begin
-        # A controlled sparse signal (no SCE column correlations to confound the test):
+        # A controlled sparse signal (no SLCE column correlations to confound the test):
         # the reweighting must drive the genuinely-zero coordinates far below the active ones.
         rng2 = MersenneTwister(2024)
         n, p = 80, 10

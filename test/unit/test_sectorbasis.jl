@@ -459,12 +459,12 @@ end
         @test da.X_E == db.X_E
         @test da.X_T == db.X_T
         # Gate (a), spec-level re-run of the relabel bit-identity: the MC
-        # consumption surface (`multipole_terms` — the unmigrated
+        # consumption surface (`spin_multipole_terms` — the unmigrated
         # SLCEMonteCarlo's pure-spin path) is field-for-field identical
         # between the two builds under identical coefficients.
         jphi = randn(rngd, n_salcs(dense))
-        ta = multipole_terms(SLCEModel(dense, 0.7, jphi))
-        tb = multipole_terms(SLCEModel(sect, 0.7, jphi))
+        ta = spin_multipole_terms(SLCEModel(dense, 0.7, jphi))
+        tb = spin_multipole_terms(SLCEModel(sect, 0.7, jphi))
         @test length(ta) == length(tb) > 0
         for (x, y) in zip(ta, tb)
             @test x.coef === y.coef && x.body == y.body && x.atoms == y.atoms &&

@@ -63,7 +63,7 @@ still carries the inverted reading.
 ```julia
 BasisSpec(crystal; lmax = 2, pmax = ["*" => 0, "Fe" => 3], sectors = [
     Sector(disp = (degree = 2:3,), cutoff = 6.0),                # force constants
-    Sector(spin = (sites = 2:4, lmax = 2), cutoff = 8.0),        # pure-spin SCE
+    Sector(spin = (sites = 2:4, lmax = 2), cutoff = 8.0),        # pure-spin SLCE
     Sector(spin = [1, 1], disp = (degree = 1,), soc = false, cutoff = 5.0)])
 ```
 
@@ -272,7 +272,7 @@ end
     SLCEBasis(crystal, spec; backend = NoSymmetry(), tol = 1e-5,
              images = MinimumImage())
 
-Build the SCE basis for `crystal`: analyze symmetry, enumerate cluster orbits, and
+Build the SLCE basis for `crystal`: analyze symmetry, enumerate cluster orbits, and
 construct the symmetry-adapted SALC basis. Pass `backend = SpglibBackend()` (with
 `using Spglib`) for real space-group symmetry.
 

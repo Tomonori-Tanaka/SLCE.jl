@@ -261,7 +261,7 @@ end
 """
     fit(SLCEFit, dataset, estimator; torque_weight = 0.0, force_weight = 0.0) -> SLCEFit
 
-Fit the SCE coefficients. The energy design matrix is column-centered, so the
+Fit the SLCE coefficients. The energy design matrix is column-centered, so the
 reference energy `j0` is recovered analytically as `mean(y_E − X_E·jϕ)`
 (independent of the estimator), and the centered problem is handed to
 `solve_coefficients`.

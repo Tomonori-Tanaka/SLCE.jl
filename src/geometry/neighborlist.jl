@@ -68,7 +68,7 @@ finite supercell can resolve: a *farther* periodic image of the same atom carrie
 the *same spin*, so the interaction with it is not independent from the
 minimum-image one (the design-matrix columns would be collinear). The radial cutoff
 trims the minimum-image set and may be `Inf` to keep the whole WS cell (every
-resolvable pair). This is the default for SCE fitting.
+resolvable pair). This is the default for SLCE fitting.
 """
 struct MinimumImage <: AbstractImageSelection end
 
@@ -219,7 +219,7 @@ end
 
 Enumerate every directed atom pair `(i, j, shift)` with interatomic distance
 `≤ cutoff` (Å), generalizing a fixed image grid to a cutoff-driven one. This is the
-[`AllImages`](@ref) enumeration; for plain-PBC SCE fitting use the three-argument
+[`AllImages`](@ref) enumeration; for plain-PBC SLCE fitting use the three-argument
 form with [`MinimumImage`](@ref).
 
 Pair admission here is exact (`d ≤ cutoff`, no band). `tol` is recorded on the

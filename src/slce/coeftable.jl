@@ -1,5 +1,5 @@
 """
-Tabular access to fitted SCE coefficients.
+Tabular access to fitted SLCE coefficients.
 
 `coeftable(fit_or_model)` returns an [`SLCECoefficients`](@ref): a labeled, ordered
 view of the SALC coefficients `Jϕ`, one row per design-matrix column, keyed by the
@@ -27,7 +27,7 @@ end
 """
     SLCECoefficients
 
-A Tables.jl-compatible table of fitted SCE coefficients: parallel `keys` /
+A Tables.jl-compatible table of fitted SLCE coefficients: parallel `keys` /
 `jphi` (column `J`) plus the intercept `j0`. Build it with [`coeftable`](@ref);
 iterate it for `NamedTuple` rows, or hand it to any Tables.jl sink.
 """

@@ -1,5 +1,5 @@
 # Sunny-export validation: build a Sunny.System from a fitted SLCEModel and confirm
-# its classical energy reproduces the SCE energy. Runs in a separate environment
+# its classical energy reproduces the SLCE energy. Runs in a separate environment
 # (heavy Sunny dependency), mirroring `test/oracle/`. The conversion math itself is
 # already covered Sunny-free in `test/unit/test_sunny.jl`; here we check the actual
 # Sunny.System assembly end-to-end.
@@ -33,7 +33,7 @@ function energy_error(model, S, mode; seed = 5, ntrial = 20, placement = :auto)
     return me
 end
 
-@testset "Sunny export vs SCE" begin
+@testset "Sunny export vs SLCE" begin
     lat = MR.Lattice(Matrix(3.0 * I(3)))
     cr2 = MR.Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     rng = MersenneTwister(1)
@@ -178,7 +178,7 @@ end
     end
 
     # The primitive system, reshaped back to the training supercell, must reproduce the
-    # SCE energy on arbitrary (non-uniform) configurations — i.e. the unfolded bonds
+    # SLCE energy on arbitrary (non-uniform) configurations — i.e. the unfolded bonds
     # and their offsets are correct, not just the per-cell sums.
     function primitive_energy_error(model, S, mode; seed = 9, ntrial = 12)
         sys_p = MR.to_sunny(model; spin_length = S, mode = mode, placement = :primitive)
@@ -195,7 +195,7 @@ end
         return me, prim
     end
 
-    @testset "primitive unfold: reshaped system reproduces the SCE energy (offsets)" begin
+    @testset "primitive unfold: reshaped system reproduces the SLCE energy (offsets)" begin
         spg = MR.SpglibBackend()
         # 4-atom chain = 4× a 1-atom primitive chain
         lat = MR.Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])

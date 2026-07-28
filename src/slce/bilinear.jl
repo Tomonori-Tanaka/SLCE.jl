@@ -2,7 +2,7 @@
 Bilinear / single-ion extraction — tesseral → Cartesian, on the training supercell.
 
 A fitted [`SLCEModel`](@ref) is a polynomial in unit spin directions of arbitrary
-body order and `l`. Exactly two SCE channels map onto the classical bilinear form
+body order and `l`. Exactly two SLCE channels map onto the classical bilinear form
 `Σ eₐ'·M·e_b + Σ eₐ'·A·eₐ`:
 
 - `ls = [1, 1]` (2-body, the `Lf = 0,1,2` parts fold into one 3×3 matrix that
@@ -15,7 +15,7 @@ body order and `l`. Exactly two SCE channels map onto the classical bilinear for
 The numerically delicate part — turning a fitted coefficient and its folded
 tesseral tensor into a Cartesian matrix with the right normalization, and summing
 the directed cluster members into one matrix per undirected bond — lives here and
-is validated by reconstructing the SCE energy
+is validated by reconstructing the SLCE energy
 (`_reconstruct_energy ≈ predict_energy − j0`). Consumers: the public
 [`bilinear_terms`](@ref) introspection (`slce/introspect.jl`) and the Sunny export
 (`interop/sunny.jl` + `SLCESunnyExt`).

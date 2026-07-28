@@ -290,7 +290,7 @@ function evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real},
                        scratch::SALCScratch)::Float64
     # Refuse a displacement-decorated SALC: this form would silently read a
     # DISP rank as a spin harmonic and use the wrong (4π) scale (the same
-    # refusing-beats-mis-scaling rule as `multipole_terms`). O(body) per call.
+    # refusing-beats-mis-scaling rule as `spin_multipole_terms`). O(body) per call.
     all(is_pure_spin, salc.decors) || throw(ArgumentError(
         "displacement-decorated SALC: use evaluate_salc(salc, e, u)"))
     scale = (4π)^(salc.body / 2)
