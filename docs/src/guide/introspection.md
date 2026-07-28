@@ -459,3 +459,69 @@ content feeds the spin-dependent force constants instead — which is the same t
 derivatives of the static energy surface, so retardation, the Berry-phase term that carries
 phonon angular momentum, and spin-lattice relaxation lie outside a static cluster expansion
 by construction — no basis or truncation choice brings them in.
+
+## Volume grids: when one model is not enough
+
+Everything above lives at one volume. A model's coefficients are themselves functions of
+the cell — that is what magnetovolume coupling *is* — and capturing it needs a grid of fits
+at scaled cells, which is what [`StrainedModels`](@ref) holds.
+
+Isotropic scaling is the one strain family that preserves the point group, so the SALC keys
+survive and coefficients can be interpolated. Two rules make the grid assemblable: the
+cutoffs must be expressed in units of the (strained) `d_NN` so that no neighbour shell
+crosses one as the volume changes, and every point's basis must be closed under
+**re-expansion** — a model at scale `s` is the reference re-expanded around the scaled
+geometry, and that shift generates lower degrees, so a `degree = 2` sector needs
+`degree = 1` and a spin-dressed `degree = 1` sector needs a pure-spin one:
+
+```@example introspect
+gcr(s) = Crystal(Lattice(Matrix(3.0s * I(3))), [0.0 1/3; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+gspec(cr, s) = BasisSpec(cr; lmax = 2, pmax = 2, sectors = [
+    Sector(spin = (sites = 1:2,), cutoff = 1.1s),                            # closure
+    Sector(spin = [1, 1], disp = (degree = 1,), sites = 1:2, cutoff = 1.1s),
+    Sector(disp = (degree = 1,), sites = 1:2, cutoff = 1.1s),                # closure
+    Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1s)])
+gbasis(s) = (c = gcr(s); SLCEBasis(c, gspec(c, s)))
+
+gtruth = SLCEModel(gbasis(1.0), -1.5, 0.2 .* randn(MersenneTwister(5), n_salcs(gbasis(1.0))))
+
+function fit_at(s)
+    b = gbasis(s)
+    pv = DatumProvenance(; reference_id = "s$s", reference_fingerprint = crystal_fingerprint(gcr(s)))
+    d = map(1:200) do _
+        ec = randcfg()
+        u = 0.05 .* randn(rng, 3, 2)
+        TrainingDatum(; energy = affine_energy(gtruth, ec, (s - 1) * Matrix(1.0I(3)); base = u),
+                      directions = ec, magmoms = ones(2), displacements = u, provenance = pv)
+    end
+    return SLCEModel(fit(SLCEFit, SLCEDataset(b, d; use_torque = false, use_force = false),
+                         OLS(); asr = true))
+end
+
+grid = [0.98, 0.99, 1.0, 1.01, 1.02]
+sm = StrainedModels([fit_at(s) for s in grid], grid)
+println(sm)
+```
+
+Now the check that makes the grid trustworthy. There are two strain derivatives here and
+they are different objects: the **intra-model incremental** one, taken inside a single model
+with its coefficients held fixed, and the **grid finite difference**, taken along the grid,
+which also carries the drift of those coefficients. They have to agree:
+
+```@example introspect
+es = randcfg()
+for s in (0.99, 1.0, 1.01)
+    D = strain_derivatives(model_at(sm, s); spins = es, order = 1)
+    intra = D[1, 1] + D[2, 2] + D[3, 3]              # ε = ηI contracts to the trace
+    println("s = $s:  intra-model = ", round(intra; sigdigits = 8),
+            "   grid = ", round(grid_strain_derivative(sm, s; spins = es); sigdigits = 8))
+end
+```
+
+That agreement says the expansion captures the strain response through its *displacement
+channel* rather than through coefficient drift, which is the condition under which one grid
+point may be used at finite strain. A disagreement is not noise: drop the pure-spin sector
+above and it becomes 5%, drop the lattice `degree = 1` sector and 1%. Both derivatives are
+`dE/dη` with `η` measured from the reference the derivative is taken *at* — `dE/dη` and
+`dE/ds` differ by exactly the factor `s`, which agrees at the unstrained point and is off by
+the strain everywhere else.

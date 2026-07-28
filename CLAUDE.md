@@ -641,6 +641,23 @@ Easy to break silently — confirm before touching the algorithm.
   `(γ, δ)` convention is contract and not an accident. The per-bond split is
   origin-dependent whenever a bond's own displacement content is not relative — measured on
   every call in the same idiom, never assumed from the model-wide ASR.
+- **Volume grids ↔ re-expansion closure ↔ the SALC gauge** (`slce/strainedmodels.jl`,
+  `test/unit/test_strainedmodels.jl`): the grid invariant is a SIMILARITY (`A_i = s_i·A₀`,
+  fractional basis untouched), which is what licenses `_scaled_basis`' surgery — carrying
+  the space group and the SALC basis over unchanged and scaling only the cell and the two
+  cutoff surfaces. **Never scale `disp_scale` with it**: the whole grid's coefficients live
+  in one frozen normalization. Two invariants beyond key equality are load-bearing and both
+  are silent when broken: the **home-image condition** (same atoms at the same integer
+  shifts) and the **SALC gauge** (the folded tensors themselves — the projector fixes each
+  invariant only up to a sign, and a flipped one is interpolated against the others with
+  every key matching and every per-point fit perfect). **A grid's basis must be closed under
+  re-expansion** — `degree = 2` needs `degree = 1`, spin×`degree = 1` needs a pure-spin
+  sector — because a grid point IS the reference re-expanded, and the shift is
+  lower-triangular in degree; a fixture that forgets this fails the acceptance gate by
+  percent, which is how it was found. **`dE/dη = s·dE/ds`**: η is always measured from the
+  reference the derivative is taken at, matching `strain_derivatives`, so
+  `grid_strain_derivative` carries the factor `s` — dropping it agrees at `s = 1` and is
+  wrong by the strain everywhere else.
 - **Magnon–phonon vertices ↔ `grad_Zlm` ↔ the torque path** (`slce/magnonphonon.jl`,
   `test/unit/test_magnonphonon.jl`): `magnon_phonon_vertices` is `_fill_fcs_tensor!` with
   one axis moved from "evaluate" to "differentiate" — the displacement axis still reads

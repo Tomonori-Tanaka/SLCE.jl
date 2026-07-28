@@ -580,6 +580,52 @@ capability consumed by both the introspection and the Sunny interop.
   direction, all `a, b, α`); tangency `‖T·ê_b‖ < 1e-12`; the translation sum rule; the
   degree-2 ⇒ empty / lattice-only ⇒ throw content rules; and the shared `_resolve_spins`
   error surface.
+- **Volume grids — M5-3** (`slce/strainedmodels.jl`): `StrainedModels(models, scales;
+  abscissa = :volume, degree, tol)` + `model_at(sm, s)` + `grid_strain_derivative(sm, s;
+  spins)`, the K(ε) container of design record §9a. One linear scale `s = 1 + η` labels a
+  point, `A_i = s_i·A₀` with the fractional basis untouched — a SIMILARITY, which is what
+  keeps the space group (`A R_frac A⁻¹` is invariant under `A → sA`), the orbits, the keys
+  and the folded tensors identical. `scales` is REQUIRED and not inferred: the volumes give
+  only ratios, and nothing in a set of cells says which one is `η = 0`.
+  Six construction-time refusals, the last two beyond what the record listed: non-similar
+  cells; cutoffs that do not scale (**both** `BasisSpec.cutoff` and every
+  `SectorRule.cutoff` — §9a's key-stability pin); a moving `disp_scale` (asserted now
+  though `≠ 1` is still refused elsewhere, so it stays true the day that lifts); a different
+  `SALCKey` set; a different MEMBER (atom, shift) structure — **the home-image condition**,
+  which the key set is blind to (slice-1 consequence (α)); and a different **SALC GAUGE**,
+  compared on the folded tensors, because the projector fixes each invariant only up to a
+  sign and a flipped one would be interpolated against the others silently, with every key
+  matching and every per-point fit perfect.
+  `model_at` builds the basis at an interpolated scale by SURGERY (scale the cell and both
+  cutoff surfaces, carry the space group and the SALC basis over) — licensed by the
+  similarity, gated against a basis BUILT at that scale (cell, keys, members, folded
+  tensors). Coefficients are interpolated by a centered/scaled Vandermonde (a raw-volume one is
+  unusable by degree 3) in `abscissa ∈ (:linear, :volume, :logvolume)` — a MODELLING choice
+  (gate (w)), hence a field — at `degree = n-1` (exact through the nodes) or lower (least
+  squares).
+  **Gate (w) closed 2026-07-29, and it moved the default.** Leave-one-out against a directly
+  fitted point at the omitted scale: `:linear` 6e-14, `:logvolume` 3e-10, `:volume` 2.5e-8.
+  Not a tie and not a fixture accident — the map relating two grid points is the §9d
+  re-expansion, exactly polynomial in the affine displacement and hence in `s`, of the same
+  degree as the displacement content. So on a CE-representable surface the coefficients ARE
+  polynomials in `s` (degree 2 already interpolates exactly on the fixture, and raising the
+  degree buys nothing) while in the volume they are polynomials in `s³`, where the error
+  falls monotonically with degree — the two abscissas make the point from opposite sides,
+  and both arms are gated. Default therefore `:linear`; `:volume` is the right choice when
+  the object of interest is an equation of state rather than a coupling.
+  **The acceptance gate, and the two things building it caught** (`test/unit/test_strainedmodels.jl`).
+  The gate is `strain_derivatives(model_at(sm, s); order = 1)` traced ≡
+  `grid_strain_derivative(sm, s)`. (i) **Basis truncation, exactly as §14 predicted.** A
+  grid's basis must be CLOSED UNDER RE-EXPANSION: a point at scale `s` is the reference
+  re-expanded around the scaled geometry, and that shift is lower-triangular in degree, so
+  `degree = 2` content needs a `degree = 1` sector and spin-dressed `degree = 1` content
+  needs a PURE-SPIN one. Measured on the fixture: 5% off with the pure-spin sector missing,
+  1% with the lattice `degree = 1` missing, 4e-7 with both. (ii) **A mislabelled η is a
+  factor of exactly `s`.** `dE/dη = s·dE/ds`, because η is measured from the reference the
+  derivative is taken AT (`strain_derivatives`' own convention — a model knows only its own
+  reference) while the grid parametrizes total scale. Dropping it agrees at `s = 1` and is
+  off by the strain everywhere else. The residual 4e-7 is the coefficient interpolation and
+  nothing else, established by halving the grid span and watching it fall.
 - **Effective models at a displaced structure — M5 slice 1** (`slce/effective.jl`):
   `effective_model(model; u0, atol = 0.0)` → `EffectiveModel` — the same coefficient
   set re-expanded around `R + u0`, EXACTLY (design record §9d). Every displacement

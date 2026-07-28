@@ -992,6 +992,17 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
 - **(w) interpolation abscissa** — leave-one-out on the volume grid against a
   directly fitted extra point. The abscissa is a modelling choice, not a
   coordinate change, so it needs a gate of its own (§9e part 2).
+  **DONE 2026-07-29** — `test/unit/test_strainedmodels.jl`, and it MOVED THE DEFAULT.
+  Leave-one-out at the omitted scale: `:linear` 6e-14, `:logvolume` 3e-10, `:volume`
+  2.5e-8. The gap is structural, not a fixture accident: the map relating two grid points
+  is the §9d re-expansion, which is exactly polynomial in the affine displacement and hence
+  in the LINEAR scale, of the same degree as the displacement content. On a
+  CE-representable surface the coefficients therefore ARE polynomials in `s` — degree 2
+  already interpolates exactly on the fixture and raising the degree buys nothing — while
+  in the volume they are polynomials in `s³`, where the error falls monotonically with
+  degree. Both arms are gated, from opposite sides. `StrainedModels` defaults to `:linear`;
+  `:volume` is the right choice when the object of interest is an equation of state rather
+  than a coupling.
 
 ## 13. Residual risks and mitigations
 
@@ -1191,6 +1202,39 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
     fractional positions unchanged ⇒ identical space group, clusters, orbits
     and `SALCKey` set), which is why it is stated in the linear stretch and
     not in any label.
+    **DONE 2026-07-29** — `slce/strainedmodels.jl`: `StrainedModels(models, scales)`,
+    `model_at`, `grid_strain_derivative`. Everything above landed as specified; five
+    things the record did not have.
+    (i) **`scales` is required, not inferred.** The cells give only volume RATIOS, and
+    nothing in a set of cells says which point is `η = 0`. Inferring it would have made
+    the labels depend on argument order (the constructor sorts).
+    (ii) **Two invariants beyond key equality, both silent when broken.** The home-image
+    condition (consequence (α) of M5-2 slice 1) is checked as member (atom, shift)
+    equality — the key set cannot see images. And a new one the record did not
+    anticipate: the **SALC gauge**. The projector fixes each invariant only up to a sign
+    and normalization; a grid point whose basis came out with a flipped sign for one SALC
+    would have that coefficient interpolated against the others' backwards, with every key
+    matching and every per-point fit perfect. Checked on the folded tensors themselves.
+    (iii) **A grid's basis must be CLOSED UNDER RE-EXPANSION**, which is the sharpest
+    practical constraint in this milestone and follows from §9d: a grid point IS the
+    reference re-expanded around the scaled geometry, and that shift is lower-triangular in
+    degree. So `degree = 2` content needs a `degree = 1` sector, and spin-dressed
+    `degree = 1` content needs a PURE-SPIN sector, or the point cannot represent its own
+    neighbours. This is not a fixture detail — it is a rule for building real grids, and it
+    was found exactly the way §14 said it would be: the acceptance gate read 5% with the
+    pure-spin sector missing and 1% with the lattice `degree = 1` missing, against 4e-7
+    with both.
+    (iv) **The mislabelled η the gate was supposed to catch is a factor of exactly `s`.**
+    `dE/dη = s·dE/ds`, since η is measured from the reference the derivative is taken AT
+    (`strain_derivatives` knows only its model's own reference) while the grid parametrizes
+    total scale. It agrees at `s = 1` and is off by the strain everywhere else — the shape
+    of error that survives a first look.
+    (v) **The abscissa is a field, per gate (w)** — with a centered/scaled Vandermonde,
+    because a raw-volume one is unusable by degree 3 — and running that gate moved the
+    DEFAULT to `:linear` (see §12 (w)): the re-expansion that relates two grid points is
+    polynomial in the linear scale, so coefficients are interpolated exactly there and only
+    approximately in the volume (6e-14 vs 2.5e-8). The acceptance gate's residual 4e-7 IS
+    that interpolation error, established by halving the grid span and watching it fall.
   - **M5-4 — MC.** `set_coefficients!` (an M4 leftover, convention-free, and
     the longest independent pole — pull it forward and land it alongside M5-1)
     + the outer strain move + gate (l)'s strain half + the checkpoint strain

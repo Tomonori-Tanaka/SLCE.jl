@@ -61,6 +61,50 @@ only at a stress-free reference, and a spin–lattice cell can be stress-free fo
 magnetic state), and the sum rule buys origin independence only where the affine field is
 periodic, which is `ε = 0`.
 
+### Added — volume grids, and the acceptance gate that catches what they get wrong
+
+`StrainedModels(models, scales)` holds a K(ε) grid: the same crystal at a set of isotropic
+linear scales `s = 1 + η`, with `model_at(sm, s)` interpolating the coefficients and
+`grid_strain_derivative(sm, s)` differentiating along the grid. Isotropic scaling is the one
+strain family that preserves the point group, so the SALC keys survive and coefficients can
+be interpolated at all.
+
+The constructor refuses a grid that cannot be interpolated: cells that are not similar,
+cutoffs that do not scale with `s` (an *absolute* cutoff lets a neighbour shell cross it as
+the volume changes, and the key sets then diverge with nothing to say so), a `disp_scale`
+that moves, a different key set, different member images — the *home-image condition*,
+which the key set is blind to — and a different **SALC gauge**, compared on the folded
+tensors. That last one is the quiet failure the others miss: the projector fixes each
+invariant only up to a sign, and a coefficient interpolated against a sign-flipped basis
+function is wrong while every key matches and every per-point fit stays perfect.
+
+The acceptance gate is that the two strain derivatives on a grid agree — the intra-model
+incremental one, taken inside a single model with its coefficients fixed, and the grid
+finite difference, which also carries their drift. Building it caught two real things, both
+of which the design record predicted this one test would find:
+
+- **Basis truncation.** A grid's basis must be closed under *re-expansion*. A model at
+  scale `s` is the reference re-expanded around the scaled geometry, and that shift is
+  lower-triangular in degree — `degree = 2` content generates `degree = 1`, and a
+  spin-dressed `degree = 1` sector generates a pure-spin term. Measured: 5% disagreement
+  with the pure-spin sector missing, 1% with the lattice `degree = 1` sector missing, 4e-7
+  with both present.
+- **A mislabelled η is a factor of exactly `s`.** `dE/dη = s·dE/ds`, because `η` is measured
+  from the reference the derivative is taken *at*. Dropping the factor agrees at the
+  unstrained point and is off by the strain everywhere else.
+
+The residual 4e-7 is the coefficient interpolation error and nothing else, which halving the
+grid span demonstrates.
+
+The interpolation **abscissa** is a modelling choice — and measuring it (leave-one-out
+against a directly fitted point) settled what the default should be. The map relating two
+grid points is a re-expansion, which is exactly polynomial in the affine displacement and
+therefore in the *linear scale*, of the same degree as the displacement content. So
+coefficients are polynomials in `s` and are interpolated exactly, while in the volume they
+are polynomials in `s³`: 6e-14 in `:linear` against 2.5e-8 in `:volume` on a controlled
+fixture. The default is `:linear`; `:volume` remains the right choice when the object of
+interest is an equation of state rather than a coupling.
+
 ### Added — magnon–phonon vertices
 
 `magnon_phonon_vertices(model; spins)` returns the mixed second derivative

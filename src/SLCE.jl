@@ -101,6 +101,10 @@ include("slce/magnetoelastic.jl")
 # — but it belongs to the same deliverable tier.
 include("slce/magnonphonon.jl")
 
+# --- volume grids: the K(ε) container. The one strain family that preserves the point
+# group, so the SALC keys survive and coefficients can be interpolated across it.
+include("slce/strainedmodels.jl")
+
 # Re-expansion around a displaced reference (§9d): the same homogeneous-polynomial
 # fact the force constants ride on, used to MOVE the expansion point rather than to
 # differentiate at it.
@@ -168,6 +172,8 @@ export strain_derivatives
 export magnetoelastic_constants, exchange_strain_derivatives, ExchangeStrainDerivatives
 # the adiabatic magnon-phonon vertices: ∂²E/∂u ∂e, with the spin derivative tangential
 export MagnonPhononVertices, magnon_phonon_vertices
+# volume grids (K(ε)): the isotropic-strain container and its two readouts
+export StrainedModels, model_at, grid_strain_derivative
 # the same coefficient set re-expanded around a displaced structure (a relaxed cell, a
 # condensed soft mode) — exact, and deliberately NOT an SLCEModel
 export EffectiveModel, EffectiveTerm, effective_model
@@ -192,6 +198,8 @@ public build_neighbor_list, NeighborPair, NeighborList, interplanar_spacing
 public analyze_symmetry, n_ops, SymOp, SpaceGroup
 public build_clusters, ClusterMember, ClusterOrbit, ClusterSet
 public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
+# the volume grid's own geometry accessors (generic names — reachable, not exported)
+public scales, volumes
 public Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor                # decoration labels
 public Slot                                       # a DecoratedTerm's axis label
 public SectorRule                                                     # resolved sector row

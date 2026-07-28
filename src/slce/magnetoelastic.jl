@@ -187,7 +187,8 @@ function magnetoelastic_constants(model::SLCEModel;
               "two-constant cubic form — a fraction $(residual) of its " *
               "magnetization-dependent part is unexplained by (B₁, B₂). The returned " *
               "constants are the least-squares PROJECTION onto that form, not a " *
-              "decomposition of it. Expected causes: a non-cubic crystal (the two-constant " *
+              "decomposition of it. Expected causes: a non-cubic crystal (the " *
+              "two-constant " *
               "form is cubic-specific), spin content beyond l = 2, or a magnetic state " *
               "whose sublattices do not share one axis."
     end
@@ -320,7 +321,7 @@ couplings themselves, not their derivatives, and are likewise not reported. `ski
 lists what a user would actually miss: SALCs with ε-linear displacement content whose
 spin part is not bilinear-representable (three-body, higher `l`).
 
-!!! warning "The per-bond split is origin-dependent unless the bond's own content is relative"
+!!! warning "The per-bond split needs the bond's own content to be relative"
     A homogeneous strain moves a site by `ε·(R_s − origin)`, so each term carries an
     absolute position. The origin cancels from the TOTAL by the acoustic sum rule, but
     that is a statement about the whole model — a single bond whose displacement content
@@ -337,9 +338,10 @@ precondition and the same tolerance as [`strain_derivatives`](@ref)).
 See also [`bilinear_terms`](@ref), [`magnetoelastic_constants`](@ref),
 [`strain_derivatives`](@ref).
 """
-function exchange_strain_derivatives(model::SLCEModel;
-                                     origin::AbstractVector{<:Real} = SVector(0.0, 0.0, 0.0),
-                                     check_origin::Bool = true)::ExchangeStrainDerivatives
+function exchange_strain_derivatives(
+        model::SLCEModel;
+        origin::AbstractVector{<:Real} = SVector(0.0, 0.0, 0.0),
+        check_origin::Bool = true)::ExchangeStrainDerivatives
     length(origin) == 3 ||
         throw(DimensionMismatch("origin has length $(length(origin)); expected 3"))
     all(isfinite, origin) || throw(ArgumentError("origin has non-finite entries"))

@@ -336,7 +336,8 @@ end
     @testset "error surface" begin
         rng = MersenneTwister(0x657c)
         _, basis, model = _ex_chain(rng)
-        @test_throws DimensionMismatch exchange_strain_derivatives(model; origin = [0.0, 0.0])
+        @test_throws DimensionMismatch exchange_strain_derivatives(model;
+                                                                    origin = [0.0, 0.0])
         @test_throws ArgumentError exchange_strain_derivatives(model; origin = [NaN, 0, 0])
         # the ASR is the same hard precondition as on the strain path itself
         bad = SLCEModel(basis, 0.0, randn(rng, n_salcs(basis)))
@@ -348,7 +349,7 @@ end
             e
         end
         @test err isa ArgumentError && occursin("acoustic sum rule", err.msg)
-        @test occursin("ExchangeStrainDerivatives", sprint(show,
-                                                           exchange_strain_derivatives(model)))
+        x = exchange_strain_derivatives(model)
+        @test occursin("ExchangeStrainDerivatives", sprint(show, x))
     end
 end

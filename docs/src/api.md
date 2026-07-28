@@ -542,3 +542,34 @@ CSV); call them as `SLCE.save` / `SLCE.load`.
 SLCE.save
 SLCE.load
 ```
+
+## Volume grids (K(ε))
+
+A strained reference generically has a lower point group, so per-grid-point bases would
+have different SALC keys and nothing could be interpolated. Isotropic volume strain
+`ε = ηI` is the one family that preserves the full point group, and v0 restricts grids to
+it: one linear scale `s = 1 + η` labels a point, the cell is `A_i = s_i·A₀`, and the
+fractional coordinates never move.
+
+`StrainedModels` holds such a grid and refuses one that cannot be interpolated — cells that
+are not similar, cutoffs that do not scale with `s` (an *absolute* cutoff lets a neighbour
+shell cross it as the volume changes, and the key sets then diverge silently), a
+`disp_scale` that moves, a different key set, different member images, or a different SALC
+gauge.
+
+!!! note "Two strain derivatives, and their agreement is the gate"
+    On a grid there are two: the **intra-model incremental** one
+    ([`strain_derivatives`](@ref) inside a single model, coefficients fixed) and the **grid
+    finite difference** ([`grid_strain_derivative`](@ref), which also carries the drift of
+    the coefficients). Their agreement says the expansion captures the strain response
+    through its displacement channel rather than through coefficient drift — the condition
+    under which one grid point may be used at finite strain. Both are `dE/dη` with `η`
+    measured from the reference the derivative is taken *at*.
+
+```@docs
+StrainedModels
+model_at
+grid_strain_derivative
+SLCE.scales
+SLCE.volumes
+```
