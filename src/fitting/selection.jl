@@ -411,16 +411,21 @@ end
 # `_make_folds` (the extension cannot be referenced from here); same seed ⇒ identical
 # folds within a Julia session/version (`hash` is version-dependent).
 #
-# `strata` (optional, one Bool per unit in `unique(units)` order) stratifies the
-# deal: stratum-`true` units are dealt round-robin first, stratum-`false` units
-# continue the deal from where the first stratum stopped — so both the per-fold unit
-# counts AND the per-fold stratum-`true` counts differ by at most one across folds.
-# Used by `cross_validate` on a mixed dataset (stratum = "config carries torque
-# rows"): without it, an unstratified deal routinely produces torque-free folds when
-# torque-bearing configs are the minority. `strata = nothing` is bit-identical to
-# the unstratified deal.
+# `strata` (optional, one label in `0:nstrata-1` per unit in `unique(units)` order)
+# stratifies the deal: classes are dealt in DESCENDING label order, each continuing
+# the round-robin from where the previous stopped — so the per-fold unit counts AND
+# the per-fold count of every class differ by at most one across folds. Used by
+# `cross_validate` on a mixed dataset, where the label packs the derivative channels
+# a config carries (`2·torque + force`, scarcest channel in the high bit): without
+# it, an unstratified deal routinely produces channel-free folds when the
+# channel-bearing configs are the minority, and a channel-free TRAINING split is a
+# hard error under the corresponding weight. `strata = nothing` is bit-identical to
+# the unstratified deal, and a `Bool` stratum with the default `nstrata = 2` is
+# bit-identical to the pre-multi-class deal (`true` = 1 is dealt first) — which is
+# what keeps every recorded seed reproducing its folds.
 function _grouped_folds(units::AbstractVector, nf::Int, seed::Int;
-                        strata::Union{Nothing,AbstractVector{Bool}} = nothing)::Vector{Int}
+                        strata::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                        nstrata::Int = 2)::Vector{Int}
     uniq = unique(units)
     order = sortperm([hash((seed, u)) for u in uniq])
     foldof = Dict{eltype(uniq),Int}()
@@ -439,8 +444,18 @@ function _grouped_folds(units::AbstractVector, nf::Int, seed::Int;
             throw(ArgumentError("stratified folds require `units` to be the " *
                                 "distinct resampling units themselves (strata is " *
                                 "positional); deduplicate before calling"))
+        all(s -> 0 <= s < nstrata, strata) || throw(ArgumentError(
+            "strata labels must lie in 0:$(nstrata - 1); got extremes " *
+            "$(minimum(strata)) and $(maximum(strata))"))
+        # DESCENDING class order, and one running counter across classes — both are
+        # load-bearing. Descending keeps the Bool case (`true = 1` dealt first) exactly
+        # as it was, so every existing seed reproduces its folds; the shared counter is
+        # what makes the per-fold count of EACH class differ by at most one, which is
+        # the whole point of stratifying. Callers encode several presence bits as one
+        # integer with the scarcest channel in the high bit (`cross_validate`:
+        # `2·torque + force`), so the most constrained class is dealt first.
         dealt = 0
-        for pass in (true, false)
+        for pass = (nstrata - 1):-1:0
             @inbounds for rank in eachindex(order)
                 u = order[rank]
                 strata[u] == pass || continue
@@ -537,8 +552,9 @@ end
 
 """
     select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
-               lambdas, torque_weight = 0.0, criterion = :gcv, score_rtol = 0.05,
-               costs = nothing, threshold = nothing, nfolds = 5, seed = 1)
+               lambdas, torque_weight = 0.0, force_weight = 0.0, criterion = :gcv,
+               score_rtol = 0.05, costs = nothing, threshold = nothing, nfolds = 5,
+               seed = 1, asr = true)
         -> LambdaPath
 
 Fit `est` along the descending λ path `lambdas` (each solve warm-started from the
@@ -575,10 +591,9 @@ dataset's basis under `est`'s column partition). `score_rtol` sets the accuracy 
 of the cost–error trade; sweep the `cost_exponent` of `SLCE.cost_weights` to tilt the
 penalty itself and trace a Pareto front over both knobs.
 
-!!! note "Force channel"
-    Selection optimizes the energy(+torque) objective only: there is no
-    `force_weight` here yet, so a force-carrying dataset is selected on its
-    energy/torque blocks.
+`force_weight` joins `torque_weight` in the fit objective, the GCV row count and the
+`:cv` fold strata, exactly as in [`cross_validate`](@ref); the selected λ is re-solved
+cold with both weights.
 
 !!! note "Joint bases and the ASR"
     The λ path solves on a cached **unconstrained** Gram and decides alive groups by a
@@ -595,7 +610,8 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
                     criterion::Symbol = :gcv, score_rtol::Real = 0.05,
                     costs::Union{Nothing,AbstractVector{<:Real}} = nothing,
                     threshold::Union{Nothing,Real} = nothing, nfolds::Integer = 5,
-                    seed::Integer = 1, asr::Bool = true)::LambdaPath
+                    seed::Integer = 1, asr::Bool = true,
+                    force_weight::Real = 0.0)::LambdaPath
     isempty(dataset.y_E) && throw(ArgumentError("dataset has no observations"))
     # The λ path below solves UNCONSTRAINED (direct `_solve_gar` on the cached Gram)
     # and its alive rule is β-indexed, so it is correct exactly when the fit it
@@ -613,9 +629,17 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
                             "select a deliberately unconstrained model, or use " *
                             "fit/cross_validate, which are constrained"))
     w = Float64(torque_weight)
+    wF = Float64(force_weight)
     (0.0 <= w <= 1.0) || throw(ArgumentError("torque_weight must be in [0, 1]; got $w"))
+    (0.0 <= wF <= 1.0) ||
+        throw(ArgumentError("force_weight must be in [0, 1]; got $wF"))
+    (w + wF <= 1.0) || throw(ArgumentError(
+        "torque_weight + force_weight must be ≤ 1; got $(w + wF)"))
     if w > 0 && !has_torque(dataset)
         throw(ArgumentError("torque_weight = $w but the dataset has no torque data"))
+    end
+    if wF > 0 && !has_force(dataset)
+        throw(ArgumentError("force_weight = $wF but the dataset has no force data"))
     end
     isempty(lambdas) && throw(ArgumentError("lambdas must be nonempty"))
     all(l -> isfinite(l) && l >= 0, lambdas) ||
@@ -638,7 +662,7 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
 
     lams = sort!(unique(Float64.(lambdas)); rev = true)
     nl = length(lams)
-    X, y, _, _, rowgroups = _assemble_problem(dataset, w)
+    X, y, _, _, rowgroups = _assemble_problem(dataset, w, wF)
     n = size(X, 1)
     XtX = Matrix{Float64}(X' * X)
     Xty = Vector{Float64}(X' * y)
@@ -689,7 +713,10 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
     # w = 1 leaves the energy rows in the stack with exactly zero weight — they
     # carry no information and must not inflate GCV's n (same zero test as the
     # assembly's scale expression).
-    neff = n - (max(0.0, 1 - w) == 0.0 ? length(dataset.y_E) : 0)
+    # Zero-weight blocks carry no information and must not inflate GCV's `n`; the
+    # shared definition is `_gcv_neff`, and the energy block's weight is
+    # `1 - w - wF`, not `1 - w`.
+    neff = n - (max(0.0, 1 - w - wF) == 0.0 ? length(dataset.y_E) : 0)
     if criterion === :gcv
         wv = Vector{Float64}(undef, length(Xty))
         normsq = Vector{Float64}(undef, G)
@@ -714,19 +741,26 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
         nf < Int(nfolds) &&
             @warn "select_fit: reducing CV folds so every fold keeps ≥ 3 resampling " *
                   "units" requested = Int(nfolds) effective = nf units = nunits
-        # Stratify by per-config torque presence on a mixed dataset (same rationale
-        # and mechanism as cross_validate): the λ path must not be ranked on folds
-        # with wildly uneven torque content. Units here are ROW labels; the fold
-        # assignment is per distinct unit, so build the per-unit strata and deal
-        # over the distinct units.
+        # Stratify by which derivative channels each config carries on a mixed dataset
+        # (same rationale, label packing and descending deal order as cross_validate):
+        # the λ path must not be ranked on folds with wildly uneven channel content.
+        # Units here are ROW labels; the fold assignment is per distinct unit, so build
+        # the per-unit strata and deal over the distinct units.
+        nc_u = length(dataset)
+        ragged_tq = w > 0 && has_torque(dataset) &&
+            length(dataset.torque_config) < 3 * n_atoms(dataset.basis.crystal) * nc_u
+        ragged_fr = wF > 0 && has_force(dataset) &&
+            length(unique(dataset.force_config)) < nc_u
         strata = nothing
-        if w > 0 && has_torque(dataset) &&
-           length(dataset.torque_config) < 3 * n_atoms(dataset.basis.crystal) * length(dataset)
-            tqp = falses(length(dataset))
-            tqp[unique(dataset.torque_config)] .= true
-            strata = tqp
+        if ragged_tq || ragged_fr
+            tqp = falses(nc_u)
+            ragged_tq && (tqp[unique(dataset.torque_config)] .= true)
+            frp = falses(nc_u)
+            ragged_fr && (frp[unique(dataset.force_config)] .= true)
+            strata = [2 * tqp[i] + frp[i] for i = 1:nc_u]
         end
-        ufolds = _grouped_folds(collect(1:length(dataset)), nf, seed; strata = strata)
+        ufolds = _grouped_folds(collect(1:nc_u), nf, seed;
+                                strata = strata, nstrata = 4)
         folds = [ufolds[u] for u in units]
         sse = zeros(Float64, nl)
         for k = 1:nf
@@ -756,7 +790,8 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
     sel = _select_pareto(score, cost, Float64(score_rtol))
     est_sel = GroupAdaptiveRidge(lams[sel], est.column_groups, est.group_weights,
                                  est.epsilon, est.max_iter, est.tol)
-    fsel = fit(SLCEFit, dataset, est_sel; torque_weight = w, asr = asr)
+    fsel = fit(SLCEFit, dataset, est_sel; torque_weight = w, force_weight = wF,
+               asr = asr)
     # Re-derive the selected row from the cold re-solve, so `fit` / `threshold` /
     # `n_alive[selected]` / `cost[selected]` are mutually consistent (warm and cold
     # agree only within the IRLS tol — a knife-edge coefficient could differ). Under
@@ -810,12 +845,13 @@ end
 
 Result of [`select_support`](@ref): the descending threshold sweep with, per point,
 the alive-group count, predicted Monte-Carlo cost `Σ_{g alive} c_g`, the selection
-`score` (the fit's own `(1−w)·MSE_E + w·MSE_T` objective on the evaluation dataset),
-and the energy / torque RMSEs (`rmse_torque` is `NaN` when the evaluation dataset
-carries no torque data); plus the tolerance `score_rtol`, the `selected` index, and the
-de-biased refit `fit` at the selected threshold. A Tables.jl source with one row per
-threshold (columns `threshold`, `n_alive`, `cost`, `score`, `rmse_energy`,
-`rmse_torque`, `selected`).
+`score` (the fit's own `(1 − w_T − w_F)·MSE_E + w_T·MSE_T + w_F·MSE_F` objective on the
+evaluation dataset), and the energy / torque / force RMSEs (`rmse_torque` and
+`rmse_force` are `NaN` when the evaluation dataset carries no data for that channel;
+the three are in **different units** — eV, eV, eV/Å); plus the tolerance `score_rtol`,
+the `selected` index, and the de-biased refit `fit` at the selected threshold. A
+Tables.jl source with one row per threshold (columns `threshold`, `n_alive`, `cost`,
+`score`, `rmse_energy`, `rmse_torque`, `rmse_force`, `selected`).
 """
 struct SupportPath
     threshold::Vector{Float64}    # descending (sparsest first)
@@ -824,6 +860,7 @@ struct SupportPath
     score::Vector{Float64}
     rmse_energy::Vector{Float64}
     rmse_torque::Vector{Float64}  # NaN per entry when the evalset has no torque
+    rmse_force::Vector{Float64}   # NaN per entry when the evalset has no forces
     score_rtol::Float64
     selected::Int
     fit::SLCEFit
@@ -834,6 +871,7 @@ Tables.columnaccess(::Type{SupportPath}) = true
 Tables.columns(p::SupportPath) =
     (; threshold = p.threshold, n_alive = p.n_alive, cost = p.cost, score = p.score,
        rmse_energy = p.rmse_energy, rmse_torque = p.rmse_torque,
+       rmse_force = p.rmse_force,
        selected = [i == p.selected for i in eachindex(p.threshold)])
 
 function Base.show(io::IO, ::MIME"text/plain", p::SupportPath)
@@ -854,6 +892,9 @@ end
                    estimator = OLS())
         -> SupportPath
 
+The weights come from `f` (`torque_weight` / `force_weight`); there is nothing to pass
+here.
+
 Trace the (predicted Monte-Carlo cost, error) front of **de-biased refits** of `f`
 over a sweep of alive thresholds, and select the cheapest point whose score is within
 `(1 + score_rtol)` of the front minimum — the same Pareto rule as [`select_fit`](@ref).
@@ -867,10 +908,19 @@ Per threshold `t`: the alive groups are those with any column satisfying
 the predicted cost is `Σ_{g alive} c_g`, and the point's fit is
 `refit(f, estimator; threshold = t)` — note the refit keeps *columns* above `t`, so a
 weak column of an alive group may still be dropped (the group's cost is paid either
-way). The `score` is the fit's own objective `(1 − w)·MSE_E + w·MSE_T`
-(`w = f.torque_weight`) evaluated on `evalset` — pass a held-out `SLCEDataset` (built
-on the same basis; see dataset slicing) for an honest error axis; the default is the
-in-sample training set.
+way). The `score` is the fit's own objective
+`(1 − w_T − w_F)·MSE_E + w_T·MSE_T + w_F·MSE_F` (the weights taken from `f`) evaluated
+on `evalset` — pass a held-out `SLCEDataset` (built on the same basis; see dataset
+slicing) for an honest error axis; the default is the in-sample training set.
+
+!!! warning "Derivative-only fits price pure-spin groups at zero"
+    At `torque_weight + force_weight == 1` the energy block gets weight zero, so every
+    column absent from the derivative blocks has norm zero in the assembled design
+    (`fit` warns about this by name). Such groups are then never alive at any
+    threshold and contribute no cost — correct, since a derivative-only fit genuinely
+    cannot see them, but it means the front is a front over the *derivative-visible*
+    model only. The relative alive floor also spans blocks of different units there;
+    pass an absolute `thresholds` vector if that matters.
 
 The sweep is either automatic or explicit, and the two are **separate keywords** on
 purpose: `npoints` is a point count for the automatic grid (**at most** that many
@@ -906,14 +956,11 @@ function select_support(f::SLCEFit;
         throw(ArgumentError("f is a torque co-fit (torque_weight = $w) but evalset " *
                             "has no torque data"))
     end
-    # The cost model (salc_groups / group_costs) is the spin-MC contraction cost and
-    # is not yet channel-split for joint models (design record §6); reject a force
-    # co-fit rather than score its objective without the force block.
-    f.force_weight > 0 &&
-        throw(ArgumentError("f is a force co-fit (force_weight = " *
-                            "$(f.force_weight)) — cost-weighted support selection " *
-                            "for the force channel is not implemented yet; select " *
-                            "on a fit with force_weight = 0"))
+    wF = f.force_weight
+    if wF > 0 && !has_force(evalset)
+        throw(ArgumentError("f is a force co-fit (force_weight = $wF) but evalset " *
+                            "has no force data"))
+    end
     # Three states, two of them refused, and the order matters: a plain joint fit
     # carries `dataset.asr` as its reparameterization, so keying the staged check on
     # `reparam !== nothing` told unstaged callers their fit was staged. `_is_staged`
@@ -938,8 +985,13 @@ function select_support(f::SLCEFit;
                             "re-derives the null space on the support"))
     end
 
-    # per-group max scaled magnitude on the assembled training design (refit's rule)
-    X, _, _, _, _ = _assemble_problem(f.dataset, w)
+    # Per-group max scaled magnitude on the assembled training design — and it must be
+    # `refit`'s design, weights included. `_assemble_problem`'s energy whitening is
+    # `√((1 − w_T − w_F)/n_E)`, so dropping `wF` here would put `m_g` (and every
+    # threshold derived from it) in different units from the `threshold` handed to
+    # `refit` below: the reported alive/cost columns and the realized support would
+    # silently disagree.
+    X, _, _, _, _ = _assemble_problem(f.dataset, w, wF)
     m_g = zeros(Float64, G)
     for j in eachindex(f.jphi)
         m = abs(f.jphi[j]) * norm(view(X, :, j))
@@ -961,6 +1013,7 @@ function select_support(f::SLCEFit;
     score = Vector{Float64}(undef, nt)
     rmseE = Vector{Float64}(undef, nt)
     rmseT = fill(NaN, nt)
+    rmseF = fill(NaN, nt)
     fits = Vector{SLCEFit}(undef, nt)
     for i = 1:nt
         alive = falses(G)
@@ -973,17 +1026,33 @@ function select_support(f::SLCEFit;
         fits[i] = fr
         mseE = mean(abs2, evalset.y_E .- (fr.j0 .+ evalset.X_E * fr.jphi))
         rmseE[i] = sqrt(mseE)
+        # The three-block objective, in the same prediction-space convention
+        # `cross_validate` uses. A channel absent from the evalset is omitted rather
+        # than counted as zero; with both derivative weights zero the objective IS the
+        # energy MSE, so the historical `score = mseE` is kept verbatim.
+        sc = (1 - w - wF) * mseE
+        anyderiv = false
         if has_torque(evalset)
             mseT = mean(abs2, evalset.y_T .- evalset.X_T * fr.jphi)
             rmseT[i] = sqrt(mseT)
-            score[i] = (1 - w) * mseE + w * mseT
-        else
-            score[i] = mseE
+            if w > 0
+                sc += w * mseT
+                anyderiv = true
+            end
         end
+        if has_force(evalset)
+            mseF = mean(abs2, evalset.y_F .- evalset.X_F * fr.jphi[evalset.force_cols])
+            rmseF[i] = sqrt(mseF)
+            if wF > 0
+                sc += wF * mseF
+                anyderiv = true
+            end
+        end
+        score[i] = anyderiv ? sc : mseE
     end
     sel = _select_pareto(score, cost, Float64(score_rtol))
-    return SupportPath(thr, n_alive, cost, score, rmseE, rmseT, Float64(score_rtol), sel,
-                       fits[sel])
+    return SupportPath(thr, n_alive, cost, score, rmseE, rmseT, rmseF,
+                       Float64(score_rtol), sel, fits[sel])
 end
 
 # --- configuration-grouped K-fold cross-validation (generic) -----------------------
@@ -992,54 +1061,66 @@ end
     CVResult
 
 Result of [`cross_validate`](@ref): per-fold holdout scores plus the pooled
-out-of-fold error. `score` is the fit's own objective `(1 − w)·MSE_E + w·MSE_T`
-(`w = torque_weight`) on each fold's held-out configurations; `rmse_energy` and
-`rmse_torque` report the two error axes separately whenever the dataset carries the
-data, independent of `torque_weight` (`rmse_torque` is `NaN` per entry for an
-energy-only dataset). The `pooled_*` fields aggregate the out-of-fold residuals of
-all folds — every configuration is held out exactly once, so they are single
-whole-dataset numbers, not means of the per-fold columns. A Tables.jl source with
-one row per fold (columns `fold`, `n_holdout`, `score`, `rmse_energy`,
-`rmse_torque`).
+out-of-fold error. `score` is the fit's own objective
+`(1 − w_T − w_F)·MSE_E + w_T·MSE_T + w_F·MSE_F` on each fold's held-out
+configurations; `rmse_energy`, `rmse_torque` and `rmse_force` report the three error
+axes separately whenever the dataset carries the data, independent of the weights
+(each is `NaN` per entry when that channel is absent from the dataset or from that
+fold's holdout). They are in **different units** (eV, eV, eV/Å) — compare each against
+itself across folds, never against another. The `pooled_*` fields aggregate the
+out-of-fold residuals of all folds — every configuration is held out exactly once, so
+they are single whole-dataset numbers, not means of the per-fold columns. A Tables.jl
+source with one row per fold (columns `fold`, `n_holdout`, `score`, `rmse_energy`,
+`rmse_torque`, `rmse_force`).
 """
 struct CVResult
     nfolds::Int                   # effective fold count (see cross_validate)
     seed::Int
     torque_weight::Float64
+    force_weight::Float64
     n_holdout::Vector{Int}        # held-out configurations per fold
     score::Vector{Float64}
     rmse_energy::Vector{Float64}
     rmse_torque::Vector{Float64}  # NaN: energy-only dataset, or torque-free fold
+    rmse_force::Vector{Float64}   # NaN: force-free dataset, or force-free fold
     pooled_score::Float64
     pooled_rmse_energy::Float64
-    pooled_rmse_torque::Float64   # NaN for an energy-only dataset
+    pooled_rmse_torque::Float64   # NaN for a torque-free dataset
+    pooled_rmse_force::Float64    # NaN for a force-free dataset
 end
 
 Tables.istable(::Type{CVResult}) = true
 Tables.columnaccess(::Type{CVResult}) = true
 Tables.columns(r::CVResult) =
     (; fold = collect(eachindex(r.score)), n_holdout = r.n_holdout, score = r.score,
-       rmse_energy = r.rmse_energy, rmse_torque = r.rmse_torque)
+       rmse_energy = r.rmse_energy, rmse_torque = r.rmse_torque,
+       rmse_force = r.rmse_force)
 
 function Base.show(io::IO, ::MIME"text/plain", r::CVResult)
     print(io, "CVResult (", r.nfolds, " folds, seed = ", r.seed,
-          ", torque_weight = ", r.torque_weight, "):")
+          ", torque_weight = ", r.torque_weight,
+          ", force_weight = ", r.force_weight, "):")
     for k in eachindex(r.score)
         print(io, "\n  fold ", k, ": n = ", r.n_holdout[k],
               "  score = ", round(r.score[k]; sigdigits = 5),
               "  rmse_E = ", round(r.rmse_energy[k]; sigdigits = 5))
         isnan(r.rmse_torque[k]) ||
             print(io, "  rmse_T = ", round(r.rmse_torque[k]; sigdigits = 5))
+        isnan(r.rmse_force[k]) ||
+            print(io, "  rmse_F = ", round(r.rmse_force[k]; sigdigits = 5))
     end
     print(io, "\n  pooled: score = ", round(r.pooled_score; sigdigits = 5),
           "  rmse_E = ", round(r.pooled_rmse_energy; sigdigits = 5))
     isnan(r.pooled_rmse_torque) ||
         print(io, "  rmse_T = ", round(r.pooled_rmse_torque; sigdigits = 5))
+    isnan(r.pooled_rmse_force) ||
+        print(io, "  rmse_F = ", round(r.pooled_rmse_force; sigdigits = 5))
 end
 
 """
     cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
-                   torque_weight = 0.0, nfolds = 5, seed = 1) -> CVResult
+                   torque_weight = 0.0, force_weight = 0.0, nfolds = 5, seed = 1,
+                   asr = true, frozen = nothing, sector_mask = :all) -> CVResult
 
 Configuration-grouped `nfolds`-fold cross-validation of
 `fit(SLCEFit, dataset, estimator; torque_weight)`: each fold's model is fit from
@@ -1079,20 +1160,30 @@ A `FixedCoefficients` (or an `AdaptiveLasso` carrying one) is rejected: its fixe
 full-data coefficient vector does not depend on the training fold, so the holdout
 score would leak the held-out data.
 
-!!! note "Force channel"
-    There is no `force_weight` here yet: a force-carrying dataset is fit and scored
-    on its energy(+torque) blocks only (fold stratification likewise tracks torque
-    presence, not force presence).
+`force_weight` behaves exactly like `torque_weight`: the score becomes the fit's own
+three-block objective `(1 − w_T − w_F)·MSE_E + w_T·MSE_T + w_F·MSE_F`, the fold deal is
+stratified on both derivative channels at once, and `rmse_force` is reported whenever
+the dataset carries forces. The three RMSE columns are in **different units**
+(eV, eV, eV/Å), so compare each against itself across folds, not against each other.
 """
 function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
-                        torque_weight::Real = 0.0, nfolds::Integer = 5,
+                        torque_weight::Real = 0.0, force_weight::Real = 0.0,
+                        nfolds::Integer = 5,
                         seed::Integer = 1, asr::Bool = true,
                         frozen::Union{Nothing,SLCEModel} = nothing,
                         sector_mask = :all)::CVResult
     w = Float64(torque_weight)
+    wF = Float64(force_weight)
     (0.0 <= w <= 1.0) || throw(ArgumentError("torque_weight must be in [0, 1]; got $w"))
+    (0.0 <= wF <= 1.0) ||
+        throw(ArgumentError("force_weight must be in [0, 1]; got $wF"))
+    (w + wF <= 1.0) || throw(ArgumentError(
+        "torque_weight + force_weight must be ≤ 1; got $(w + wF)"))
     if w > 0 && !has_torque(dataset)
         throw(ArgumentError("torque_weight = $w but the dataset has no torque data"))
+    end
+    if wF > 0 && !has_force(dataset)
+        throw(ArgumentError("force_weight = $wF but the dataset has no force data"))
     end
     nfolds >= 2 || throw(ArgumentError("nfolds must be ≥ 2; got $nfolds"))
     if _carries_fixed_coefficients(estimator)
@@ -1104,13 +1195,28 @@ function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
     nc = length(dataset)
     nf = min(Int(nfolds), div(nc, 3))
     hastq = has_torque(dataset)
-    # Stratify the fold deal by per-config torque presence (mixed datasets: torque
-    # rows exist only for some configs). Without stratification, an unstratified
-    # deal routinely produces torque-free folds when torque-bearing configs are the
-    # minority, and a torque-free TRAINING split is a hard error under w > 0.
+    hasfr = has_force(dataset)
+    # Stratify the fold deal by which DERIVATIVE CHANNELS each config carries (a mixed
+    # dataset has torque rows for some configs and force rows for others, and the two
+    # selections are independent). Without stratification, an unstratified deal
+    # routinely produces channel-free folds when the channel-bearing configs are the
+    # minority, and a channel-free TRAINING split is a hard error under that channel's
+    # weight. The label packs both bits, torque high — `_grouped_folds` deals classes
+    # in descending order, so on a force-free dataset it degenerates to the
+    # torque-only `(true, false)` deal bit-identically and every recorded seed keeps
+    # its folds.
     tqpresent = falses(nc)
     hastq && (tqpresent[unique(dataset.torque_config)] .= true)
+    # Force presence enters the strata ONLY under `wF > 0`. Torque's unconditional
+    # stratification is grandfathered; adding a second unconditional one would change
+    # the fold deal — and therefore the score — of every force-carrying dataset at
+    # `force_weight = 0`, invalidating recorded results to buy nothing but a prettier
+    # `rmse_force` spread. At `wF = 0` the deal is bit-identical to the torque-only
+    # one, which is the "cross_validate ignores the force block" contract.
+    frpresent = falses(nc)
+    wF > 0 && hasfr && (frpresent[unique(dataset.force_config)] .= true)
     ntq = count(tqpresent)
+    nfr = count(frpresent)
     if w > 0
         # Every fold must hold ≥ 1 torque-bearing config (so every training split
         # keeps some): cap the fold count by the number of torque-bearing configs.
@@ -1119,27 +1225,38 @@ function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
             "cross-validation (every training split must keep torque rows); got $ntq"))
         nf = min(nf, ntq)
     end
+    if wF > 0
+        nfr >= 2 || throw(ArgumentError(
+            "force_weight = $wF > 0 needs ≥ 2 force-bearing configurations for " *
+            "cross-validation (every training split must keep force rows); got $nfr"))
+        nf = min(nf, nfr)
+    end
     nf >= 2 || throw(ArgumentError(
         "cross-validation needs at least 6 configurations for ≥ 2 folds; got $nc"))
     nf < Int(nfolds) &&
         @warn "cross_validate: reducing CV folds so every fold keeps ≥ 3 " *
-              "configurations and (for torque_weight > 0) ≥ 1 torque-bearing " *
-              "configuration" requested = Int(nfolds) effective = nf configs = nc
+              "configurations and (for torque_weight / force_weight > 0) ≥ 1 " *
+              "configuration bearing that channel" requested = Int(nfolds) effective = nf configs = nc
 
-    folds = _grouped_folds(collect(1:nc), nf, seed;
-                           strata = hastq ? tqpresent : nothing)
+    strata = hastq || (wF > 0 && hasfr) ?
+             [2 * tqpresent[i] + frpresent[i] for i = 1:nc] : nothing
+    folds = _grouped_folds(collect(1:nc), nf, seed; strata = strata, nstrata = 4)
     n_holdout = Vector{Int}(undef, nf)
     score = Vector{Float64}(undef, nf)
     rmseE = Vector{Float64}(undef, nf)
     rmseT = fill(NaN, nf)
+    rmseF = fill(NaN, nf)
     sseE = 0.0
     sseT = 0.0
+    sseF = 0.0
     nE = 0
     nT = 0
+    nF = 0
     for k = 1:nf
         ho = findall(==(k), folds)
         tr = findall(!=(k), folds)
-        f = fit(SLCEFit, dataset[tr], estimator; torque_weight = w, asr = asr,
+        f = fit(SLCEFit, dataset[tr], estimator; torque_weight = w,
+                force_weight = wF, asr = asr,
                 frozen = frozen, sector_mask = sector_mask)
         hset = dataset[ho]
         residE = hset.y_E .- (f.j0 .+ hset.X_E * f.jphi)
@@ -1148,26 +1265,48 @@ function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
         rmseE[k] = sqrt(mseE)
         sseE += sum(abs2, residE)
         nE += length(residE)
-        # A holdout fold of a mixed dataset can hold no torque rows (only when
-        # w == 0 — stratification plus the fold cap guarantee torque rows in every
-        # fold under w > 0); its rmse_torque stays NaN and its score is energy-only,
-        # never `0 * NaN`.
+        # A holdout fold of a mixed dataset can hold no rows of a given derivative
+        # channel (only when that channel's weight is 0 — stratification plus the fold
+        # cap guarantee rows in every fold under a positive weight). Its RMSE entry
+        # stays NaN and the score simply omits the block, never `0 * NaN`; the
+        # remaining weights are NOT renormalized, so a fold that lost a block scores
+        # lower than one that kept it, which is why the cap exists.
+        sc = mseE * (1 - w - wF)
+        anyderiv = false
         if hastq && !isempty(hset.y_T)
             residT = hset.y_T .- hset.X_T * f.jphi
             mseT = mean(abs2, residT)
             rmseT[k] = sqrt(mseT)
             sseT += sum(abs2, residT)
             nT += length(residT)
-            score[k] = w > 0 ? (1 - w) * mseE + w * mseT : mseE
-        else
-            score[k] = mseE
+            if w > 0
+                sc += w * mseT
+                anyderiv = true
+            end
         end
+        if hasfr && !isempty(hset.y_F)
+            residF = hset.y_F .- hset.X_F * f.jphi[hset.force_cols]
+            mseF = mean(abs2, residF)
+            rmseF[k] = sqrt(mseF)
+            sseF += sum(abs2, residF)
+            nF += length(residF)
+            if wF > 0
+                sc += wF * mseF
+                anyderiv = true
+            end
+        end
+        # With both derivative weights zero the objective IS the energy MSE — keep the
+        # historical `score = mseE` rather than the vacuously rescaled `1 · mseE`.
+        score[k] = anyderiv ? sc : mseE
     end
     pE = sseE / nE
-    if hastq
-        pT = sseT / nT
-        return CVResult(nf, Int(seed), w, n_holdout, score, rmseE, rmseT,
-                        (1 - w) * pE + w * pT, sqrt(pE), sqrt(pT))
+    pT = nT > 0 ? sseT / nT : NaN
+    pF = nF > 0 ? sseF / nF : NaN
+    pooled = if w > 0 || wF > 0
+        (1 - w - wF) * pE + (w > 0 ? w * pT : 0.0) + (wF > 0 ? wF * pF : 0.0)
+    else
+        pE
     end
-    return CVResult(nf, Int(seed), w, n_holdout, score, rmseE, rmseT, pE, sqrt(pE), NaN)
+    return CVResult(nf, Int(seed), w, wF, n_holdout, score, rmseE, rmseT, rmseF,
+                    pooled, sqrt(pE), sqrt(pT), sqrt(pF))
 end

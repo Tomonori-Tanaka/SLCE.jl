@@ -498,7 +498,7 @@ end
         # Tables + show smoke
         cols = Tables.columntable(sp)
         @test keys(cols) == (:threshold, :n_alive, :cost, :score, :rmse_energy,
-                             :rmse_torque, :selected)
+                             :rmse_torque, :rmse_force, :selected)
         @test count(cols.selected) == 1
         @test occursin("← selected", sprint(show, MIME"text/plain"(), sp))
 
@@ -620,7 +620,12 @@ end
 
         # Tables + show smoke
         tbl = Tables.columntable(cv)
+        @test keys(tbl) == (:fold, :n_holdout, :score, :rmse_energy, :rmse_torque,
+                            :rmse_force)
         @test tbl.fold == [1, 2, 3] && tbl.rmse_energy == cv.rmse_energy
+        # an energy-only dataset reports neither derivative axis
+        @test all(isnan, cv.rmse_force) && isnan(cv.pooled_rmse_force)
+        @test !occursin("rmse_F", sprint(show, MIME"text/plain"(), cv))
         @test occursin("pooled", sprint(show, MIME"text/plain"(), cvt))
         @test occursin("rmse_T", sprint(show, MIME"text/plain"(), cvt))
         @test !occursin("rmse_T", sprint(show, MIME"text/plain"(), cv))

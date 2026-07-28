@@ -109,9 +109,18 @@ units (eV², eV², (eV/Å)²), so the weights are **not** scale-free — a force
 larger than the energy spread makes even a modest ``w_F`` dominate the fit; compare
 `rmse_energy`/`rmse_force` at a trial weight before committing to one. Force rows
 exist only for force-bearing configurations and displacement-referenced atoms —
-never zero-padded — and the selection layer ([`select_fit`](@ref) /
-[`cross_validate`](@ref) / [`select_support`](@ref)) does not take a `force_weight`
-yet: it scores the energy(+torque) objective only.
+never zero-padded. The selection layer takes `force_weight` too:
+[`select_fit`](@ref) and [`cross_validate`](@ref) accept it directly and
+[`select_support`](@ref) reads it off the fit, all scoring the same three-block
+objective. Two consequences worth knowing:
+
+- At `force_weight = 0` a force-carrying dataset is treated exactly as one with the
+  forces dropped — including the fold deal, which deliberately does **not** stratify on
+  a zero-weight channel, so scores recorded before the force channel existed still mean
+  what they meant. `rmse_force` is still reported.
+- At `torque_weight + force_weight == 1` the energy block has zero weight, so
+  pure-spin columns are structurally absent from the design: they are never alive and
+  cost nothing. The resulting front is over the derivative-visible model only.
 
 ## The acoustic sum rule (translation invariance)
 

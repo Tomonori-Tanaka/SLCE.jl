@@ -410,17 +410,24 @@ Easy to break silently — confirm before touching the algorithm.
   (oracle fit-parity: Nd2Fe14B B atoms are unreferenced), so per-config torque row
   counts differ between the two paths and consumers must read them off
   `torque_config` (`_assemble_problem` does, via its `tblock`/`fblock` searchsorted
-  counts), never off `3·n_atoms`. The selection layer has NO `force_weight`
-  yet: `cross_validate`/`select_fit` score energy(+torque) only (documented), and
-  `select_support` rejects a force co-fit outright. Extending them means force-presence
-  fold strata (`_grouped_folds` currently takes a `Bool` stratum and deals `true`
-  first — the deal ORDER is load-bearing for seed reproducibility, so generalizing to
-  multiple strata must keep it), a force fold cap alongside the torque one, the
-  three-block score in all of `select_support` / `cross_validate`, `rmse_force` on the
-  public `SupportPath` / `CVResult` (both Tables sources with pinned column tuples) —
-  and `select_support`'s `_assemble_problem(f.dataset, w)` must gain the `wF` argument
-  `refit` already passes, or its magnitudes and the `threshold` it hands `refit` are in
-  different units. `group_costs` no longer blocks any of this (it handles joint bases).
+  counts), never off `3·n_atoms`. **The selection layer is force-aware, and three of
+  its rules are easy to break silently.** (1) `select_support` assembles with
+  `_assemble_problem(f.dataset, w, wF)` — the SAME weights `refit` uses; drop `wF` and
+  the per-group magnitudes `m_g` land in different units from the `threshold` handed to
+  `refit`, so the reported alive/cost columns and the realized support disagree without
+  erroring (gated by `test_jointdata.jl` asserting `refit`'s `jphi` equals the selected
+  point's). (2) `_grouped_folds` deals stratum classes in DESCENDING label order with
+  ONE running counter across classes; `cross_validate` packs the channels as
+  `2·torque + force` so the scarcest is dealt first, and a force-free dataset degenerates
+  to the historical `(true, false)` deal bit-identically. Change the order and every
+  recorded seed re-deals. (3) **Force presence enters the strata only at `w_F > 0`**,
+  deliberately unlike torque (grandfathered at any weight): stratifying on a zero-weight
+  channel would change the fold deal — hence the score — of every force-carrying dataset
+  at `force_weight = 0`, invalidating recorded results for nothing. The
+  "at `w_F = 0`, identical to forces-dropped" contract is pinned in `test_jointdata.jl`.
+  A channel missing from a holdout fold is OMITTED from the score, never counted as
+  zero and never renormalized away — which is why the fold count is capped by each
+  weighted channel's config count.
 - **ASR constraint chain** (`fitting/asr.jl` builder ↔ `basis/SolidHarmonics.jl`
   `solid_harmonic_poly` ↔ `slce/model.jl` `SLCEDataset.asr`/`ASRReparam` ↔
   `fitting/fit.jl` `_assemble_problem`/`fit`/`refit` ↔ `fitting/estimators.jl`

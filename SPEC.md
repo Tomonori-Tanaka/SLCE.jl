@@ -335,11 +335,14 @@ capability consumed by both the introspection and the Sunny interop.
   (`has_force`, `residuals_force`, `rss_force`, `r2_force`, `rmse_force`)
   mirror the torque block with uncentered baselines. Joint predicts
   `predict_energy/torque/force(model, e, u)`; the 2-arg forms refuse a joint
-  model (no silent `u = 0`). The selection layer stays force-unaware:
-  `cross_validate` / `select_fit` score energy(+torque) only, `select_support`
-  rejects force co-fits. (`group_costs` itself now handles joint bases —
-  the remaining gap is the scorers' three-block objective and force-presence
-  fold strata.) Gate (j) at model level + synthetic recovery plan A:
+  model (no silent `u = 0`). The selection layer is force-aware: `select_fit` /
+  `cross_validate` take `force_weight`, `select_support` reads it off the fit, and
+  all three score `(1−w_T−w_F)·MSE_E + w_T·MSE_T + w_F·MSE_F`. Fold strata pack
+  both derivative channels (`2·torque + force`, dealt in descending class order,
+  so a force-free dataset degenerates to the torque-only deal bit-identically), the
+  fold count is capped by each weighted channel's config count, and force presence
+  enters the strata only at `w_F > 0` — at `w_F = 0` results are bit-identical to
+  the pre-force-channel behaviour. Gate (j) at model level + synthetic recovery plan A:
   `test/unit/test_jointdata.jl`.
 - **ASR — exact translation-invariance constraints (M3 slice 4)**: `A·β = 0`
   enforced by null-space reparameterization `β = Z·γ` (design record §6 +

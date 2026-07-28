@@ -6,6 +6,51 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the selection layer takes `force_weight`
+
+`select_fit` and `cross_validate` gain `force_weight`; `select_support` reads it off
+the fit and no longer refuses a force co-fit. All three score the fit's own three-block
+objective `(1 − w_T − w_F)·MSE_E + w_T·MSE_T + w_F·MSE_F`, and `rmse_force` joins
+`rmse_energy` / `rmse_torque` on `SupportPath` and `CVResult` (both Tables sources —
+their column tuples grew) and in their `show` methods. The three RMSE axes are in
+different units (eV, eV, eV/Å) and are only comparable against themselves.
+
+Three decisions worth stating, because each had a defensible alternative:
+
+- **At `force_weight = 0`, a force-carrying dataset behaves exactly as one with the
+  forces dropped — including the fold deal.** Force presence enters the fold strata
+  only at `w_F > 0`, deliberately unlike torque (which stratifies at any weight, and is
+  grandfathered). Stratifying on a zero-weight channel would have changed the deal, and
+  therefore the score, of every force-carrying dataset at `force_weight = 0` —
+  invalidating every recorded CV number to buy nothing but a more even `rmse_force`.
+  A pinned test caught this and is what forced the decision.
+- **A channel absent from a holdout fold is omitted from that fold's score, not counted
+  as zero and not renormalized away.** Renormalizing would put a fold that lost a block
+  on the same scale as one that kept it, making the per-fold column incomparable. The
+  fold count is instead capped by each weighted channel's configuration count
+  (`min(nfolds, n_torque, n_force)`) so the case stays rare and loud.
+- **At `torque_weight + force_weight == 1` pure-spin groups cost nothing and are never
+  alive.** The energy block has zero weight there, so those columns are structurally
+  absent from the design — correct (a derivative-only fit genuinely cannot see them),
+  but it means the front is over the derivative-visible model only. Documented in
+  `select_support`, along with the fact that the relative alive floor spans blocks of
+  different units in that regime.
+
+`_grouped_folds` now takes integer stratum labels instead of a `Bool`, dealt in
+**descending** class order with one running counter across classes (`cross_validate`
+packs them as `2·torque + force`, scarcest channel high). Both properties are
+load-bearing: a force-free dataset degenerates to the historical `(true, false)` deal
+bit-identically, so recorded seeds keep their folds.
+
+Also fixed as part of this: `select_support` assembled its per-group magnitudes with
+`_assemble_problem(f.dataset, w)` while `refit` assembles with `(w, wF)`. Under a force
+co-fit the energy block's whitening differs between the two, so the magnitudes — and
+every threshold derived from them — were in different units from the threshold handed
+to `refit`. `select_fit`'s local effective row count had the same shape of bug
+(`1 - w` where the assembly uses `1 - w - wF`).
+
+Still unimplemented: selection *under* an ASR reparameterization (dual β/γ assembly).
+
 ### Fixed — the group cost model priced the wrong Monte-Carlo program
 
 `group_costs` counted one entry per nonzero tensor element. That is the size of

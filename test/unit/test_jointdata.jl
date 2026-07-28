@@ -138,14 +138,35 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
     # data with the force block dropped must produce the identical result. Whoever
     # adds the force channel will fail here and has to update the note with it,
     # rather than silently changing what every recorded CV score means.
-    @testset "cross_validate ignores the force block (documented, pinned)" begin
+    @testset "cross_validate at force_weight = 0 ignores the force block" begin
         dsF = SLCEDataset(basis, [d for d in data])
         dsNoF = SLCEDataset(basis, [d for d in data]; use_force = false)
         @test has_force(dsF) && !has_force(dsNoF)
         cvF = cross_validate(dsF, OLS(); torque_weight = 0.3, nfolds = 3, asr = false)
         cvN = cross_validate(dsNoF, OLS(); torque_weight = 0.3, nfolds = 3, asr = false)
+        # Still EXACT, now that `force_weight` exists: at wF = 0 the force block enters
+        # neither the fit nor the score, and force presence is deliberately kept out of
+        # the fold strata so the deal is bit-identical to the torque-only one. Every CV
+        # score recorded before the force channel landed therefore still means what it
+        # meant. Stratifying on a zero-weight channel would have broken exactly this.
         @test cvF.pooled_rmse_energy == cvN.pooled_rmse_energy
         @test cvF.pooled_rmse_torque == cvN.pooled_rmse_torque
+        # ...but the force error is REPORTED regardless of the weight (the rmse_* axes
+        # are informational, like rmse_torque at torque_weight = 0)
+        @test !isnan(cvF.pooled_rmse_force) && isnan(cvN.pooled_rmse_force)
+        @test cvF.force_weight == 0.0
+
+        # With wF > 0 the force block enters the objective, so the result MUST move.
+        cvW = cross_validate(dsF, OLS(); torque_weight = 0.3, force_weight = 0.3,
+                             nfolds = 3, asr = false)
+        @test cvW.force_weight == 0.3
+        @test cvW.pooled_score != cvF.pooled_score
+        @test !isnan(cvW.pooled_rmse_force)
+        # weight validation
+        @test_throws ArgumentError cross_validate(dsF, OLS(); force_weight = -0.1)
+        @test_throws ArgumentError cross_validate(dsF, OLS(); torque_weight = 0.7,
+                                                  force_weight = 0.5)
+        @test_throws ArgumentError cross_validate(dsNoF, OLS(); force_weight = 0.3)
     end
 
     @testset "gate (j), model level: predict_force ≡ −FD(predict_energy)" begin
@@ -305,10 +326,40 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
         # joint-form validation
         @test_throws DimensionMismatch predict_force(model, e, zeros(3, nat + 1))
         @test_throws ArgumentError predict_force(model, e, fill(NaN, 3, nat))
-        # force co-fit support selection is explicitly not implemented yet
+        # force co-fit support selection: the three-block objective is scored, and the
+        # magnitudes come off the SAME weighted design `refit` uses (dropping wF there
+        # would put `m_g` and the threshold handed to `refit` in different units)
         f = fit(SLCEFit, ds, OLS(); torque_weight = 0.2, force_weight = 0.5,
                 asr = false)
-        @test_throws ArgumentError select_support(f)
+        sp = select_support(f; npoints = 4)
+        @test all(!isnan, sp.rmse_force) && all(!isnan, sp.rmse_torque)
+        @test sp.selected in eachindex(sp.threshold)
+        # the reported support is the one `refit` at that threshold realizes
+        frf = refit(f, OLS(); threshold = sp.threshold[sp.selected])
+        @test frf.jphi == sp.fit.jphi
+        # an evalset without forces cannot score a force co-fit
+        @test_throws ArgumentError select_support(f;
+            evalset = SLCEDataset(basis, [d for d in data]; use_force = false))
+
+        # select_fit carries force_weight through the path and into the cold re-solve
+        dsu = SLCEDataset(basis, [d for d in data])
+        m_j = n_salcs(basis)
+        gar_j = GroupAdaptiveRidge(collect(1:m_j), ones(m_j); lambda = 1e-6)
+        pF = select_fit(dsu, gar_j; lambdas = [1e-4, 1e-6], torque_weight = 0.2,
+                        force_weight = 0.3, asr = false)
+        @test pF.fit.force_weight == 0.3 && pF.fit.torque_weight == 0.2
+        # the selected fit is reproducible by a plain `fit` call with the same weights
+        @test pF.fit.jphi == fit(SLCEFit, dsu,
+                                 GroupAdaptiveRidge(collect(1:m_j), ones(m_j);
+                                                    lambda = pF.lambda[pF.selected]);
+                                 torque_weight = 0.2, force_weight = 0.3,
+                                 asr = false).jphi
+        # the force block really entered: a wF = 0 path on the same data differs
+        p0 = select_fit(dsu, gar_j; lambdas = [1e-4, 1e-6], torque_weight = 0.2,
+                        asr = false)
+        @test p0.fit.jphi != pF.fit.jphi
+        @test_throws ArgumentError select_fit(dsu, gar_j; lambdas = [1e-6],
+                                              torque_weight = 0.7, force_weight = 0.5)
     end
 
     # Octahedral Fe(O)₆: Fe is displacement-clamped (pmax = 0), O spin-inactive —
