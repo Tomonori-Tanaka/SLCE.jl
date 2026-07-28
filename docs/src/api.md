@@ -413,8 +413,9 @@ the core nor its exports.
 AbstractDFTSource
 TrainingDatum
 DatumProvenance
-SpinDatum
-LatticeDatum
+spin_datum
+lattice_datum
+joint_datum
 crystal_fingerprint
 read_configs
 ```

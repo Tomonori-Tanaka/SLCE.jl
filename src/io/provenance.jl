@@ -15,7 +15,7 @@ Stamped by the DFT adapter that builds the datum; consumed as invariants by the
 - `constrained::Bool` — the configuration came from a constrained-noncollinear
   calculation (a nonzero constraining field was applied).
 - `torque_qualified::Bool` — the torque targets may enter the torque design block
-  `X_T`. The [`SpinDatum`](@ref) convenience constructor derives this as
+  `X_T`. The [`spin_datum`](@ref) convenience constructor derives this as
   `any(!iszero, field)`: a zero field means the run recorded no constraint
   information, and claiming `τ = 0` for it is only valid if the moments were
   *relaxed to self-consistency* — which the numbers alone cannot certify. To assert

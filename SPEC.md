@@ -42,9 +42,9 @@ capability consumed by both the introspection and the Sunny interop.
 ## Extension seams (contracts)
 
 - **DFT sources**: `read_configs(src::AbstractDFTSource) -> Vector{TrainingDatum}`.
-- **Estimators**: subtype `AbstractEstimator` + `solve_coefficients(est, X, y; groups)
+- **Estimators**: subtype `AbstractEstimator` + `solve_coefficients(est, X, y; row_groups)
   -> jphi` (the `(X, y)` is already column-centered and row-scaled — add no intercept,
-  do not re-weight; `groups` labels rows from the same sample for grouped resampling).
+  do not re-weight; `row_groups` labels rows from the same sample for grouped resampling).
   Types live in core; solver methods needing GLMNet live in `ext/`.
 - **Symmetry**: `analyze_symmetry(backend::AbstractSymmetryBackend, crystal; tol) -> SpaceGroup`.
 
@@ -178,7 +178,7 @@ capability consumed by both the introspection and the Sunny interop.
   ridge/GAR penalties across channels (standardize columns, or fold the factor
   into per-sector penalty weights, when mixed fitting lands in M3).
 - **Sector-table spec surface (M2b-3a)**: the exported `Sector(; spin, disp,
-  soc, cutoff, nbody)` sugar declares one truncation-table row (theory note
+  soc, cutoff, sites)` sugar declares one truncation-table row (theory note
   §3/§7); `BasisSpec(labels; sectors, lmax, pmax, ...)` resolves it once into
   the dense canonical `SectorRule` (`spin_mode ∈ :none/:explicit/:any`, range
   tuples, resolved per-pair cutoff — validated, comparable, persisted). The
@@ -559,7 +559,7 @@ capability consumed by both the introspection and the Sunny interop.
   `reference_fingerprint` = `crystal_fingerprint`, a hand-rolled stable FNV-1a over
   the canonical crystal serialization, pin the clamped-ion reference for any
   displacement-decorated basis — the double-counting protocol as an invariant).
-  `SpinDatum(energy, moments[, field])` survives as the spin-only convenience
+  `spin_datum(energy, moments[, field])` survives as the spin-only convenience
   constructor (the 2-arg form covers collinear/Ising and torque-less codes), and
   `read_configs(src::AbstractDFTSource) -> Vector{TrainingDatum}`, with `SLCEDataset(basis, src)`
   going source → dataset. Against a displacement-decorated basis the
@@ -588,7 +588,7 @@ capability consumed by both the introspection and the Sunny interop.
   pure translations (one Sunny bond per primitive bond, a `clean` flag for the fallback),
   plus the `to_sunny` entry point (a friendly "load Sunny" error without the extension).
 - **Extension** (`ext/SLCESunnyExt`, loaded by `using Sunny`):
-  `to_sunny(model; spins, g = 2, mode = :auto, scaling = :auto, placement = :auto)
+  `to_sunny(model; spin_length, g = 2, mode = :auto, scaling = :auto, placement = :auto)
   -> Sunny.System` builds a real `System`
   (`set_exchange_at!`/`set_onsite_coupling_at!` on the supercell, or
   `set_exchange!`/`Bond` on the primitive cell); its classical
@@ -632,12 +632,12 @@ capability consumed by both the introspection and the Sunny interop.
   the column-centered `(X, y)` with `intercept = false` (so `j0` stays analytic) and
   `standardize` (penalty acts per-column at `λ·std`). `lambda = nothing` ⇒ K-fold CV over
   GLMNet's λ path, `select` = `:lambda_min`/`:lambda_1se`; folds are **grouped by
-  configuration** (via `groups`) and seeded deterministically (`hash`-ranked, no RNG
+  configuration** (via `row_groups`) and seeded deterministically (`hash`-ranked, no RNG
   dependency). A numeric `lambda` skips CV.
 - `AdaptiveLasso` (Zou 2006) runs `pilot` (any estimator; default `OLS`) for `β̂`, then a
   weighted Lasso with per-column penalty factor `wⱼ = 1/max(|β̂ⱼ|, ε)^γ` (held fixed across
   the fixed-λ or CV path). `gamma = 0` reduces exactly to a plain Lasso. The pilot's own
-  solve receives the co-fit `groups`.
+  solve receives the co-fit `row_groups`.
 - Validated in a separate `test/glmnet/` environment: tiny-λ ≈ OLS, the analytic-`j0`
   centering invariant, CV support recovery + sparsity, `:lambda_1se` shrinkage,
   reproducibility, ElasticNet ≠ Lasso, AdaptiveLasso support recovery, `γ = 0` ≡ plain
@@ -653,11 +653,11 @@ capability consumed by both the introspection and the Sunny interop.
   group's converged penalty is exactly `λ·v_g`). Exact degeneration to `AdaptiveRidge`
   for singleton groups with unit weights; `lambda = 0` ⇒ OLS; `islinear` ⇒ `true`.
   `column_groups` labels **columns** (contiguous `1:G`, validated in the inner
-  constructor) — unrelated to the per-row `groups` kwarg of `solve_coefficients`. The
+  constructor) — unrelated to the per-row `row_groups` kwarg of `solve_coefficients`. The
   weight map `_gar_weights!` is the single definition shared with the GCV diagnostics.
 - **Basis helpers** (`fitting/selection.jl`; public, unexported): `salc_groups(basis)`
   — column → group labels by `(body, orbit_id, ls)`, the granularity at which MC
-  contraction entries vanish; `group_costs(basis, labels)` — per-group distinct-entry
+  contraction entries vanish; `group_costs(basis, column_groups)` — per-group distinct-entry
   union count over canonical members (additive across the `salc_groups` partition);
   `cost_weights(basis; theta)` — `v_g = √p_g·(c_g/c̄)^θ`, `θ ∈ [0, 1]` tilting the
   penalty from cost-blind to cost-proportional. Convenience constructor
@@ -685,7 +685,7 @@ capability consumed by both the introspection and the Sunny interop.
   that cold solve and the effective absolute threshold is returned as
   `path.threshold`, so `refit(path.fit; threshold = path.threshold)` realizes exactly
   the reported support; `SelectionPath` is a Tables.jl source.
-- **Threshold front** (exported): `select_support(f; thresholds = 25, delta, labels,
+- **Threshold front** (exported): `select_support(f; thresholds = 25, delta, column_groups,
   costs, evalset = f.dataset, estimator = OLS()) -> SupportPath` — the second knob:
   sweeps the alive threshold at a fixed fit (auto grid = log-rank-spaced points on
   the per-group scaled-magnitude spectrum + the full-support anchor, or an explicit

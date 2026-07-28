@@ -53,8 +53,8 @@ end
     lat = Lattice(Matrix(3.0 * I(3)))
     cr = Crystal(lat, [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     mkspec(pmax) = BasisSpec(cr; lmax = 1, pmax = pmax, sectors = [
-        Sector(spin = (nbody = 1:2,), cutoff = 1.1),
-        Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1)])
+        Sector(spin = (sites = 1:2,), cutoff = 1.1),
+        Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1)])
     basis = SLCEBasis(cr, mkspec(2))
     m = n_salcs(basis)
     nat = n_atoms(cr)
@@ -107,7 +107,7 @@ end
         # hand-counted fixture: pure-disp degree 1:2 on the bond — 15 SALCs, 3
         # translation-invariant combinations survive (the difference-vector forms)
         b1 = SLCEBasis(cr, BasisSpec(cr; lmax = 1, pmax = 1, sectors = [
-            Sector(disp = (degree = 1:2,), nbody = 1:2, cutoff = 1.1)]))
+            Sector(disp = (degree = 1:2,), sites = 1:2, cutoff = 1.1)]))
         r1 = build_asr(b1)
         @test n_salcs(b1) == 15 && r1.rank == 12 && size(r1.Z, 2) == 3
         B1 = _numeric_translation_image(b1, 60, rng)
@@ -121,7 +121,7 @@ end
                                      salcs(b1x))
         # pure-spin basis: nothing (the structural fast path)
         bspin = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
         @test build_asr(bspin) === nothing
         # residue pruning: within each row, surviving entries clear the relative
         # cut (cancellation residue became exact zeros — review blocker)
@@ -308,7 +308,7 @@ end
 
     @testset "pure-spin bitwise identity and fences" begin
         bspin = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
         ms = SLCEModel(bspin, 0.0, randn(rng, n_salcs(bspin)))
         cfgs = [_as_cfg(rng, nat) for _ = 1:20]
         dss = SLCEDataset(bspin, cfgs, predict_energy(ms, cfgs))
@@ -356,7 +356,7 @@ end
         lat1 = Lattice(Matrix(2.0 * I(3)))
         xt1 = Crystal(lat1, zeros(3, 1), [1], ["Fe"])
         b1 = SLCEBasis(xt1, BasisSpec(xt1; lmax = 1, pmax = 1, sectors = [
-                           Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2,
+                           Sector(spin = [1, 1], disp = (degree = 2,), sites = 2,
                                   cutoff = 2.1)]);
                        images = AllImages())
         hasself = any(s -> any(mem -> !allunique(mem.atoms), s.members), salcs(b1))
@@ -374,8 +374,8 @@ end
         # degree 1:3 is what admits a genuine 3-body displacement term: three sites
         # need three displacement slots, so a degree ≤ 2 budget silently has none.
         b3 = SLCEBasis(cr3, BasisSpec(cr3; lmax = 1, pmax = 3, sectors = [
-            Sector(spin = [1, 1], disp = (degree = 1,), nbody = 2, cutoff = 2.3),
-            Sector(disp = (degree = 1:3,), nbody = 1:3, cutoff = 2.3)]))
+            Sector(spin = [1, 1], disp = (degree = 1,), sites = 2, cutoff = 2.3),
+            Sector(disp = (degree = 1:3,), sites = 1:3, cutoff = 2.3)]))
         s3 = salcs(b3)
         p3 = length(s3)
         nat3 = n_atoms(cr3)

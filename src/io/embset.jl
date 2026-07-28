@@ -41,7 +41,7 @@ read_configs(src::EmbsetFile)::Vector{TrainingDatum} =
                 setup_id = nothing) -> Vector{TrainingDatum}
 
 Read a Magesty EMBSET training-set file into spin-only [`TrainingDatum`](@ref)s
-(via the [`SpinDatum`](@ref) constructor). `setup_id`, when given, is stamped into
+(via the [`spin_datum`](@ref) constructor). `setup_id`, when given, is stamped into
 every datum's [`DatumProvenance`](@ref) (one EMBSET file = one computational setup).
 
 The format (as written by Magesty's `oszicar_to_embset`): `#` comment lines and blank
@@ -62,10 +62,10 @@ file *without* `#` block separators also parses (Magesty requires them), and the
 ignores the column; requiring it makes a permuted or corrupted file fail loudly
 instead of silently reassigning moments).
 
-Torques are derived as `τ_a = m_a × B_a` by the [`SpinDatum`](@ref) constructor, which
+Torques are derived as `τ_a = m_a × B_a` by the [`spin_datum`](@ref) constructor, which
 also receives `zero_moment_atol` (the ẑ-placeholder threshold for non-magnetic atoms —
 `SLCEDataset` then rejects a placeholder on any basis-referenced atom). Provenance
-follows the `SpinDatum` derivation: a configuration whose field block is entirely
+follows the `spin_datum` derivation: a configuration whose field block is entirely
 zero gets `torque_qualified = false` (its torque rows are not admitted into a
 co-fit), the rest `true`.
 """
@@ -112,10 +112,10 @@ function read_embset(path::AbstractString; n_atoms::Union{Integer,Nothing} = not
                                              "config $c, atom $i, field", path)
             end
         end
-        c_flag = any(!iszero, field)   # same derivation as SpinDatum's default
+        c_flag = any(!iszero, field)   # same derivation as spin_datum's default
         prov = DatumProvenance(; constrained = c_flag, torque_qualified = c_flag,
                                setup_id = setup_id)
-        data[c] = SpinDatum(energy, moments, field;
+        data[c] = spin_datum(energy, moments, field;
                             zero_moment_atol = zero_moment_atol, provenance = prov)
     end
     return data

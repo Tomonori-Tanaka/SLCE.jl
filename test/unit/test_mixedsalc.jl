@@ -416,7 +416,7 @@ end
                SiteDecor(; spin = 1, disp = (0, 1))]
         engine = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true, wcB)
         spec = BasisSpec(["Fe"]; lmax = 1, pmax = 1, sectors = [
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1)])
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1)])
         sb = SLCE.build_salc_basis(xtalB, sgB, csB, spec; neighbors = nlB)
         @test [s.key for s in sb.salcs] == [s.key for s in engine]
         for (a, b) in zip(sb.salcs, engine)
@@ -425,14 +425,14 @@ end
         # Key-union invariant: adding an overlapping soc = false sector with the
         # same content changes NOTHING (per-label soc is OR'd, keys stay unique).
         spec2 = BasisSpec(["Fe"]; lmax = 1, pmax = 1, sectors = [
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1,
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1,
                    soc = false)])
         sb2 = SLCE.build_salc_basis(xtalB, sgB, csB, spec2; neighbors = nlB)
         @test [s.key for s in sb2.salcs] == [s.key for s in sb.salcs]
         # soc = false alone = the bitwise L_S = 0 subset of the soc = true build.
         spec0 = BasisSpec(["Fe"]; lmax = 1, pmax = 1, sectors = [
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1,
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1,
                    soc = false)])
         sb0 = SLCE.build_salc_basis(xtalB, sgB, csB, spec0; neighbors = nlB)
         subset = [s for s in sb.salcs if s.key.L_S == 0]

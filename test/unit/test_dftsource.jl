@@ -1,4 +1,4 @@
-# The code-agnostic DFT data boundary (src/io/dftsource.jl): `SpinDatum`,
+# The code-agnostic DFT data boundary (src/io/dftsource.jl): `spin_datum`,
 # `read_configs`, and `SLCEDataset(basis, data/src)`. The headline gate is the torque
 # convention `τ_a = m_a × B_a` (the physical / Landau–Lifshitz torque) — CLAUDE.md
 # designates this file as the convention source every DFT adapter must match, so a
@@ -19,12 +19,12 @@ SLCE.read_configs(s::_MemSource) = s.data
 
 struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpose
 
-@testset "DFT data boundary (SpinDatum / read_configs)" begin
+@testset "DFT data boundary (spin_datum / read_configs)" begin
     @testset "torque convention: τ = m × B, closed form" begin
         # m = m·x̂, B = B·ŷ ⇒ τ = m×B = mB·ẑ (and NOT −mB·ẑ: the old, pre-LL sign)
         moments = reshape([2.0, 0.0, 0.0], 3, 1)
         field = reshape([0.0, 0.5, 0.0], 3, 1)
-        d = SpinDatum(-1.0, moments, field)
+        d = spin_datum(-1.0, moments, field)
         @test d.torques[:, 1] ≈ [0.0, 0.0, 1.0]
         @test d.directions[:, 1] ≈ [1.0, 0.0, 0.0]
         @test d.magmoms[1] ≈ 2.0
@@ -33,7 +33,7 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         rng = MersenneTwister(11)
         mo = randn(rng, 3, 4)
         Bf = randn(rng, 3, 4)
-        dr = SpinDatum(0.0, mo, Bf)
+        dr = spin_datum(0.0, mo, Bf)
         for a = 1:4
             @test dr.torques[:, a] ≈ cross(mo[:, a], Bf[:, a]) atol = 1e-14
             @test dr.directions[:, a] ≈ mo[:, a] ./ norm(mo[:, a]) atol = 1e-14
@@ -43,15 +43,15 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
     @testset "zero-moment placeholder: ẑ direction, zero torque" begin
         moments = [1.0 0.0; 0.0 0.0; 0.0 0.0]         # atom 2 is quenched
         field = [0.0 1.0; 1.0 1.0; 0.0 1.0]
-        d = SpinDatum(0.0, moments, field)
+        d = spin_datum(0.0, moments, field)
         @test d.directions[:, 2] ≈ [0.0, 0.0, 1.0]     # the documented ẑ placeholder
         @test d.torques[:, 2] ≈ zeros(3) atol = 1e-15  # m = 0 ⇒ τ = 0 exactly
         @test d.magmoms[2] == 0.0
     end
 
     @testset "constructor / dataset validation throws" begin
-        @test_throws ArgumentError SpinDatum(0.0, zeros(2, 3), zeros(2, 3))   # not 3 × n
-        @test_throws ArgumentError SpinDatum(0.0, zeros(3, 2), zeros(3, 3))   # shape mismatch
+        @test_throws ArgumentError spin_datum(0.0, zeros(2, 3), zeros(2, 3))   # not 3 × n
+        @test_throws ArgumentError spin_datum(0.0, zeros(3, 2), zeros(3, 3))   # shape mismatch
         @test_throws ArgumentError read_configs(_EmptySource())               # no method
         # dataset-level guards
         lat = Lattice(Matrix(3.0 * I(3)))
@@ -62,14 +62,14 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         # a zero constraining field derives torque_qualified = false, so with
         # use_torque = true no configuration qualifies — fail loudly
         rng = MersenneTwister(3)
-        nofield = [SpinDatum(0.1, randn(rng, 3, 2), zeros(3, 2)) for _ = 1:3]
+        nofield = [spin_datum(0.1, randn(rng, 3, 2), zeros(3, 2)) for _ = 1:3]
         @test all(d -> !d.provenance.torque_qualified, nofield)
         @test_throws ArgumentError SLCEDataset(basis, nofield)
         ds = SLCEDataset(basis, nofield; use_torque = false)                   # energy-only OK
         @test !has_torque(ds)
         # the explicit unconstrained-stationarity override admits the τ = 0 rows
         okprov = DatumProvenance(; torque_qualified = true)
-        qual = [SpinDatum(0.1, randn(rng, 3, 2), zeros(3, 2); provenance = okprov)
+        qual = [spin_datum(0.1, randn(rng, 3, 2), zeros(3, 2); provenance = okprov)
                 for _ = 1:3]
         dq = @test_logs (:warn, r"exactly zero") SLCEDataset(basis, qual)
         @test has_torque(dq) && all(iszero, dq.y_T)
@@ -85,14 +85,14 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
                                        lmax = ["Fe" => 2, "B" => 0]))
         # quenched B is fine — the basis never reads it
         m_okay = [2.0 0.0; 0.0 0.0; 0.0 0.0]
-        ds = SLCEDataset(basis, [SpinDatum(0.0, m_okay, zeros(3, 2))];
+        ds = SLCEDataset(basis, [spin_datum(0.0, m_okay, zeros(3, 2))];
                         use_torque = false)
         @test length(ds) == 1
         # quenched Fe is an error naming the config, atom, and species
         m_bad = [0.0 0.0; 0.0 1.0; 0.0 0.0]
         err = try
-            SLCEDataset(basis, [SpinDatum(0.0, m_okay, zeros(3, 2)),
-                               SpinDatum(0.0, m_bad, zeros(3, 2))];
+            SLCEDataset(basis, [spin_datum(0.0, m_okay, zeros(3, 2)),
+                               spin_datum(0.0, m_bad, zeros(3, 2))];
                        use_torque = false)
             nothing
         catch e
@@ -102,7 +102,7 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         @test occursin("config 2", err.msg) && occursin("(Fe)", err.msg)
         # atom-count mismatch is caught at the same boundary
         @test_throws DimensionMismatch SLCEDataset(
-            basis, [SpinDatum(0.0, zeros(3, 3) .+ 1.0, zeros(3, 3))];
+            basis, [spin_datum(0.0, zeros(3, 3) .+ 1.0, zeros(3, 3))];
             use_torque = false)
     end
 
@@ -112,7 +112,7 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         basis = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
                                        soc = false))
         rng = MersenneTwister(5)
-        data = [SpinDatum(0.1 * k, randn(rng, 3, 2), 0.1 .* randn(rng, 3, 2)) for k = 1:4]
+        data = [spin_datum(0.1 * k, randn(rng, 3, 2), 0.1 .* randn(rng, 3, 2)) for k = 1:4]
         src = _MemSource(data)
         @test read_configs(src) === data
         ds = SLCEDataset(basis, src)
@@ -162,20 +162,20 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
 
     @testset "provenance derivation and overrides" begin
         m = [2.0 0.0; 0.0 1.5; 0.0 0.0]
-        d = SpinDatum(0.0, m, [0.0 0.1; 0.1 0.0; 0.0 0.0])
+        d = spin_datum(0.0, m, [0.0 0.1; 0.1 0.0; 0.0 0.0])
         @test d.provenance.constrained && d.provenance.torque_qualified
-        dz = SpinDatum(0.0, m, zeros(3, 2))
+        dz = spin_datum(0.0, m, zeros(3, 2))
         @test !dz.provenance.constrained && !dz.provenance.torque_qualified
         @test dz.torques !== nothing                        # present (observed) zeros
-        d2 = SpinDatum(0.0, m)                              # field-less: nothing at all
+        d2 = spin_datum(0.0, m)                              # field-less: nothing at all
         @test d2.field === nothing && d2.torques === nothing
         @test !d2.provenance.torque_qualified
         p = DatumProvenance(; constrained = false, torque_qualified = true,
                             setup_id = "vasp-ncl", soc = true)
-        dov = SpinDatum(0.0, m, zeros(3, 2); provenance = p)
+        dov = spin_datum(0.0, m, zeros(3, 2); provenance = p)
         @test dov.provenance.torque_qualified && dov.provenance.setup_id == "vasp-ncl"
         @test DatumProvenance().reference_id === nothing
-        # the keyword constructor derives the SAME gate as SpinDatum — the two
+        # the keyword constructor derives the SAME gate as spin_datum — the two
         # construction paths of one type must not disagree on torque_qualified
         dirs = [1.0 0.0; 0.0 0.0; 0.0 1.0]
         B = [0.0 0.1; 0.1 0.0; 0.0 0.0]
@@ -248,8 +248,8 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         mk() = 2.0 .* (m = randn(rng, 3, 2); m ./ mapslices(norm, m; dims = 1))
         pA = DatumProvenance(; setup_id = "collinear", soc = false)
         pB = DatumProvenance(; setup_id = "ncl-soc", soc = true)
-        mixed = [SpinDatum(0.1, mk(); provenance = pA),
-                 SpinDatum(0.2, mk(); provenance = pB)]
+        mixed = [spin_datum(0.1, mk(); provenance = pA),
+                 spin_datum(0.2, mk(); provenance = pB)]
         err = try
             SLCEDataset(basis, mixed; use_torque = false)
             nothing
@@ -260,17 +260,17 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         # same setup_id but contradictory soc flags is a mixture too
         pB2 = DatumProvenance(; setup_id = "collinear", soc = true)
         @test_throws ArgumentError SLCEDataset(
-            basis, [SpinDatum(0.1, mk(); provenance = pA),
-                    SpinDatum(0.2, mk(); provenance = pB2)]; use_torque = false)
+            basis, [spin_datum(0.1, mk(); provenance = pA),
+                    spin_datum(0.2, mk(); provenance = pB2)]; use_torque = false)
         # uniform (untagged) data pass
-        okds = SLCEDataset(basis, [SpinDatum(0.1, mk()), SpinDatum(0.2, mk())];
+        okds = SLCEDataset(basis, [spin_datum(0.1, mk()), spin_datum(0.2, mk())];
                           use_torque = false)
         @test length(okds) == 2
         # the invariant survives vcat (the incremental-addition path): two datasets
         # from different setups must not concatenate
-        dsA = SLCEDataset(basis, [SpinDatum(0.1, mk(); provenance = pA)
+        dsA = SLCEDataset(basis, [spin_datum(0.1, mk(); provenance = pA)
                                   for _ = 1:2]; use_torque = false)
-        dsB = SLCEDataset(basis, [SpinDatum(0.2, mk(); provenance = pB)
+        dsB = SLCEDataset(basis, [spin_datum(0.2, mk(); provenance = pB)
                                   for _ = 1:2]; use_torque = false)
         @test dsA.provenance.setup_id == "collinear"
         errv = try
@@ -292,7 +292,7 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         # displacement-decorated (p ≥ 1) basis via the sector table
         bdisp = SLCEBasis(cr, BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.5),
+            Sector(spin = (sites = 1:2,), cutoff = 1.5),
             Sector(spin = [1, 1], disp = (degree = 1:2,), cutoff = 1.5)]))
         @test SLCE._basis_has_disp(bdisp)
         bspin = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
@@ -302,8 +302,8 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         rng = MersenneTwister(17)
         mk() = 2.0 .* (m = randn(rng, 3, 2); m ./ mapslices(norm, m; dims = 1))
         pin = DatumProvenance(; reference_id = "ref", reference_fingerprint = fp)
-        pinned = [SpinDatum(0.1, mk(); provenance = pin) for _ = 1:2]
-        unpinned = [SpinDatum(0.1, mk()) for _ = 1:2]
+        pinned = [spin_datum(0.1, mk(); provenance = pin) for _ = 1:2]
+        unpinned = [spin_datum(0.1, mk()) for _ = 1:2]
         # p ≥ 1 basis: unpinned data (even spin-only — they assert u = 0) rejected
         err = try
             SLCE._check_reference(bdisp, unpinned)
@@ -316,7 +316,7 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         bad = DatumProvenance(; reference_id = "ref",
                               reference_fingerprint = "0000000000000000")
         err2 = try
-            SLCE._check_reference(bdisp, [SpinDatum(0.1, mk(); provenance = bad)])
+            SLCE._check_reference(bdisp, [spin_datum(0.1, mk(); provenance = bad)])
             nothing
         catch e
             e
@@ -325,7 +325,7 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         # two different reference labels rejected even with matching fingerprints
         pin2 = DatumProvenance(; reference_id = "other", reference_fingerprint = fp)
         @test_throws ArgumentError SLCE._check_reference(
-            bdisp, [pinned[1], SpinDatum(0.1, mk(); provenance = pin2)])
+            bdisp, [pinned[1], spin_datum(0.1, mk(); provenance = pin2)])
         # correctly pinned data pass the reference gate, and the joint path (M3
         # slice 3) builds an energy-only joint dataset: u = 0 materialized, joint
         # X_E (every displacement-active column vanishes exactly at u = 0)

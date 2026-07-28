@@ -8,7 +8,7 @@
 # reaches a basis that reads spins.
 #
 # Gated here: `_basis_has_spin` (the predicate all of it turns on, and the one that
-# must never be confused with `is_soc_free`), `LatticeDatum`, the `use_torque`
+# must never be confused with `is_soc_free`), `lattice_datum`, the `use_torque`
 # resolution, `spins`/`e` omission in `force_constants` / `predict_*`, the
 # provenance-vs-torque_qualified collision, and the structurally-dead-SALC diagnostic.
 
@@ -80,9 +80,9 @@ end
     lattice_only = _lo_basis(cr, sg, BasisSpec(cr; lmax = 0, pmax = 2,
         sectors = [Sector(disp = (degree = 2,), cutoff = 2.7)]))
     joint = _lo_basis(cr, sg, BasisSpec(cr; lmax = 2, pmax = 2, sectors = [
-        Sector(spin = (nbody = 1:2, lmax = 2), cutoff = 2.7),
+        Sector(spin = (sites = 1:2, lmax = 2), cutoff = 2.7),
         Sector(disp = (degree = 2,), cutoff = 2.7),
-        Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 2.7)]))
+        Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 2.7)]))
 
     @testset "_basis_has_spin is not is_soc_free" begin
         @test !_basis_has_spin(lattice_only)
@@ -94,24 +94,24 @@ end
         # spin-carrying model through and evaluate it at a fabricated state. Assert
         # the two really do disagree here, or the distinction is untested folklore.
         spinful = _lo_basis(cr, sg, BasisSpec(cr; lmax = 2, sectors =
-            [Sector(spin = (nbody = 1:2, lmax = 2), soc = false, cutoff = 2.7)]))
+            [Sector(spin = (sites = 1:2, lmax = 2), soc = false, cutoff = 2.7)]))
         @test _basis_has_spin(spinful)
         @test all(s -> is_soc_free(s.key.L_S), salcs(spinful))   # ...yet all soc-free
         # and the spec, not just the surviving SALCs, decides: a spin sector that
         # symmetry annihilates still means the data were generated magnetically
         @test _basis_has_spin(_lo_basis(cr, sg, BasisSpec(cr; lmax = 2, pmax = 2,
-            sectors = [Sector(spin = (nbody = 1, lmax = 1), cutoff = 2.7),
+            sectors = [Sector(spin = (sites = 1, lmax = 1), cutoff = 2.7),
                        Sector(disp = (degree = 2,), cutoff = 2.7)])))
     end
 
-    @testset "LatticeDatum: no magnetic state to invent" begin
+    @testset "lattice_datum: no magnetic state to invent" begin
         rng = MersenneTwister(0x10)
         # zero on the identically-zero SALC (index 3, see the last testset): a
         # coefficient no configuration can express is not recoverable by construction
         truth = SLCEModel(lattice_only, 0.0, [0.01, -0.02, 0.0])
         us = [0.05 .* randn(rng, 3, nat) for _ = 1:40]
         # the whole chain, with no spin argument anywhere
-        data = [LatticeDatum(predict_energy(truth, nothing, u); displacements = u,
+        data = [lattice_datum(predict_energy(truth, nothing, u); displacements = u,
                              forces = predict_force(truth, nothing, u), reference = cr)
                 for u in us]
         d = data[1]
@@ -133,11 +133,43 @@ end
         @test_throws ArgumentError SLCEDataset(joint, data)
 
         # atom count inference, and the one case that cannot be inferred
-        @test size(LatticeDatum(1.0; reference = cr).directions, 2) == nat
-        @test size(LatticeDatum(1.0; n_atoms = 5).directions, 2) == 5
-        @test size(LatticeDatum(1.0; forces = zeros(3, 3)).directions, 2) == 3
-        @test_throws ArgumentError LatticeDatum(1.0)
-        @test_throws ArgumentError LatticeDatum(1.0; n_atoms = 0)
+        @test size(lattice_datum(1.0; reference = cr).directions, 2) == nat
+        @test size(lattice_datum(1.0; n_atoms = 5).directions, 2) == 5
+        @test size(lattice_datum(1.0; forces = zeros(3, 3)).directions, 2) == 3
+        @test_throws ArgumentError lattice_datum(1.0)
+        @test_throws ArgumentError lattice_datum(1.0; n_atoms = 0)
+    end
+
+    # `joint_datum` exists because the joint corner is the one that must hand-build a
+    # provenance (the reference stamp) AND carries a torque-qualifying field — the two
+    # requirements that used to collide. The gate is that both survive one call.
+    @testset "joint_datum: the reference stamp does not cost the torque rows" begin
+        rng = MersenneTwister(0x12)
+        mk() = reduce(hcat, [2.2 .* normalize(randn(rng, 3)) for _ = 1:nat])
+        m, B = mk(), 0.3 .* randn(rng, 3, nat)
+        u = 0.03 .* randn(rng, 3, nat)
+        d = joint_datum(-1.5; moments = m, field = B, displacements = u,
+                        forces = 0.1 .* randn(rng, 3, nat), reference = cr)
+        # spin side: identical to what spin_datum derives from the same raw inputs
+        sd = spin_datum(-1.5, m, B)
+        @test d.directions ≈ sd.directions && d.magmoms ≈ sd.magmoms
+        @test d.torques ≈ sd.torques                       # τ = m × B, one derivation
+        @test all(a -> abs(norm(d.directions[:, a]) - 1) < 1e-12, 1:nat)
+        # lattice side: the stamp lattice_datum would have written
+        @test d.provenance.reference_fingerprint == crystal_fingerprint(cr)
+        @test d.provenance.reference_id == "reference"
+        # ...and the qualification the field earns is NOT lost to the hand-built
+        # provenance. This is the whole point: assert it before trusting the dataset.
+        @test d.provenance.constrained && d.provenance.torque_qualified
+        ds = SLCEDataset(joint, [d, joint_datum(-1.4; moments = mk(), field = B,
+                                                displacements = u, reference = cr)])
+        @test has_torque(ds)
+        # field is optional (a code with no constrained-noncollinear output); then
+        # there is no torque to qualify, and the stamp still lands
+        dn = joint_datum(-1.5; moments = m, displacements = u, reference = cr)
+        @test dn.torques === nothing && !dn.provenance.torque_qualified
+        @test dn.provenance.reference_fingerprint == crystal_fingerprint(cr)
+        @test_throws ArgumentError joint_datum(-1.5; moments = m, field = zeros(3, nat + 1))
     end
 
     @testset "`spins` / `e` may be omitted only when there is none" begin
@@ -187,7 +219,7 @@ end
         B = [0.0 0.1; 0.1 0.0; 0.0 0.0]
         @test TrainingDatum(; energy = 0.0, directions = dirs, magmoms = ones(nat),
                             field = B, provenance = ref).provenance.torque_qualified
-        @test SpinDatum(0.0, [2.0 0.0; 0.0 1.5; 0.0 0.0], B;
+        @test spin_datum(0.0, [2.0 0.0; 0.0 1.5; 0.0 0.0], B;
                         provenance = ref).provenance.torque_qualified
         # upgrade-only: an explicit `true` with no torque evidence is never revoked
         yes = DatumProvenance(; torque_qualified = true, reference_id = "r",
@@ -233,7 +265,7 @@ end
         truth = SLCEModel(lattice_only, 0.0, [0.01, -0.02, 0.0])
         data = [begin
                     u = 0.05 .* randn(rng, 3, nat)
-                    LatticeDatum(predict_energy(truth, nothing, u); displacements = u,
+                    lattice_datum(predict_energy(truth, nothing, u); displacements = u,
                                  forces = predict_force(truth, nothing, u),
                                  reference = cr)
                 end for _ = 1:40]

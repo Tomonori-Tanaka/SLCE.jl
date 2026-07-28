@@ -6,6 +6,47 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — BREAKING: the second naming batch, and the joint datum finally has a name
+
+The same audit's next tier: names that are wrong but were not *silently* wrong, plus
+the one taxonomy hole it found. Again no aliases.
+
+- **`Sector(; nbody)` → `Sector(; sites)`**, and `spin = (nbody = …)` →
+  `spin = (sites = …)`; the resolved `SectorRule.nbody` field follows. `nbody` meant
+  three things, two of them inside a single `Sector(...)` call: `BasisSpec(; nbody = 3)`
+  is "body orders 1:3", `Sector(; nbody = 3)` was "**exactly** 3" (an `Int` resolves to
+  `(3, 3)`), and `spin = (nbody = …)` was the spin-decorated **site** count. Carrying
+  the `BasisSpec` habit into a sector row silently dropped every 1- and 2-body spin
+  term — the fit still ran and still reported a good `R²` on a basis that could not
+  express exchange. `sites` says what it counts, and the docstring now carries the
+  `Int`-means-exactly rule as a warning.
+- **`joint_datum(energy; moments, field, displacements, forces, reference, …)` — new.**
+  The `*Datum` family named the two degenerate corners and left the joint case, the
+  package's entire reason for existing, to a hand-written `TrainingDatum(; …)`. That
+  was also the corner that had to hand-build a `DatumProvenance` for the reference
+  stamp *and* carried a torque-qualifying field — the collision that produced the
+  `torque_qualified` bug. `joint_datum` does both derivations in one call.
+- **`SpinDatum` / `LatticeDatum` → `spin_datum` / `lattice_datum`.** Neither was ever a
+  type — `SpinDatum` was one until the `TrainingDatum` merge, and removing it broke
+  every `::SpinDatum` annotation. UpperCamelCase kept promising a type that is not
+  there; snake_case matches what they are (and what `~/Packages/CLAUDE.md` says
+  functions look like). SLCETools.jl's VASP reader moves with it.
+- **`to_sunny(; spins)` → `(; spin_length)`.** `spins` is the spin *configuration*
+  everywhere else in the family (`force_constants(; spins)`, `ForceConstantSet.spins`);
+  here it was the effective spin length `S_eff = m/(gμ_B)`. Same word, same argument
+  position, same receiver, different physical object.
+- **`solve_coefficients(; groups)` → `(; row_groups)`**, and `select_support(; labels)`
+  / `group_costs(basis, labels)` / `cost_weights(...).labels` → `column_groups`. The
+  estimator-extension contract labelled **rows** with `groups` while
+  `GroupAdaptiveRidge.column_groups` labelled **columns**; the docstring had to
+  apologise for it. Feeding column labels to the row keyword ran and was silently
+  discarded.
+- **Persistence: schema tags `scefitting/sce-{basis,model}` → `slce/{basis,model}`,
+  `schema_version` 5 → 6** (the sector table's `nbody` key is now `sites`). Documents
+  written before the rename still load: unlike an API rename, refusing them would
+  strand every model already saved to disk, so the old tags and the v5 sector key stay
+  in the back-read.
+
 ### Changed — BREAKING: five names that misrepresented what they held
 
 A five-lens naming audit over the package (public surface, struct fields and

@@ -73,9 +73,9 @@ using Random
         latj = Lattice(Matrix(3.0 * I(3)))
         crj = Crystal(latj, [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         bj = SLCEBasis(crj, BasisSpec(crj; lmax = 1, pmax = 1, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1),
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
-            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)]))
         sj = bj.salc_basis.salcs
         mj = length(sj)
         natj = n_atoms(crj)

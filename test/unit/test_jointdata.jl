@@ -24,8 +24,8 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
     lat = Lattice(Matrix(3.0 * I(3)))
     cr = Crystal(lat, [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     spec = BasisSpec(cr; lmax = 1, pmax = 1, sectors = [
-        Sector(spin = (nbody = 1:2,), cutoff = 1.1),
-        Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1)])
+        Sector(spin = (sites = 1:2,), cutoff = 1.1),
+        Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1)])
     basis = SLCEBasis(cr, spec)
     nat = n_atoms(cr)
     m = n_salcs(basis)
@@ -84,7 +84,7 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
         @test all(iszero, Xe0[:, fcols])
         pcols = setdiff(1:m, fcols)
         bspin = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
         @test n_salcs(bspin) == length(pcols)
         @test Xe0[:, pcols] == _design_energy(bspin, cfg0)
         # X_F columns against the raw joint gradient kernel (force sign −∂Φ/∂u)
@@ -173,7 +173,7 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
         end
         # a pure-spin model accepts the joint forms: u is inert, force ≡ 0
         bspin = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
         ms = SLCEModel(bspin, 0.0, randn(rng, n_salcs(bspin)))
         @test predict_energy(ms, e, u) == predict_energy(ms, e)
         @test predict_force(ms, e, u) == zeros(3, nat)
@@ -326,7 +326,7 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
                       ["Fe", "O"])
         specO = @test_logs (:warn, r"odd") BasisSpec(crO;
             lmax = ["Fe" => 2, "O" => 0], pmax = ["Fe" => 0, "O" => 1],
-            sectors = [Sector(spin = [2], disp = (degree = 1,), nbody = 2,
+            sectors = [Sector(spin = [2], disp = (degree = 1,), sites = 2,
                               cutoff = 2.1)])
         bO = SLCEBasis(crO, specO)
         natO = n_atoms(crO)

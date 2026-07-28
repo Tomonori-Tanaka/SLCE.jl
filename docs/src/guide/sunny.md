@@ -11,7 +11,7 @@ extension that activates under `using Sunny`.
 
 ```julia
 using Sunny
-sys = to_sunny(model; spins = 3/2)        # a real Sunny.System
+sys = to_sunny(model; spin_length = 3/2)        # a real Sunny.System
 ```
 
 ## What is exported
@@ -28,13 +28,13 @@ Every other channel — three-body and higher, higher `l` — **cannot** be repr
 Sunny `System` and is **reported as skipped**, never silently dropped:
 
 ```julia
-sys = to_sunny(model; spins = 3/2)        # @warn lists any skipped channels
+sys = to_sunny(model; spin_length = 3/2)        # @warn lists any skipped channels
 ```
 
 ## Spin length, scaling, and mode
 
 Spins enter only at assembly. The SCE couplings are fit with *unit* directions, so they
-absorb the moment magnitude; `spins` supplies the physical effective spin
+absorb the moment magnitude; `spin_length` supplies the physical effective spin
 ``S_{\text{eff}} = m/(g\mu_B)`` (a number, or a per-species `label => S` mapping), and the
 `scaling` keyword chooses how it enters:
 
@@ -55,17 +55,17 @@ factor ``1/s^2``) or quantum rank-2 (`mode = :dipole`, factor ``2/(s(2s-1))``, r
 ``s > 1/2``) rescaling; `mode = :auto` picks `:dipole` for half-integer spins.
 
 ```julia
-sys = to_sunny(model; spins = 1.5, g = 2, mode = :dipole)    # :auto → scaling = :moment
-sys = to_sunny(model; spins = 1.1)                           # :auto → scaling = :coupling
-sys = to_sunny(model; spins = Dict("Fe" => 3/2, "O" => 1))   # per-species
+sys = to_sunny(model; spin_length = 1.5, g = 2, mode = :dipole)    # :auto → scaling = :moment
+sys = to_sunny(model; spin_length = 1.1)                           # :auto → scaling = :coupling
+sys = to_sunny(model; spin_length = Dict("Fe" => 3/2, "O" => 1))   # per-species
 ```
 
 ## Two placements: exact vs. unfolded
 
 ```julia
-to_sunny(model; spins, placement = :explicit)    # exact, on the training supercell
-to_sunny(model; spins, placement = :primitive)   # unfolded onto the chemical primitive cell
-to_sunny(model; spins, placement = :auto)        # primitive if clean, else fall back (default)
+to_sunny(model; spin_length, placement = :explicit)   # exact, on the training supercell
+to_sunny(model; spin_length, placement = :primitive)  # unfolded onto the chemical primitive cell
+to_sunny(model; spin_length, placement = :auto)       # primitive if clean, else fall back (default)
 ```
 
 - **`:explicit`** places the couplings directly on the training supercell. The classical

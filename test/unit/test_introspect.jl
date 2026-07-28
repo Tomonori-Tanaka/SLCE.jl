@@ -164,9 +164,9 @@ end
         crj = Crystal(Lattice(Matrix(3.0 * I(3))),
                       [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         bj = SLCEBasis(crj, BasisSpec(crj; lmax = 1, pmax = 2, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1),
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
-            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)]))
         kj = bj.salc_basis.keys
         Kj = length(kj)
         j0 = 0.19
@@ -230,9 +230,9 @@ end
         crj = Crystal(Lattice(Matrix(3.0 * I(3))),
                       [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         specj = BasisSpec(crj; lmax = 1, pmax = 2, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1),
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
-            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)])
+            Sector(spin = (sites = 1:2,), cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)])
         bj = SLCEBasis(crj, specj)
         mj = SLCEModel(bj, 0.5, randn(rng, n_salcs(bj)))
         err = try
@@ -255,9 +255,9 @@ end
         crj = Crystal(Lattice(Matrix(3.0 * I(3))),
                       [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         bj = SLCEBasis(crj, BasisSpec(crj; lmax = 1, pmax = 2, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1),
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
-            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)]))
         kj = bj.salc_basis.keys
         mj = SLCEModel(bj, 0.42, randn(rng, length(kj)))
         ms = restrict(mj, :spin)
@@ -283,7 +283,7 @@ end
         # is the empty one, whose energy is j0 alone — which is still exactly the joint
         # model at u = 0, so the contract holds rather than degenerating
         blat = SLCEBasis(crj, BasisSpec(crj; lmax = 1, pmax = 2, sectors = [
-            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)]))
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)]))
         mlat = SLCEModel(blat, 0.7, randn(rng, n_salcs(blat)))
         rlat = restrict(mlat, :spin)
         @test n_salcs(rlat.basis) == 0 && isempty(rlat.basis.spec.sectors)

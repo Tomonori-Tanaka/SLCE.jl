@@ -89,9 +89,9 @@ end
 
     @testset "joint: blocks stack in channel order, sizes and offsets" begin
         b = SLCEBasis(cr, BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1),
-            Sector(spin = [1, 1], disp = (degree = 1:2,), nbody = 2, cutoff = 1.1),
-            Sector(disp = (degree = 1:2,), nbody = 1:2, cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 1:2,), sites = 2, cutoff = 1.1),
+            Sector(disp = (degree = 1:2,), sites = 1:2, cutoff = 1.1)]))
         L = row_layout(b)
         @test L.spin_lmax == 1
         @test L.disp_offset == 4                      # (1 + 1)² spin rows first
@@ -153,14 +153,14 @@ end
     @testset "degenerate layouts and refusals" begin
         # lattice-only: no spin block at all
         bl = SLCEBasis(cr, BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)]))
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)]))
         Ll = row_layout(bl)
         @test Ll.spin_lmax == -1 && Ll.disp_offset == 0
         @test Ll.nrows == sum(2l + 1 for (_, l) in Ll.disp_factors)
         @test_throws ArgumentError row_index(Ll, SiteFactor(SPIN, 0, 1), 0)
         # a factor the layout does not carry is an error, never a fallback row
         bs = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
         Ls = row_layout(bs)
         @test_throws ArgumentError row_index(Ls, SiteFactor(SPIN, 0, 3), 0)
         @test_throws ArgumentError row_index(Ls, SiteFactor(DISP, 0, 1), 0)

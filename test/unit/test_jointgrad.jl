@@ -72,7 +72,7 @@ end
     csB = build_clusters(xtalB, nlB, sgB; nbody = 2)
     bmix = SLCE.build_salc_basis(xtalB, sgB, csB,
         BasisSpec(xtalB; lmax = 1, pmax = 1, sectors = [
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1)]);
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1)]);
         neighbors = nlB)
     @test length(bmix.salcs) == 9
     bdisp = SLCE.build_salc_basis(xtalB, sgB, csB,
@@ -104,7 +104,7 @@ end
     cs1 = build_clusters(xt1, nl1, sg1; nbody = 2, selection = AllImages())
     bself = SLCE.build_salc_basis(xt1, sg1, cs1,
         BasisSpec(xt1; lmax = 1, pmax = 1, sectors = [
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2,
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2,
                    cutoff = 2.1)]);
         neighbors = nl1, selection = AllImages())
     @test !isempty(bself.salcs)
@@ -128,7 +128,7 @@ end
     csO = build_clusters(crO, nlO, sgO; nbody = 2)
     specO = @test_logs (:warn, r"odd") BasisSpec(crO;
         lmax = ["Fe" => 2, "O" => 0], pmax = ["Fe" => 0, "O" => 1],
-        sectors = [Sector(spin = [2], disp = (degree = 1,), nbody = 2,
+        sectors = [Sector(spin = [2], disp = (degree = 1,), sites = 2,
                           cutoff = 2.1)])
     bO = SLCE.build_salc_basis(crO, sgO, csO, specO; neighbors = nlO)
     @test all(s -> length(s.members) == 6, bO.salcs)

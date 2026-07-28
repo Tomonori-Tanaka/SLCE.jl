@@ -282,7 +282,7 @@ code-specific I/O is confined to a single boundary: the only objects the fitting
 machinery consumes are `TrainingDatum` (per-configuration observables: energy + spin
 directions + moment magnitudes, plus optional displacements / forces / constraining
 field with the derived torque target, and a `DatumProvenance`) and the `SLCEDataset`
-built from them; `SpinDatum(...)` survives as the spin-only convenience constructor.
+built from them; `spin_datum(...)` survives as the spin-only convenience constructor.
 Each DFT code is an `AbstractDFTSource` *adapter* implementing
 `read_configs(src) -> Vector{TrainingDatum}`; the concrete adapters live **outside the
 core**, as namespaced submodules of the companion SLCETools.jl package
@@ -385,7 +385,7 @@ for *this* problem rather than generic tabular data:
   and the same `β`. Plain row-wise CV folds would scatter them, so holding out part of a
   configuration while training on the rest leaks within-configuration structure and makes
   the CV error optimistically low — biasing λ selection toward under-regularization on
-  the package's headline use case. `fit` therefore passes per-row `groups` labels (a
+  the package's headline use case. `fit` therefore passes per-row `row_groups` labels (a
   configuration's energy and torque rows share one label) and the extension folds over
   whole groups, never splitting a configuration. The contract gains one optional
   keyword; `OLS`/`Ridge` ignore it.
@@ -546,7 +546,7 @@ as the textbook Cartesian reduction — impose covariance
 `Φ^{αβ}((a,0),(b,R)) = Φ^{βα}((b,0),(a,−R))` and take the null space. The union of
 the two spaces has the same dimension as each, and every principal-angle cosine is
 `1.000000000000`, on both fixtures below (a displacement-only sector,
-`Sector(disp = (degree = 2,), nbody = 2, cutoff = c)` ∪ its `nbody = 1` partner,
+`Sector(disp = (degree = 2,), sites = 2, cutoff = c)` ∪ its `sites = 1` partner,
 `SpglibBackend`, pair set taken from `force_constants` so both sides use exactly
 the same index tuples):
 

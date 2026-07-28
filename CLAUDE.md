@@ -260,16 +260,16 @@ Easy to break silently — confirm before touching the algorithm.
   are gated against each other on a basis where they disagree
   (`test/unit/test_latticeonly.jl`). `_basis_has_spin` reads the SPEC as well as the
   surviving SALCs, exactly like `_basis_has_disp` and for the same reason. The
-  omission marker everywhere is all-ZERO, never a plausible `+ẑ`: `LatticeDatum`'s
+  omission marker everywhere is all-ZERO, never a plausible `+ẑ`: `lattice_datum`'s
   zero `magmoms` is what makes `SLCEDataset`'s existing zero-moment invariant reject
   the datum if it ever meets a spin-carrying basis, so that guard is load-bearing for
   the convenience constructor and must not be relaxed. `use_torque` resolves from the
   BASIS and never from whether the data carry torques — the latter converts "the
   adapter dropped the constraining fields" from a loud error into a silent
   energy-only fit.
-- **`torque_qualified` is upgraded by both datum constructors, never revoked**
-  (`io/dftsource.jl` `TrainingDatum` keyword ctor ↔ `SpinDatum` ↔
-  `io/provenance.jl`): a joint datum MUST hand-build a provenance (the displacement
+- **`torque_qualified` is upgraded by every datum constructor, never revoked**
+  (`io/dftsource.jl` `TrainingDatum` keyword ctor ↔ `spin_datum` ↔ `joint_datum` ↔
+  `io/provenance.jl`): a joint datum MUST carry a provenance (the displacement
   channel requires `reference_id`/`reference_fingerprint`), and a hand-built one
   carries the struct default `false` — which used to discard the qualification that
   explicit `torques` or a nonzero `field` earn, so a datum with displacements AND
@@ -277,7 +277,13 @@ Easy to break silently — confirm before touching the algorithm.
   caller's intent. Keep the two construction paths' rules identical (they are
   compared in `test_dftsource.jl` for exactly this reason) and keep the upgrade
   one-way: suppressing a torque channel is `use_torque = false`'s job at the dataset
-  level.
+  level. `joint_datum` exists to own exactly this combination — it stamps the
+  reference AND derives the qualification, so the joint corner no longer needs a
+  hand-built provenance at all; its gate is `test/unit/test_latticeonly.jl`, which
+  asserts BOTH survive one call. The three convenience constructors
+  (`spin_datum` / `lattice_datum` / `joint_datum`) are functions returning
+  `TrainingDatum`, deliberately snake_case: `SpinDatum` was a type once, and the
+  UpperCamelCase spelling kept promising a type that no longer exists.
 - **Persistence schema ↔ the serialized structs** (`io/persist.jl`): `_to_doc` /
   `_from_doc` mirror the fields of `Crystal` / `Lattice` / `SpaceGroup` / `BasisSpec`
   / `SALCKey` / `SALCTerm` / `SALCMember` / `SALC` / `SLCEBasis` / `SLCEModel`. Add or
@@ -292,7 +298,12 @@ Easy to break silently — confirm before touching the algorithm.
   alive as long as v2 model files circulate. Schema v4 stores SALC members in the
   canonical duplicate-free form; `_basis_from_doc` folds pre-v4 members on load
   (`_canonicalize_members`) — keep that branch alive as long as v3 model files
-  circulate, and never write a non-canonical basis.
+  circulate, and never write a non-canonical basis. Schema v6 renamed the sector
+  key `"nbody"` → `"sites"` and the schema TAGS `scefitting/sce-*` → `slce/*`;
+  `_LEGACY_SCHEMA_TAGS` and the v5 sector-key fallback stay for as long as
+  pre-rename files exist on disk. A persisted-document rename is NOT an API rename:
+  breaking the API costs a call-site edit, breaking the format strands saved models,
+  so the read path keeps compatibility even when the write path does not.
 - **BasisSpec sugar resolution ↔ canonical consumers** (`slce/truncation.jl`,
   `slce/model.jl`, `io/input.jl`): the ergonomic forms (label keys, `"*"` wildcards,
   body-keyed tables, unordered `"A-B"` pair keys, specificity resolution) are expanded
@@ -343,7 +354,7 @@ Easy to break silently — confirm before touching the algorithm.
   **both** are the physical / Landau–Lifshitz torque `m × B_eff`. Flip one side only and the
   co-fit silently biases; flipping **both** (as done when the package moved from the `+e×∇E`
   energy-rotation-gradient to this `−e×∇E` Landau–Lifshitz convention) leaves `J` unchanged.
-  The convention is enforced by code only on the field-derived path (`SpinDatum` /
+  The convention is enforced by code only on the field-derived path (`spin_datum` /
   `TrainingDatum(field = ...)` compute the cross product); a caller passing `torques`
   directly bypasses that funnel, so the `TrainingDatum` docstring restates it there.
   **Both sides are gated, independently, and the gates do not cancel.** Model side:
@@ -564,9 +575,9 @@ Easy to break silently — confirm before touching the algorithm.
   Sunny coupled-site above.
   Add or rename a `MultipoleTerm` field → update the gate and the `SLCETools.jl` consumers
   (`mfa/bridge.jl` — renamed from `sce_bridge.jl`; grep the package, not this name alone).
-- `solve_coefficients(est, X, y; groups)` receives a **column-centered** `X` (⇒ the
+- `solve_coefficients(est, X, y; row_groups)` receives a **column-centered** `X` (⇒ the
   solver adds no intercept; `j0` is recovered analytically in `fit`). Every estimator —
-  in-tree or in an extension — must honor this. `groups` (optional) labels rows from the
+  in-tree or in an extension — must honor this. `row_groups` (optional) labels rows from the
   same physical sample (in a co-fit, a configuration's energy row and its
   torque-component rows share a label); a resampling estimator (CV-based `ElasticNet` /
   `Lasso` / `AdaptiveLasso` in `ext/SLCEGLMNetExt.jl`) must keep same-label rows
@@ -575,7 +586,7 @@ Easy to break silently — confirm before touching the algorithm.
   solve uses `intercept = false` + column `standardize` and selects λ by configuration-
   grouped, seeded CV (`:lambda_min`/`:lambda_1se`); change the centering/whitening in
   `fit` and the penalty scale (`λ·std`) moves with it. `AdaptiveLasso` runs its `pilot`
-  through `solve_coefficients` (forwarding `groups`), then a weighted-L1 GLMNet solve with
+  through `solve_coefficients` (forwarding `row_groups`), then a weighted-L1 GLMNet solve with
   fixed `penalty_factor`; `AdaptiveRidge` is a pure-core reweighted-ridge loop sharing the
   centered-`X` contract. Validated in the separate `test/glmnet/` env (GLMNet-backed) and
   `test/unit/test_fit.jl` (core `AdaptiveRidge` / `PrecomputedPilot` solves), never mixing

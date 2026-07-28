@@ -48,9 +48,9 @@ end
     # pure-spin + coupled + lattice-only, so the re-expansion has to carry spin-dressed
     # AND bare displacement content through the shift
     b = SLCEBasis(cr, BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-        Sector(spin = (nbody = 1:2,), cutoff = 1.1),
-        Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
-        Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)]))
+        Sector(spin = (sites = 1:2,), cutoff = 1.1),
+        Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),
+        Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)]))
     model = SLCEModel(b, 0.3, randn(rng, n_salcs(b)))
     u0 = 0.07 .* randn(rng, 3, nat)
     em = effective_model(model; u0)
@@ -144,7 +144,7 @@ end
         lat1 = Lattice(Matrix(2.0 * I(3)))
         xt1 = Crystal(lat1, zeros(3, 1), [1], ["Fe"])
         b1 = SLCEBasis(xt1, BasisSpec(xt1; lmax = 1, pmax = 1, sectors = [
-                Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 2.1)]);
+                Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 2.1)]);
             images = AllImages())
         m1 = SLCEModel(b1, 0.0, randn(rng, n_salcs(b1)))
         u01 = 0.11 .* randn(rng, 3, 1)

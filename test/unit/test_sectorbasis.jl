@@ -68,7 +68,7 @@ end
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         legacy = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2]))
         sect = SLCEBasis(cr, BasisSpec(cr; lmax = 2,
-            sectors = [Sector(spin = (nbody = 1:2,), cutoff = 1.5)]))
+            sectors = [Sector(spin = (sites = 1:2,), cutoff = 1.5)]))
         @test _sector_basis_identical(legacy, sect)
         @test sect.salc_basis.fingerprint == legacy.salc_basis.fingerprint
         # symmetric chain with a Σl cap, soc = false variant
@@ -80,12 +80,12 @@ end
                                             lsum = 4, soc = soc))
             # global per-body lsum caps the sector content identically
             sc = SLCEBasis(chain, BasisSpec(chain; lmax = 3, lsum = 4,
-                sectors = [Sector(spin = (nbody = 1:2,), cutoff = 2.6,
+                sectors = [Sector(spin = (sites = 1:2,), cutoff = 2.6,
                                   soc = soc)]))
             @test _sector_basis_identical(lg, sc)
             # equivalently: the sector-local lsum
             sc2 = SLCEBasis(chain, BasisSpec(chain; lmax = 3,
-                sectors = [Sector(spin = (nbody = 1:2, lsum = 4), cutoff = 2.6,
+                sectors = [Sector(spin = (sites = 1:2, lsum = 4), cutoff = 2.6,
                                   soc = soc)]))
             @test _sector_basis_identical(lg, sc2)
         end
@@ -100,7 +100,7 @@ end
                         [1, 1, 1, 1], ["Fe"])
         spec = BasisSpec(chain; lmax = 1, pmax = 1, sectors = [
             Sector(spin = [1, 1], cutoff = 2.6),
-            Sector(disp = (degree = 2,), nbody = 2, cutoff = 5.2)])
+            Sector(disp = (degree = 2,), sites = 2, cutoff = 5.2)])
         b = SLCEBasis(chain, spec)
         # classify each 2-body SALC by its bond length via the member atoms
         cart = SLCE.cartesian_positions(chain)
@@ -132,7 +132,7 @@ end
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 2], ["Fe", "O"])
         spec = BasisSpec(cr; lmax = ["Fe" => 2, "O" => 0],
                          pmax = ["Fe" => 1, "O" => 2], sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.5),
+            Sector(spin = (sites = 1:2,), cutoff = 1.5),
             Sector(spin = [2], disp = (degree = 1:2,), cutoff = 1.5)])
         b = SLCEBasis(cr, spec)
         @test n_salcs(b) > 0
@@ -163,8 +163,8 @@ end
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         spec = BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-            Sector(spin = (nbody = 2,), cutoff = 1.5),
-            Sector(spin = [1, 1], disp = (degree = 1:2,), nbody = 2, cutoff = 1.5),
+            Sector(spin = (sites = 2,), cutoff = 1.5),
+            Sector(spin = [1, 1], disp = (degree = 1:2,), sites = 2, cutoff = 1.5),
             Sector(disp = (degree = 2,), cutoff = 1.5)])
         b = SLCEBasis(cr, spec)
         @test n_salcs(b) > 0
@@ -213,11 +213,11 @@ end
         cs = build_clusters(cr, nl, sg; nbody = 3)
         mkspec(soc3) = BasisSpec(cr; lmax = ["Fe" => 1, "O" => 0],
                                  pmax = ["Fe" => 1, "O" => 1], sectors = [
-            Sector(spin = [1, 1], disp = (degree = 1,), nbody = 3, cutoff = 2.3,
+            Sector(spin = [1, 1], disp = (degree = 1,), sites = 3, cutoff = 2.3,
                    soc = soc3),
-            Sector(spin = [1, 1], disp = (degree = 1,), nbody = 2, cutoff = 2.1,
+            Sector(spin = [1, 1], disp = (degree = 1,), sites = 2, cutoff = 2.1,
                    soc = false),
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 2.1)])
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 2.1)])
         b = SLCE.build_salc_basis(cr, sg, cs, mkspec(false); neighbors = nl)
         b3 = [s for s in b.salcs if s.body == 3]
         # the soc = false ligand sector emits ONLY its L_S = 0 block: exactly
@@ -339,7 +339,7 @@ end
         # a subblock gate, not a standalone model)
         spec = @test_logs (:warn, r"odd") BasisSpec(cr;
             lmax = ["Fe" => 2, "O" => 0], pmax = ["Fe" => 0, "O" => 1],
-            sectors = [Sector(spin = [2], disp = (degree = 1,), nbody = 2,
+            sectors = [Sector(spin = [2], disp = (degree = 1,), sites = 2,
                               cutoff = 2.1)])
         b = SLCE.build_salc_basis(cr, sg, cs, spec; neighbors = nl)
         # exactly TWO invariants on the bond orbit (the C4v count 2 = the two
@@ -424,8 +424,8 @@ end
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         mk(soc) = BasisSpec(cr; lmax = 2, pmax = 2, lsum = 4, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.5, soc = soc),
-            Sector(spin = [1, 1], disp = (degree = 1:2,), nbody = 2, cutoff = 1.5,
+            Sector(spin = (sites = 1:2,), cutoff = 1.5, soc = soc),
+            Sector(spin = [1, 1], disp = (degree = 1:2,), sites = 2, cutoff = 1.5,
                    soc = soc),
             Sector(disp = (degree = 2,), cutoff = 1.5, soc = soc)])
         full = SLCEBasis(cr, mk(true))
@@ -448,7 +448,7 @@ end
                         [1, 1, 1, 1], ["Fe"])
         dense = SLCEBasis(chain, BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [2]))
         sect = SLCEBasis(chain, BasisSpec(chain; lmax = 2,
-            sectors = [Sector(spin = (nbody = 1:2,), cutoff = 2.6)]))
+            sectors = [Sector(spin = (sites = 1:2,), cutoff = 2.6)]))
         @test _sector_basis_identical(dense, sect)
         rngd = MersenneTwister(0xd00d)
         cfgs = [randcfg(rngd, 4) for _ = 1:5]
@@ -482,8 +482,8 @@ end
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         dense = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2]))
         mixed = SLCEBasis(cr, BasisSpec(cr; lmax = 2, pmax = 2, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.5),
-            Sector(spin = [1, 1], disp = (degree = 1:2,), nbody = 2,
+            Sector(spin = (sites = 1:2,), cutoff = 1.5),
+            Sector(spin = [1, 1], disp = (degree = 1:2,), sites = 2,
                    cutoff = 1.5)]))
         pure = [s for s in salcs(mixed) if all(is_pure_spin, s.key.decors)]
         @test n_salcs(dense) == 44               # the standard-cell column count
@@ -511,7 +511,7 @@ end
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         spec = BasisSpec(cr; lmax = 1, pmax = 1, sectors = [
-            Sector(spin = [1, 1], disp = (degree = 0:2,), nbody = 2, cutoff = 1.5)])
+            Sector(spin = [1, 1], disp = (degree = 0:2,), sites = 2, cutoff = 1.5)])
         b = SLCEBasis(cr, spec)
         path = joinpath(mktempdir(), "mixed.toml")
         SLCE.save(path, b)

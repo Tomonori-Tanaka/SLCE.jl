@@ -55,7 +55,7 @@ configuration — a header, the energy (eV), then one row per atom carrying the 
 
 Both formats are simple enough to parse inline. The structure reader returns the lattice,
 the fractional coordinates, and the per-atom species; the `EMBSET` reader turns each block
-into a spin-only [`TrainingDatum`](@ref) via the [`SpinDatum`](@ref) constructor — the
+into a spin-only [`TrainingDatum`](@ref) via the [`spin_datum`](@ref) constructor — the
 core's neutral training record, which derives the spin direction
 ``\hat{\boldsymbol e}_a = \boldsymbol m_a/\lVert\boldsymbol m_a\rVert`` and the
 torque ``\boldsymbol\tau_a = \boldsymbol m_a \times \boldsymbol B_a`` for you.
@@ -95,7 +95,7 @@ function read_embset(path, nat)
             moments[:, a] = v[2:4]      # magnetic moment (μ_B)
             field[:, a]   = v[5:7]      # constraining field (eV/μ_B)
         end
-        push!(data, SpinDatum(energy, moments, field))   # derives direction + τ = m × B
+        push!(data, spin_datum(energy, moments, field))   # derives direction + τ = m × B
         i += nat + 2
     end
     return data
@@ -265,7 +265,7 @@ is rescaled, and is unused here).
 using Sunny
 
 model = SLCEModel(f)
-sys = to_sunny(model; spins = 1.1, placement = :primitive)   # :auto → :coupling for S_eff = 1.1
+sys = to_sunny(model; spin_length = 1.1, placement = :primitive)   # :auto → :coupling for S_eff = 1.1
 Sunny.polarize_spins!(sys, (0, 0, 1))                        # ferromagnetic ground state
 swt = Sunny.SpinWaveTheory(sys; measure = nothing)
 nothing # hide

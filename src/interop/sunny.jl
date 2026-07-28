@@ -153,14 +153,15 @@ function _sunny_primitive(model::SLCEModel)::SunnyPrimitive
 end
 
 """
-    to_sunny(model; spins, g = 2, mode = :auto, scaling = :auto, placement = :auto) -> Sunny.System
+    to_sunny(model; spin_length, g = 2, mode = :auto, scaling = :auto,
+             placement = :auto) -> Sunny.System
 
 Export a fitted [`SLCEModel`](@ref) to a Sunny.jl `System`. **Requires `using Sunny`**
 (the export is a package extension). Only the Sunny-representable channels are
 exported — bilinear pair (`ls=[1,1]`) exchange and single-ion (`ls=[2]`) anisotropy;
 higher-order / higher-`l` SALCs are skipped and reported via `@warn`.
 
-`spins` gives the physical effective spin length `S_eff = m/(g μ_B)` (a number, or a
+`spin_length` gives the physical effective spin length `S_eff = m/(g μ_B)` (a number, or a
 per-species `label => S` mapping). The SCE couplings are fit from *unit* spin
 directions, so they absorb the moment magnitude (`J_SCE = J_phys S²`); the magnon
 frequency, however, scales as `1/S_eff`, so the export must carry `S_eff` explicitly.

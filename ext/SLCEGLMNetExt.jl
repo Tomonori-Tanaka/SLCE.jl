@@ -29,28 +29,28 @@ function _reject_nullspace(nullspace)
 end
 
 function solve_coefficients(est::ElasticNet, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing, nullspace = nothing)::Vector{Float64}
+                            row_groups = nothing, nullspace = nothing)::Vector{Float64}
     _reject_nullspace(nullspace)
     Xf = Matrix{Float64}(X)
     yf = Vector{Float64}(y)
     return _glmnet_solve(Xf, yf, est.alpha, est.lambda, est.standardize, est.nfolds,
-                         est.select, est.seed, est.nlambda, groups, nothing)
+                         est.select, est.seed, est.nlambda, row_groups, nothing)
 end
 
 function solve_coefficients(est::AdaptiveLasso, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing, nullspace = nothing)::Vector{Float64}
+                            row_groups = nothing, nullspace = nothing)::Vector{Float64}
     _reject_nullspace(nullspace)
     Xf = Matrix{Float64}(X)
     yf = Vector{Float64}(y)
     # First stage: the pilot fit (any estimator) supplies the adaptive weights. Its own
     # solve honors `groups`, so e.g. an ElasticNet pilot CV-groups by configuration too.
-    beta_pilot = solve_coefficients(est.pilot, Xf, yf; groups = groups)
+    beta_pilot = solve_coefficients(est.pilot, Xf, yf; row_groups = row_groups)
     # Per-column penalty factor wⱼ = 1 / max(|β̂_pilotⱼ|, ε)^γ (Zou 2006): GLMNet rescales
     # the vector to sum to nvars internally. The weights are independent of λ, so they are
     # held fixed across the whole (fixed-λ or CV) path below.
     pf = inv.(max.(abs.(beta_pilot), est.epsilon) .^ est.gamma)
     return _glmnet_solve(Xf, yf, 1.0, est.lambda, est.standardize, est.nfolds,
-                         est.select, est.seed, est.nlambda, groups, pf)
+                         est.select, est.seed, est.nlambda, row_groups, pf)
 end
 
 # Shared GLMNet plumbing for ElasticNet and AdaptiveLasso. `pf` is the optional
@@ -60,11 +60,11 @@ end
 # that penalty (GLMNet warm-starts a path, so a one-element λ vector is a valid request).
 function _glmnet_solve(Xf::Matrix{Float64}, yf::Vector{Float64}, alpha::Float64,
                        lambda::Union{Nothing,Float64}, standardize::Bool, nfolds::Int,
-                       select::Symbol, seed::Int, nlambda::Int, groups,
+                       select::Symbol, seed::Int, nlambda::Int, row_groups,
                        pf::Union{Nothing,Vector{Float64}})::Vector{Float64}
     if lambda === nothing
         return _solve_cv(Xf, yf, alpha, standardize, nfolds, select, seed, nlambda,
-                         groups, pf)
+                         row_groups, pf)
     end
     path = pf === nothing ?
         glmnet(Xf, yf; alpha = alpha, lambda = [lambda], standardize = standardize,
@@ -79,10 +79,10 @@ end
 # torque rows stay together), otherwise individual rows.
 function _solve_cv(Xf::Matrix{Float64}, yf::Vector{Float64}, alpha::Float64,
                    standardize::Bool, nfolds::Int, select::Symbol, seed::Int,
-                   nlambda::Int, groups,
+                   nlambda::Int, row_groups,
                    pf::Union{Nothing,Vector{Float64}})::Vector{Float64}
     n = length(yf)
-    units = groups === nothing ? collect(1:n) : collect(groups)
+    units = row_groups === nothing ? collect(1:n) : collect(row_groups)
     nunits = length(unique(units))
     # GLMNet's own default cap; each fold needs a few resampling units to fit.
     nf = min(nfolds, div(nunits, 3))

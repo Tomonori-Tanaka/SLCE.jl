@@ -87,7 +87,7 @@ per-sector SOC switch, and a per-sector cutoff:
 ```julia
 spec = BasisSpec(crystal; lmax = 2, pmax = ["*" => 0, "Fe" => 3], sectors = [
     Sector(disp = (degree = 2:3,), cutoff = 6.0),          # force constants
-    Sector(spin = (nbody = 2:4, lmax = 2), cutoff = 8.0),  # pure-spin SCE
+    Sector(spin = (sites = 2:4, lmax = 2), cutoff = 8.0),  # pure-spin SCE
     Sector(spin = [1, 1], disp = (degree = 1,), soc = false, cutoff = 5.0)])  # dJ/dr
 basis = SLCEBasis(crystal, spec)
 ```

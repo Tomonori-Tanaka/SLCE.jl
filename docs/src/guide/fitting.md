@@ -224,7 +224,7 @@ Implementing your own estimator is one method:
 
 ```julia
 struct MyEstimator <: AbstractEstimator end
-SLCE.solve_coefficients(::MyEstimator, X, y; groups = nothing) = X \ y  # centered (X, y)
+SLCE.solve_coefficients(::MyEstimator, X, y; row_groups = nothing) = X \ y  # centered (X, y)
 ```
 
 ## Staged (hierarchical) fits

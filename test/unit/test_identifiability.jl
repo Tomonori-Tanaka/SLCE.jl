@@ -49,8 +49,8 @@ end
     lat = Lattice(Matrix(3.0 * I(3)))
     cr = Crystal(lat, [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     spec = BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-        Sector(spin = (nbody = 1:2,), cutoff = 1.1),
-        Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1)])
+        Sector(spin = (sites = 1:2,), cutoff = 1.1),
+        Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1)])
     basis = SLCEBasis(cr, spec)
     nat = n_atoms(cr)
     m = n_salcs(basis)
@@ -149,9 +149,9 @@ end
         # spin-free feasible directions — and the ASR cannot cure that part.
         # Forces can, which is why the plan-B pair is still fully determined.
         specL = BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1),
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
-            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)])
+            Sector(spin = (sites = 1:2,), cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)])
         bL = SLCEBasis(cr, specL)
         mL = n_salcs(bL)
         repL = build_asr(bL)
@@ -266,7 +266,7 @@ end
         @test_throws ArgumentError identifiability(ds; rtol = -1.0)
         # a pure-spin dataset: unconstrained coordinates either way
         bspin = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
         ms = SLCEModel(bspin, 0.0, randn(rng, n_salcs(bspin)))
         cfgs = [_id_cfg(rng, nat) for _ = 1:40]
         dss = SLCEDataset(bspin, cfgs, predict_energy(ms, cfgs))

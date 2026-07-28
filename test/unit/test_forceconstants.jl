@@ -153,9 +153,9 @@ end
     # pure-spin + coupled + lattice-only, so the constants pick up BOTH the
     # spin-dressed and the bare displacement channels
     b = SLCEBasis(cr, BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-        Sector(spin = (nbody = 1:2,), cutoff = 1.1),
-        Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
-        Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)]))
+        Sector(spin = (sites = 1:2,), cutoff = 1.1),
+        Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),
+        Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)]))
     model = SLCEModel(b, 0.3, randn(rng, n_salcs(b)))
     e = _fc_cfg(rng, nat)
     fcs = force_constants(model; spins = e, order = 2)
@@ -182,8 +182,8 @@ end
         # set is empty and the relation would hold vacuously. Build a degree-1 basis:
         # that content is exactly the reference-force channel this is about.
         b1 = SLCEBasis(cr, BasisSpec(cr; lmax = 1, pmax = 1, sectors = [
-            Sector(spin = [1, 1], disp = (degree = 1,), nbody = 2, cutoff = 1.1),
-            Sector(disp = (degree = 1,), nbody = 1:2, cutoff = 1.1)]))
+            Sector(spin = [1, 1], disp = (degree = 1,), sites = 2, cutoff = 1.1),
+            Sector(disp = (degree = 1,), sites = 1:2, cutoff = 1.1)]))
         m1 = SLCEModel(b1, 0.0, randn(rng, n_salcs(b1)))
         f1 = force_constants(m1; spins = e, order = 1)
         @test f1.order == 1
@@ -292,7 +292,7 @@ end
 
     @testset "order 3 against a third derivative" begin
         b3 = SLCEBasis(cr, BasisSpec(cr; lmax = 1, pmax = 3, sectors = [
-            Sector(disp = (degree = 3,), nbody = 1:2, cutoff = 1.1)]))
+            Sector(disp = (degree = 3,), sites = 1:2, cutoff = 1.1)]))
         m3 = SLCEModel(b3, 0.0, randn(rng, n_salcs(b3)))
         f3 = force_constants(m3; spins = e, order = 3)
         @test f3.order == 3 && !isempty(f3.constants)
@@ -321,7 +321,7 @@ end
     @testset "refusals and degenerate inputs" begin
         # a pure-spin model has no displacement content at all
         bs = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
         ms = SLCEModel(bs, 0.0, randn(rng, n_salcs(bs)))
         @test isempty(force_constants(ms; spins = e, order = 2).constants)
         # and so does the clamped-ion restriction of a joint one
@@ -363,10 +363,10 @@ end
         @test _invdim(pick(:D), nat4) == 16                     # unitary only
 
         spec4 = BasisSpec(cr4; lmax = 2, pmax = 2, sectors = [
-            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 3.1),
-            Sector(spin = (nbody = 2, lmax = 2), disp = (degree = 2,), nbody = 2,
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = 3.1),
+            Sector(spin = (sites = 2, lmax = 2), disp = (degree = 2,), sites = 2,
                    cutoff = 3.1),
-            Sector(spin = (nbody = 1, lmax = 2), disp = (degree = 2,), nbody = 1:2,
+            Sector(spin = (sites = 1, lmax = 2), disp = (degree = 2,), sites = 1:2,
                    cutoff = 3.1)])
         bj = _basis_with_sg(cr4, sg4, spec4)
         mj = SLCEModel(bj, 0.0, randn(MersenneTwister(11), n_salcs(bj)))
@@ -384,7 +384,7 @@ end
         # the magnetic order does. The stripe breaks that axis exchange, and the
         # joint model sees it.
         bl = _basis_with_sg(cr4, sg4, BasisSpec(cr4; lmax = 0, pmax = 2, sectors = [
-            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 3.1)]))
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = 3.1)]))
         Hl = _gamma_matrix(SLCEModel(bl, 0.0, randn(MersenneTwister(12), n_salcs(bl))),
                            eafm, nat4)
         @test Hl[1, 1] == Hl[2, 2]               # exactly, by projection
@@ -404,7 +404,7 @@ end
         # The quiet cases go FIRST: the warning carries `maxlog = 1`, so checking a
         # silent call after a noisy one would assert nothing.
         lat_only = BasisSpec(cr4; lmax = 0, pmax = 2,
-                             sectors = [Sector(disp = (degree = 2,), nbody = 1:2,
+                             sectors = [Sector(disp = (degree = 2,), sites = 1:2,
                                                cutoff = 3.1)])
         ml = SLCEModel(_basis_with_sg(cr4, sg4, lat_only), 0.0,
                        randn(MersenneTwister(13), n_salcs(_basis_with_sg(cr4, sg4,
@@ -413,16 +413,16 @@ end
         @test_logs force_constants(restrict(model, :spin); spins = e)  # no disp content
         # the dJ/dr row at degree 2 does reach order 2, and says nothing
         seeing = _basis_with_sg(cr4, sg4, BasisSpec(cr4; lmax = 2, pmax = 2, sectors = [
-            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 3.1),
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 3.1)]))
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = 3.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 3.1)]))
         ms = SLCEModel(seeing, 0.0, randn(MersenneTwister(13), n_salcs(seeing)))
         @test_logs force_constants(ms; spins = eafm)
 
         # ...and the same row at degree 1 — the spelling both the README and the
         # basis guide use for magnetoelastic coupling — does not.
         blind = _basis_with_sg(cr4, sg4, BasisSpec(cr4; lmax = 2, pmax = 2, sectors = [
-            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 3.1),
-            Sector(spin = [1, 1], disp = (degree = 1,), nbody = 2, cutoff = 3.1)]))
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = 3.1),
+            Sector(spin = [1, 1], disp = (degree = 1,), sites = 2, cutoff = 3.1)]))
         mb = SLCEModel(blind, 0.0, randn(MersenneTwister(13), n_salcs(blind)))
         @test any(s -> any(has_spin, s.decors), salcs(blind))   # spin content exists
         @test_logs (:warn, r"do not depend on `spins`") force_constants(mb; spins = eafm)

@@ -74,7 +74,8 @@ end
 
 """
     group_costs(basis::SLCEBasis,
-                labels::AbstractVector{<:Integer} = salc_groups(basis)) -> Vector{Int}
+                column_groups::AbstractVector{<:Integer} = salc_groups(basis))
+        -> Vector{Int}
 
 Per-group Monte-Carlo cost: the number of **distinct contraction entries** — keys
 `(member sites, l-assignment, nonzero tensor index)` — in the union over the group's
@@ -84,19 +85,20 @@ whole group is zero, and SALC channels whose tensors are proportional fold into 
 realized entry, while non-proportional channels of one group are realized separately
 downstream — the union undercounts those. The relative ordering it induces is what
 the selection needs. Costs are additive across the [`salc_groups`](@ref) partition
-(distinct `(body, orbit_id, ls)` groups never share an entry key); `labels` may also
-be any coarser contiguous `1:G` partition of the columns.
+(distinct `(body, orbit_id, ls)` groups never share an entry key); `column_groups`
+may also be any coarser contiguous `1:G` partition of the columns.
 """
 function group_costs(basis::SLCEBasis,
-                     labels::AbstractVector{<:Integer} = salc_groups(basis))::Vector{Int}
+                     column_groups::AbstractVector{<:Integer} =
+                         salc_groups(basis))::Vector{Int}
     sl = basis.salc_basis.salcs
     all(is_pure_spin(k) for k in basis.salc_basis.keys) || throw(ArgumentError(
         "group_costs: the basis carries displacement-decorated sectors; the " *
         "MC entry-key model is pure-spin until the M4 contract migration"))
-    G = _validate_labels(labels, length(sl), "group_costs")
+    G = _validate_labels(column_groups, length(sl), "group_costs")
     sets = [Set{_EntryKey}() for _ = 1:G]
     for j in eachindex(sl)
-        set = sets[labels[j]]
+        set = sets[column_groups[j]]
         for m in sl[j].members, t in m.terms
             # Pure-spin entry key (the M4 MC-contract migration moves this to
             # slots); identical values to the v4 per-site ls on today's bases.
@@ -108,7 +110,7 @@ end
 
 """
     cost_weights(basis::SLCEBasis; theta::Real = 1.0)
-        -> (; labels::Vector{Int}, weights::Vector{Float64})
+        -> (; column_groups::Vector{Int}, weights::Vector{Float64})
 
 Fixed [`GroupAdaptiveRidge`](@ref) weights over the [`salc_groups`](@ref) partition:
 
@@ -124,20 +126,20 @@ several `theta` values traces the (cost, error) Pareto front (see [`select_fit`]
 """
 function cost_weights(basis::SLCEBasis; theta::Real = 1.0)
     (0 <= theta <= 1) || throw(ArgumentError("theta must be in [0, 1]; got $theta"))
-    labels = salc_groups(basis)
-    c = group_costs(basis, labels)
-    isempty(c) && return (; labels, weights = Float64[])
+    column_groups = salc_groups(basis)
+    c = group_costs(basis, column_groups)
+    isempty(c) && return (; column_groups, weights = Float64[])
     all(>(0), c) && all(isfinite, c) ||
         error("internal: a canonical SALC group has no nonzero tensor entry")
     G = length(c)
     p = zeros(Int, G)
-    for g in labels
+    for g in column_groups
         p[g] += 1
     end
     cbar = mean(c)
     t = Float64(theta)
     weights = [sqrt(p[g]) * (c[g] / cbar)^t for g = 1:G]
-    return (; labels, weights)
+    return (; column_groups, weights)
 end
 
 """
@@ -152,7 +154,8 @@ function GroupAdaptiveRidge(basis::SLCEBasis; lambda::Real, theta::Real = 1.0,
                             epsilon::Real = 1e-8, max_iter::Integer = 50,
                             tol::Real = 1e-6)
     lw = cost_weights(basis; theta = theta)
-    return GroupAdaptiveRidge(lw.labels, lw.weights; lambda = lambda, epsilon = epsilon,
+    return GroupAdaptiveRidge(lw.column_groups, lw.weights; lambda = lambda,
+                              epsilon = epsilon,
                               max_iter = max_iter, tol = tol)
 end
 
@@ -790,7 +793,7 @@ function Base.show(io::IO, ::MIME"text/plain", p::SupportPath)
 end
 
 """
-    select_support(f::SLCEFit; thresholds = 25, delta = 0.05, labels = nothing,
+    select_support(f::SLCEFit; thresholds = 25, delta = 0.05, column_groups = nothing,
                    costs = nothing, evalset = f.dataset, estimator = OLS())
         -> SupportPath
 
@@ -813,13 +816,13 @@ on the same basis; see dataset slicing) for an honest error axis; the default is
 in-sample training set. `thresholds` is either a point count for the automatic grid
 (**at most** that many points, log-rank-spaced on the per-group magnitude spectrum
 plus the full-support anchor — duplicate ranks and exact magnitude ties collapse) or
-an explicit vector of absolute thresholds. `labels`/`costs` default to
+an explicit vector of absolute thresholds. `column_groups`/`costs` default to
 `SLCE.salc_groups` / `SLCE.group_costs` of the training basis.
 """
 function select_support(f::SLCEFit;
                         thresholds::Union{Integer,AbstractVector{<:Real}} = 25,
                         delta::Real = 0.05,
-                        labels::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                        column_groups::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                         costs::Union{Nothing,AbstractVector{<:Real}} = nothing,
                         evalset::SLCEDataset = f.dataset,
                         estimator::AbstractEstimator = OLS())::SupportPath
@@ -827,7 +830,7 @@ function select_support(f::SLCEFit;
     _reject_precomputed_pilot(estimator)
     isempty(evalset.y_E) && throw(ArgumentError("evalset has no observations"))
     basis = f.dataset.basis
-    lab = labels === nothing ? salc_groups(basis) : Vector{Int}(labels)
+    lab = column_groups === nothing ? salc_groups(basis) : Vector{Int}(column_groups)
     G = _validate_labels(lab, length(f.jphi), "select_support")
     cg = costs === nothing ? Float64.(group_costs(basis, lab)) : Float64.(costs)
     length(cg) == G ||

@@ -18,8 +18,8 @@ _rdir(rng) = (v = randn(rng, 3); v / norm(v))
 _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
 
 # Max |Sunny energy − (predict_energy − j0)| over random configurations.
-function energy_error(model, spins, mode; seed = 5, ntrial = 20, placement = :auto)
-    sys = MR.to_sunny(model; spins = spins, mode = mode, placement = placement)
+function energy_error(model, S, mode; seed = 5, ntrial = 20, placement = :auto)
+    sys = MR.to_sunny(model; spin_length = S, mode = mode, placement = placement)
     nat = MR.n_atoms(model.basis.crystal)
     rng = MersenneTwister(seed)
     me = 0.0
@@ -54,7 +54,7 @@ end
         mo = MR.SLCEModel(bo, 0.0, randn(rng, MR.n_salcs(bo)), bo.salc_basis.keys)
         @test energy_error(mo, 1.5, :dipole_uncorrected) < 1e-10
         @test energy_error(mo, 1.0, :dipole) < 1e-10              # s ≥ 1: quantum factor exact
-        @test_throws ErrorException MR.to_sunny(mo; spins = 0.5, mode = :dipole)   # spin-1/2 guard
+        @test_throws ErrorException MR.to_sunny(mo; spin_length = 0.5, mode = :dipole)   # spin-1/2 guard
     end
 
     @testset "explicit (supercell) placement: energy matches" begin
@@ -82,11 +82,11 @@ end
         b = MR.SLCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
                                             soc = true))
         model = MR.SLCEModel(b, 0.0, ones(MR.n_salcs(b)), b.salc_basis.keys)
-        @test_logs (:warn,) match_mode = :any MR.to_sunny(model; spins = 1.5,
+        @test_logs (:warn,) match_mode = :any MR.to_sunny(model; spin_length = 1.5,
                                                           mode = :dipole_uncorrected)
     end
 
-    @testset "spins as a per-species mapping" begin
+    @testset "spin_length as a per-species mapping" begin
         b = MR.SLCEBasis(cr2, MR.BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
                                             soc = false))
         model = MR.SLCEModel(b, 0.0, [0.01], b.salc_basis.keys)
@@ -97,7 +97,7 @@ end
     # S_eff into the couplings, so it works for a non-half-integer (itinerant) S_eff. The
     # whole energy landscape is then scaled by s₀/S, so `energy(sys) = (predict − j0)/S`.
     function coupling_energy_error(model, S, mode; seed = 7, ntrial = 20)
-        sys = MR.to_sunny(model; spins = S, mode = mode, scaling = :coupling,
+        sys = MR.to_sunny(model; spin_length = S, mode = mode, scaling = :coupling,
                           placement = :explicit)
         nat = MR.n_atoms(model.basis.crystal)
         rng = MersenneTwister(seed)
@@ -121,10 +121,10 @@ end
         @test coupling_energy_error(model, 1.1, :dipole_uncorrected) < 1e-10
         @test coupling_energy_error(model, 1.5, :dipole_uncorrected) < 1e-10
         # Forcing :moment on a non-half-integer S_eff is a clear, early error.
-        @test_throws ErrorException MR.to_sunny(model; spins = 1.1, scaling = :moment)
+        @test_throws ErrorException MR.to_sunny(model; spin_length = 1.1, scaling = :moment)
         # Default :auto: non-half-integer builds (→ :coupling), half-integer is energy-exact
         # (→ :moment), so the existing energy-matching property is preserved.
-        @test MR.to_sunny(model; spins = 1.1) isa Sunny.System
+        @test MR.to_sunny(model; spin_length = 1.1) isa Sunny.System
         @test energy_error(model, 1.5, :dipole) < 1e-10
 
         # Single-ion: the placeholder Moment can carry the classical (uncorrected) term,
@@ -134,7 +134,7 @@ end
                                              soc = true))
         mo = MR.SLCEModel(bo, 0.0, randn(rng, MR.n_salcs(bo)), bo.salc_basis.keys)
         @test coupling_energy_error(mo, 1.1, :dipole_uncorrected) < 1e-10
-        @test_throws ErrorException MR.to_sunny(mo; spins = 1.1, scaling = :coupling,
+        @test_throws ErrorException MR.to_sunny(mo; spin_length = 1.1, scaling = :coupling,
                                                 mode = :dipole)
     end
 
@@ -148,7 +148,7 @@ end
         mc = MR.SLCEModel(bc, 0.0, [-0.02], bc.salc_basis.keys)
 
         function chain_dispersion(S, scaling)
-            sys = MR.to_sunny(mc; spins = S, scaling = scaling, placement = :primitive)
+            sys = MR.to_sunny(mc; spin_length = S, scaling = scaling, placement = :primitive)
             Sunny.polarize_spins!(sys, (0, 0, 1))
             swt = Sunny.SpinWaveTheory(sys; measure = nothing)
             qs = Sunny.q_space_path(sys.crystal, [[0, 0, 0], [0, 0, 1 / 2], [0, 0, 1]], 16)
@@ -181,7 +181,7 @@ end
     # SCE energy on arbitrary (non-uniform) configurations — i.e. the unfolded bonds
     # and their offsets are correct, not just the per-cell sums.
     function primitive_energy_error(model, S, mode; seed = 9, ntrial = 12)
-        sys_p = MR.to_sunny(model; spins = S, mode = mode, placement = :primitive)
+        sys_p = MR.to_sunny(model; spin_length = S, mode = mode, placement = :primitive)
         prim = MR._sunny_primitive(model)
         sys_r = Sunny.reshape_supercell(sys_p, Matrix(prim.reshape))
         nat = MR.n_atoms(model.basis.crystal)
@@ -226,7 +226,7 @@ end
         bs = MR.SLCEBasis(crs, MR.BasisSpec(; nbody = 2, cutoff = 3.1, lmax = [1],
                                              soc = false); backend = spg)
         ms = MR.SLCEModel(bs, 0.0, [0.01], bs.salc_basis.keys)
-        sys = MR.to_sunny(ms; spins = 1.5)                # default placement/mode: must not throw
+        sys = MR.to_sunny(ms; spin_length = 1.5)                # default placement/mode: must not throw
         @test sys isa Sunny.System
         mes, prims = primitive_energy_error(ms, 1.5, :dipole_uncorrected)
         @test prims.clean

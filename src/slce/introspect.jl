@@ -261,7 +261,7 @@ function _spin_spec(spec::BasisSpec)::BasisSpec
     for r in spec.sectors
         (r.disp_degree[1] == 0 && r.spin_mode !== :none) || continue
         push!(rules, SectorRule(r.spin_mode, r.spin_ls, r.spin_nsites, r.spin_lmax,
-                                r.spin_lsum, (0, 0), r.nbody, r.soc, r.cutoff))
+                                r.spin_lsum, (0, 0), r.sites, r.soc, r.cutoff))
     end
     return BasisSpec(spec.nbody, spec.lmax, zeros(Int, length(spec.pmax)), spec.lsum,
                      spec.cutoff, spec.soc, rules, spec.disp_scale,

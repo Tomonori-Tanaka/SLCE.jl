@@ -52,7 +52,7 @@ distinct from an observed zero):
   `B`) must match this exact convention — `τ = m × B`, the same sign as the model's
   `predict_torque = −e × ∇E`, NOT the energy-rotation gradient `+e × ∇E`.
 - `provenance::DatumProvenance` — see [`DatumProvenance`](@ref). When omitted it is
-  derived exactly as in [`SpinDatum`](@ref): `constrained = torque_qualified =
+  derived exactly as in [`spin_datum`](@ref): `constrained = torque_qualified =
   any(!iszero, field)`, and explicitly passed `torques` set
   `torque_qualified = true` (you supplied them, so they are meant to be fit);
   pass an explicit provenance to override.
@@ -62,8 +62,15 @@ be unit vectors. The displacement-radius guard (amplitudes vs half the shortest
 reference interatomic distance — the classic un-minimum-imaged-adapter symptom)
 lives at the design boundary: [`SLCEDataset`](@ref) warns when it is exceeded.
 
-Build spin-only data from raw DFT moments with the [`SpinDatum`](@ref) convenience
-constructors.
+Three convenience constructors build one of these and hand back an ordinary
+`TrainingDatum` — one per corner of the expansion, so the raw keyword form above is
+only needed for something none of them covers:
+
+| constructor | what it is for |
+|:--|:--|
+| [`spin_datum`](@ref) | spin only, from raw DFT moments (+ constraining field) |
+| [`lattice_datum`](@ref) | lattice only — no magnetic state to give |
+| [`joint_datum`](@ref) | both channels: moments/field **and** a displaced structure |
 """
 struct TrainingDatum
     energy::Float64
@@ -126,7 +133,7 @@ function TrainingDatum(; energy::Real, directions::AbstractMatrix{<:Real},
     mags = collect(Float64, magmoms)
     fld = _mat(field)
     trq = _mat(torques)
-    # Same derivation as the SpinDatum constructor — the two construction paths of one
+    # Same derivation as the spin_datum constructor — the two construction paths of one
     # type must not disagree on the load-bearing torque_qualified gate (a mismatch
     # silently drops hand-built configs' torque rows in a mixed batch). A nonzero
     # field qualifies; explicitly passed torques qualify (the caller owns the
@@ -275,7 +282,7 @@ function crystal_fingerprint(crystal::Crystal)::String
 end
 
 # ----------------------------------------------------------------------------
-# SpinDatum convenience constructors (spin-only TrainingDatum)
+# spin_datum convenience constructors (spin-only TrainingDatum)
 # ----------------------------------------------------------------------------
 
 # Shared derivation: raw per-atom moment vectors → (unit directions, magnitudes).
@@ -299,14 +306,14 @@ function _moments_to_dirs(moments::AbstractMatrix{<:Real};
 end
 
 """
-    SpinDatum(energy, moments, field; zero_moment_atol = 1e-10,
+    spin_datum(energy, moments, field; zero_moment_atol = 1e-10,
               provenance = nothing) -> TrainingDatum
-    SpinDatum(energy, moments; zero_moment_atol = 1e-10,
+    spin_datum(energy, moments; zero_moment_atol = 1e-10,
               provenance = nothing) -> TrainingDatum
 
 Build a spin-only [`TrainingDatum`](@ref) from raw per-atom magnetic moment vectors
 `moments` (`3 × n_atoms`, μ_B) — the convenience entry point for DFT spin data
-(`SpinDatum` names the spin-only special case; the returned value is an ordinary
+(`spin_datum` names the spin-only special case; the returned value is an ordinary
 `TrainingDatum` with no displacement/force channels).
 
 The three-argument form takes the per-atom constraining field `field`
@@ -334,7 +341,7 @@ direction — prefer dropping such configurations. (`SLCEDataset` rejects a
 placeholder on a basis-referenced atom; if you change this tolerance, pass the same
 value to its `zero_moment_atol` so the guard stays aligned.)
 """
-function SpinDatum(energy::Real, moments::AbstractMatrix{<:Real},
+function spin_datum(energy::Real, moments::AbstractMatrix{<:Real},
                    field::AbstractMatrix{<:Real}; zero_moment_atol::Real = 1e-10,
                    provenance::Union{DatumProvenance,Nothing} = nothing)::TrainingDatum
     size(field) == size(moments) ||
@@ -365,7 +372,7 @@ function SpinDatum(energy::Real, moments::AbstractMatrix{<:Real},
                          Matrix{Float64}(field), torq, provenance)
 end
 
-function SpinDatum(energy::Real, moments::AbstractMatrix{<:Real};
+function spin_datum(energy::Real, moments::AbstractMatrix{<:Real};
                    zero_moment_atol::Real = 1e-10,
                    provenance::Union{DatumProvenance,Nothing} = nothing)::TrainingDatum
     dirs, mags = _moments_to_dirs(moments; zero_moment_atol = zero_moment_atol)
@@ -375,19 +382,19 @@ function SpinDatum(energy::Real, moments::AbstractMatrix{<:Real};
 end
 
 """
-    LatticeDatum(energy; displacements = nothing, forces = nothing,
+    lattice_datum(energy; displacements = nothing, forces = nothing,
                  reference = nothing, reference_id = "reference",
                  n_atoms = nothing, provenance = nothing) -> TrainingDatum
 
 A [`TrainingDatum`](@ref) for **spin-free** training data: one energy, a displacement
-field, and the forces that came with it. The counterpart of [`SpinDatum`](@ref) at the
+field, and the forces that came with it. The counterpart of [`spin_datum`](@ref) at the
 other end of the joint expansion.
 
 `TrainingDatum` requires a spin channel, because the package's centre of gravity is a
 spin–lattice expansion and a datum that silently omits its magnetic state is the
 harder failure to diagnose. A lattice-only user has no magnetic state to give, so this
 constructor supplies the inert one: the `ẑ` placeholder direction (the same one
-[`SpinDatum`](@ref) uses for a quenched moment) with **exactly zero** moment
+[`spin_datum`](@ref) uses for a quenched moment) with **exactly zero** moment
 magnitudes. Zero is the load-bearing part. A lattice-only basis references no spin
 site, so the placeholder is never read; feed the same datum to a basis that *does*
 carry spin content and [`SLCEDataset`](@ref)'s zero-moment invariant rejects it by
@@ -400,26 +407,26 @@ displacement channel requires is built for you — `reference_id` plus
 energy-only datum). An explicit `provenance` overrides all of it.
 
 ```julia
-data = [LatticeDatum(E[i]; displacements = u[i], forces = F[i], reference = crystal)
+data = [lattice_datum(E[i]; displacements = u[i], forces = F[i], reference = crystal)
         for i in eachindex(E)]
 ds = SLCEDataset(basis, data)              # use_torque resolves to false by itself
 f  = fit(SLCEFit, ds, OLS(); force_weight = 1.0)
 ```
 """
-function LatticeDatum(energy::Real;
-                      displacements::Union{AbstractMatrix{<:Real},Nothing} = nothing,
-                      forces::Union{AbstractMatrix{<:Real},Nothing} = nothing,
-                      reference::Union{Crystal,Nothing} = nothing,
-                      reference_id::AbstractString = "reference",
-                      n_atoms::Union{Integer,Nothing} = nothing,
-                      provenance::Union{DatumProvenance,Nothing} = nothing)::TrainingDatum
+function lattice_datum(energy::Real;
+                       displacements::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                       forces::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                       reference::Union{Crystal,Nothing} = nothing,
+                       reference_id::AbstractString = "reference",
+                       n_atoms::Union{Integer,Nothing} = nothing,
+                       provenance::Union{DatumProvenance,Nothing} = nothing)::TrainingDatum
     nat = n_atoms !== nothing ? Int(n_atoms) :
           displacements !== nothing ? size(displacements, 2) :
           forces !== nothing ? size(forces, 2) :
           reference !== nothing ? size(reference.frac_positions, 2) :
-          throw(ArgumentError("LatticeDatum: cannot infer the atom count — pass " *
+          throw(ArgumentError("lattice_datum: cannot infer the atom count — pass " *
                               "`displacements`, `forces`, `reference`, or `n_atoms`"))
-    nat > 0 || throw(ArgumentError("LatticeDatum: n_atoms must be ≥ 1; got $nat"))
+    nat > 0 || throw(ArgumentError("lattice_datum: n_atoms must be ≥ 1; got $nat"))
     if provenance === nothing && reference !== nothing
         provenance = DatumProvenance(; reference_id = reference_id,
                                      reference_fingerprint =
@@ -429,6 +436,64 @@ function LatticeDatum(energy::Real;
     return TrainingDatum(; energy = energy, directions = dirs, magmoms = zeros(nat),
                          displacements = displacements, forces = forces,
                          provenance = provenance)
+end
+
+"""
+    joint_datum(energy; moments, field = nothing, displacements = nothing,
+                forces = nothing, reference = nothing, reference_id = "reference",
+                zero_moment_atol = 1e-10, provenance = nothing) -> TrainingDatum
+
+A [`TrainingDatum`](@ref) carrying **both** channels: a magnetic state from raw DFT
+moments and a displaced structure. The third sibling of [`spin_datum`](@ref) and
+[`lattice_datum`](@ref), and the one the joint spin–lattice expansion is actually
+about — a `TrainingDatum(; ...)` written out by hand does the same thing, but leaves
+each caller to redo the two derivations below.
+
+It performs both: the spin side exactly as [`spin_datum`](@ref) (direction
+`e_a = m_a/‖m_a‖`, magnitude `‖m_a‖`, torque `τ_a = m_a × B_a` when `field` is given,
+`ẑ` placeholder below `zero_moment_atol`), and the reference stamp exactly as
+[`lattice_datum`](@ref) (`reference_id` plus [`crystal_fingerprint`](@ref), which the
+displacement channel requires).
+
+Passing both at once is why this exists. The two requirements used to collide: a
+joint datum needs a hand-built [`DatumProvenance`](@ref) for the reference stamp, and
+a hand-built provenance used to drop the torque qualification a nonzero `field`
+earns — so a datum carrying displacements *and* torques failed the dataset build. The
+qualification is derived here from the same evidence as everywhere else and upgraded,
+never revoked.
+
+```julia
+data = [joint_datum(E[i]; moments = m[i], field = B[i],
+                    displacements = u[i], forces = F[i], reference = crystal)
+        for i in eachindex(E)]
+ds = SLCEDataset(basis, data)                       # both channels resolve by themselves
+f  = fit(SLCEFit, ds, OLS(); torque_weight = 0.3, force_weight = 0.3)
+```
+"""
+function joint_datum(energy::Real;
+                     moments::AbstractMatrix{<:Real},
+                     field::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                     displacements::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                     forces::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                     reference::Union{Crystal,Nothing} = nothing,
+                     reference_id::AbstractString = "reference",
+                     zero_moment_atol::Real = 1e-10,
+                     provenance::Union{DatumProvenance,Nothing} = nothing)::TrainingDatum
+    field === nothing || size(field) == size(moments) ||
+        throw(ArgumentError("`field` $(size(field)) must match `moments` " *
+                            "$(size(moments))"))
+    dirs, mags = _moments_to_dirs(moments; zero_moment_atol = zero_moment_atol)
+    if provenance === nothing && reference !== nothing
+        provenance = DatumProvenance(; reference_id = reference_id,
+                                     reference_fingerprint =
+                                         crystal_fingerprint(reference))
+    end
+    # The keyword constructor owns the torque derivation and the upgrade-only
+    # `torque_qualified` gate; both are shared with `spin_datum` so a mixed batch
+    # cannot disagree about which rows are admissible.
+    return TrainingDatum(; energy = energy, directions = dirs, magmoms = mags,
+                         displacements = displacements, forces = forces,
+                         field = field, provenance = provenance)
 end
 
 """
@@ -446,7 +511,7 @@ read_configs(src::AbstractDFTSource) =
 
 # Every atom the SALC basis references must carry a nonzero magnetic moment in every
 # configuration: a quenched (‖m‖ ≈ 0) moment on a referenced atom enters the design
-# matrix through the ẑ placeholder direction of `SpinDatum` and silently biases the
+# matrix through the ẑ placeholder direction of `spin_datum` and silently biases the
 # fit. Unreferenced atoms (species removed with `lmax = 0`, or sites outside every
 # admitted cluster) may be non-magnetic — their moments are never consulted.
 function _check_referenced_moments(basis::SLCEBasis,
@@ -593,7 +658,7 @@ Boundary invariants checked here (all fail loudly rather than bias silently):
 - **Referenced atoms stay magnetic**: every atom the SALC basis references must
   carry a nonzero moment (`> zero_moment_atol`, μ_B) in every configuration — a
   quenched moment would enter the fit through the `ẑ` placeholder direction of
-  [`SpinDatum`](@ref). Atoms the basis never reads are exempt. The guard re-derives
+  [`spin_datum`](@ref). Atoms the basis never reads are exempt. The guard re-derives
   quenched atoms from the stored magnitudes, so if the data were built with a custom
   `zero_moment_atol`, pass the same value here (both default to `1e-10`).
 """

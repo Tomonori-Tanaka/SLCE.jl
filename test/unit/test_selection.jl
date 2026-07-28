@@ -181,7 +181,7 @@ end
         p = [count(==(g), labels) for g = 1:G]
 
         lw0 = cost_weights(basis; theta = 0.0)
-        @test lw0.labels == labels
+        @test lw0.column_groups == labels
         @test lw0.weights == sqrt.(p)                       # exactly √p_g at theta = 0
 
         lw1 = cost_weights(basis; theta = 1.0)

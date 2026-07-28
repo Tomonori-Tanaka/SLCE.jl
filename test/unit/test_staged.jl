@@ -32,9 +32,9 @@ _st_cfg(rng, nat) = reduce(hcat, [_st_unit(rng) for _ = 1:nat])
     # pure spin + coupled + a LATTICE-only sector, so all three channel selectors
     # pick out something (and the affine path has spin-free columns to live on)
     spec = BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-        Sector(spin = (nbody = 1:2,), cutoff = 1.1),
-        Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
-        Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)])
+        Sector(spin = (sites = 1:2,), cutoff = 1.1),
+        Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),
+        Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)])
     basis = SLCEBasis(cr, spec)
     m = n_salcs(basis)
     nat = n_atoms(cr)
@@ -60,10 +60,10 @@ _st_cfg(rng, nat) = reduce(hcat, [_st_unit(rng) for _ = 1:nat])
         # content — the keys the mask keeps are exactly the keys a SOC-less
         # rebuild produces.
         specf = BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-            Sector(spin = (nbody = 1:2,), soc = false, cutoff = 1.1),
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, soc = false,
+            Sector(spin = (sites = 1:2,), soc = false, cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, soc = false,
                    cutoff = 1.1),
-            Sector(disp = (degree = 2,), nbody = 1:2, soc = false, cutoff = 1.1)])
+            Sector(disp = (degree = 2,), sites = 1:2, soc = false, cutoff = 1.1)])
         bfree = SLCEBasis(cr, specf)
         @test bfree.salc_basis.keys == ks[cs[:soc_free]]
         @test all(is_soc_free, bfree.salc_basis.keys)
@@ -259,7 +259,7 @@ _st_cfg(rng, nat) = reduce(hcat, [_st_unit(rng) for _ = 1:nat])
         # a model whose keys come from a DIFFERENT basis: absent keys carrying a
         # nonzero coefficient are refused rather than silently dropped
         bspin = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
         mspin = SLCEModel(bspin, 0.0, ones(n_salcs(bspin)))
         got = _frozen_coefficients(basis, mspin)          # keys are shared here
         @test count(!iszero, got) == n_salcs(bspin)
@@ -270,7 +270,7 @@ _st_cfg(rng, nat) = reduce(hcat, [_st_unit(rng) for _ = 1:nat])
         cr2 = Crystal(Lattice(Matrix(3.2 * I(3))), [1/6 -1/6; 0.0 0.0; 0.0 0.0],
                       [1, 1], ["Fe"])
         b2 = SLCEBasis(cr2, BasisSpec(cr2; lmax = 1, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.2)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.2)]))
         @test_throws ArgumentError _frozen_coefficients(
             basis, SLCEModel(b2, 0.0, ones(n_salcs(b2))))
         # a mask leaving the WHOLE frozen model free freezes nothing — say so
@@ -330,7 +330,7 @@ _st_cfg(rng, nat) = reduce(hcat, [_st_unit(rng) for _ = 1:nat])
               1e-12
         # the selection layer refuses a staged fit rather than mis-costing it
         bspin = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
         ms = SLCEModel(bspin, 0.0, randn(rng, n_salcs(bspin)))
         cfgs = [_st_cfg(rng, nat) for _ = 1:40]
         dss = SLCEDataset(bspin, cfgs, predict_energy(ms, cfgs))

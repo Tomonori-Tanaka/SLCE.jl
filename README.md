@@ -47,7 +47,7 @@ own answer to *does this term need spin–orbit coupling*:
 ```julia
 spec = BasisSpec(crystal;
     lmax = 2, pmax = 2,
-    sectors = [Sector(spin = (nbody = 2:3, lmax = 2), cutoff = 6.0),       # pure spin
+    sectors = [Sector(spin = (sites = 2:3, lmax = 2), cutoff = 6.0),       # pure spin
                Sector(disp = (degree = 2,), cutoff = 6.0),                 # force constants
                Sector(spin = [2, 2], disp = (degree = 1,), cutoff = 4.5)]) # magnetoelastic
 ```
@@ -269,7 +269,7 @@ constrained-noncollinear VASP inputs.)
   is exactly translation-invariant by construction. `identifiability` reports what
   the data cannot determine (torques alone, for instance, are blind to everything
   spin-independent — force constants are not recoverable from them at any weight).
-- **Sunny.jl export** — `to_sunny(model; spins)` builds a real `Sunny.System`
+- **Sunny.jl export** — `to_sunny(model; spin_length)` builds a real `Sunny.System`
   (bilinear exchange + single-ion) for linear spin-wave theory, on the exact training
   supercell or unfolded onto the chemical primitive cell; the conversion math is a
   dependency-free core layer gated by energy reconstruction.

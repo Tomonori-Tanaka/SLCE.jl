@@ -150,7 +150,7 @@ for the textbook Zou form).
 OLS minimum-norm solution puts ~1e-10 noise in the null-space directions, which is
 not floored by `epsilon = eps(Float64)` and miscalibrates those weights. Any pilot is
 allowed, including a cross-validating [`ElasticNet`](@ref) or a [`PrecomputedPilot`](@ref)
-reusing a prior fit's coefficients; the pilot's own solve receives the co-fit `groups`.
+reusing a prior fit's coefficients; the pilot's own solve receives the co-fit `row_groups`.
 
 Penalty strength and the remaining keywords (`lambda`, `standardize`, `nfolds`,
 `select`, `seed`, `nlambda`) behave exactly as in [`ElasticNet`](@ref): `lambda =
@@ -262,7 +262,7 @@ update this reproduces exactly for singleton groups with unit weights).
 
 `column_groups` labels the design-matrix **columns** with contiguous group ids `1:G`
 (every label present; for an SCE fit use `SLCE.salc_groups`); it is unrelated to
-the per-**row** `groups` keyword of [`solve_coefficients`](@ref), which this estimator
+the per-**row** `row_groups` keyword of [`solve_coefficients`](@ref), which this estimator
 ignores. `group_weights` has length `G`. Both vectors are copied at construction.
 `lambda = 0` reduces to [`OLS`](@ref). Like `AdaptiveRidge`, the converged fit is a
 linear smoother in the fixed-weight sense ([`islinear`](@ref) is `true`), so
@@ -347,12 +347,12 @@ islinear(::AdaptiveRidge) = true
 islinear(::GroupAdaptiveRidge) = true
 
 """
-    solve_coefficients(est, X, y; groups = nothing, nullspace = nothing) -> Vector{Float64}
+    solve_coefficients(est, X, y; row_groups = nothing, nullspace = nothing) -> Vector{Float64}
 
 Solve for the SALC coefficients from the (already centered) design matrix `X` and
 target `y`. See [`AbstractEstimator`](@ref) for the `(X, y)` contract.
 
-`groups` is an optional per-row label vector (one entry per row of `X`) marking rows
+`row_groups` is an optional per-row label vector (one entry per row of `X`) marking rows
 that derive from the same physical sample — in an energy+torque co-fit, a
 configuration's energy row and its torque-component rows share a label. Estimators
 that resample rows (cross-validating [`ElasticNet`](@ref) / [`Lasso`](@ref)) keep
@@ -370,20 +370,20 @@ plain γ-space solve already the β-penalized one (`‖β‖ = ‖γ‖`). L1 es
 solve, and L1 on γ is factorization-gauge-dependent.
 """
 function solve_coefficients(est::AbstractEstimator, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing, nullspace = nothing)
+                            row_groups = nothing, nullspace = nothing)
     error("solve_coefficients has no method for $(typeof(est)); load the backend " *
           "package (e.g. `using GLMNet` for Lasso/ElasticNet).")
 end
 
 function solve_coefficients(::OLS, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing, nullspace = nothing)::Vector{Float64}
+                            row_groups = nothing, nullspace = nothing)::Vector{Float64}
     # `nullspace` is inert: the QR min-norm γ maps to the min-norm feasible β
     # (orthonormal Z), so the γ-space OLS IS the constrained OLS.
     return X \ y   # QR-based least squares (more robust than the normal equations)
 end
 
 function solve_coefficients(est::Ridge, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing, nullspace = nothing)::Vector{Float64}
+                            row_groups = nothing, nullspace = nothing)::Vector{Float64}
     # `nullspace` is inert: with orthonormal Z, λ‖γ‖² = λ‖Z·γ‖² = λ‖β‖² — the
     # γ-space ridge is verbatim the β-penalized constrained ridge.
     #
@@ -400,7 +400,7 @@ function solve_coefficients(est::Ridge, X::AbstractMatrix, y::AbstractVector;
 end
 
 function solve_coefficients(est::AdaptiveRidge, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing,
+                            row_groups = nothing,
                             nullspace::Union{Nothing,Matrix{Float64}} = nothing)::Vector{Float64}
     # Exact zero only: at lambda = 0 the penalty diagonal is gone and `XtX` may be
     # singular, so route to the QR (min-norm) OLS path. Any lambda > 0 makes
@@ -506,7 +506,7 @@ function _solve_gar(XtX::Matrix{Float64}, Xty::Vector{Float64}, lambda::Float64,
 end
 
 function solve_coefficients(est::GroupAdaptiveRidge, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing,
+                            row_groups = nothing,
                             nullspace::Union{Nothing,Matrix{Float64}} = nothing)::Vector{Float64}
     ncols_beta = nullspace === nothing ? size(X, 2) : size(nullspace, 1)
     length(est.column_groups) == ncols_beta || throw(DimensionMismatch(
@@ -525,7 +525,7 @@ function solve_coefficients(est::GroupAdaptiveRidge, X::AbstractMatrix, y::Abstr
 end
 
 function solve_coefficients(est::PrecomputedPilot, X::AbstractMatrix, y::AbstractVector;
-                            groups = nothing, nullspace = nothing)::Vector{Float64}
+                            row_groups = nothing, nullspace = nothing)::Vector{Float64}
     nullspace === nothing ||
         throw(ArgumentError("PrecomputedPilot carries a fixed β-space coefficient " *
                             "vector — an ASR-constrained (γ-space) solve is " *

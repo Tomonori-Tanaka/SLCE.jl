@@ -208,6 +208,6 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1], soc = false))
         model = SLCEModel(b, 0.0, zeros(n_salcs(b)), b.salc_basis.keys)
-        @test_throws ErrorException to_sunny(model; spins = 1)
+        @test_throws ErrorException to_sunny(model; spin_length = 1)
     end
 end

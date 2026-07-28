@@ -346,33 +346,33 @@ end
         r = sp.sectors[1]
         @test r.spin_mode == :explicit && r.spin_ls == [1, 1]
         @test r.spin_nsites == (2, 2) && r.disp_degree == (1, 2)
-        @test r.nbody == (2, 4)          # spin pair + up to two degree-1 disp sites
+        @test r.sites == (2, 4)          # spin pair + up to two degree-1 disp sites
         @test r.soc && r.cutoff == fill(5.0, 3, 3)
         @test sp.nbody == 4 && sp.pmax == [0, 2, 0] && sp.soc
         @test sp.disp_scale == 1.0 && sp.lsum == fill(SLCE.LSUM_UNCAPPED, 4)
         @test all(M -> M == fill(5.0, 3, 3), sp.cutoff)      # derived envelope 2:4
-        # single-Int spin, NamedTuple disp, explicit nbody intersection
+        # single-Int spin, NamedTuple disp, explicit sites intersection
         s2 = BasisSpec(_TRUNC_LABELS; lmax = 2, pmax = 2,
                        sectors = Sector(spin = 2, disp = (degree = 1:2,),
-                                        nbody = 1, cutoff = 4.0)).sectors[1]
+                                        sites = 1, cutoff = 4.0)).sectors[1]
         @test s2.spin_mode == :explicit && s2.spin_ls == [2]
-        @test s2.nbody == (1, 1)         # both factors forced onto one site
+        @test s2.sites == (1, 1)         # both factors forced onto one site
         # general-truncation spin sector + sector-local caps
         s3 = BasisSpec(_TRUNC_LABELS; lmax = 3,
-                       sectors = Sector(spin = (nbody = 2:3, lmax = 2, lsum = 4),
+                       sectors = Sector(spin = (sites = 2:3, lmax = 2, lsum = 4),
                                         cutoff = 8.0)).sectors[1]
         @test s3.spin_mode == :any && s3.spin_nsites == (2, 3)
-        @test s3.spin_lmax == 2 && s3.spin_lsum == 4 && s3.nbody == (2, 3)
+        @test s3.spin_lmax == 2 && s3.spin_lsum == 4 && s3.sites == (2, 3)
         @test s3.disp_degree == (0, 0)
         # lattice-only sector; pure-disp needs pmax
         s4 = BasisSpec(_TRUNC_LABELS; lmax = 0, pmax = 4,
                        sectors = Sector(disp = (degree = 2:4,),
                                         cutoff = 6.0)).sectors[1]
         @test s4.spin_mode == :none && s4.spin_nsites == (0, 0)
-        @test s4.disp_degree == (2, 4) && s4.nbody == (1, 4)
+        @test s4.disp_degree == (2, 4) && s4.sites == (1, 4)
         # per-sector pair-table cutoff resolves with the labels
         s5 = BasisSpec(_TRUNC_LABELS; lmax = 1,
-                       sectors = Sector(spin = (nbody = 2,),
+                       sectors = Sector(spin = (sites = 2,),
                                         cutoff = ["Fe-*" => 6.0,
                                                   "*-*" => 8.0])).sectors[1]
         @test s5.cutoff[2, 2] == 6.0 && s5.cutoff[1, 2] == 6.0
@@ -388,7 +388,7 @@ end
     @testset "sector table: envelope, nbody, and validation errors" begin
         # envelope = per-body elementwise max over the admitting sectors
         sp = BasisSpec(_TRUNC_LABELS; lmax = 2, pmax = 2, sectors = [
-            Sector(spin = (nbody = 2,), cutoff = 8.0),
+            Sector(spin = (sites = 2,), cutoff = 8.0),
             Sector(spin = [1, 1], disp = 1:2, cutoff = 5.0),   # bodies 2:4
             Sector(disp = (degree = 2,), cutoff = 6.0)])       # bodies 1:2
         @test sp.nbody == 4
@@ -400,7 +400,7 @@ end
                         sectors = [Sector(spin = [1, 1], disp = 1:2,
                                           cutoff = 5.0)]).nbody == 2
         @test_throws ArgumentError BasisSpec(_TRUNC_LABELS; lmax = 2, nbody = 2,
-            sectors = [Sector(spin = (nbody = 3:4,), cutoff = 5.0)])
+            sectors = [Sector(spin = (sites = 3:4,), cutoff = 5.0)])
         # sugar / consistency errors
         E = ArgumentError
         # `Sector()` itself constructs (sugar is resolved lazily) — the empty
@@ -409,16 +409,16 @@ end
         @test_throws E BasisSpec(_TRUNC_LABELS; lmax = 1,
                                  sectors = [Sector(spin = [1, 2], cutoff = 5.0)])  # Σl odd
         @test_throws E BasisSpec(_TRUNC_LABELS; lmax = 1,
-                                 sectors = [Sector(spin = (lmax = 2,), cutoff = 5.0)])  # no nbody
+                                 sectors = [Sector(spin = (lmax = 2,), cutoff = 5.0)])  # no sites
         @test_throws E BasisSpec(_TRUNC_LABELS; lmax = 1,
-                                 sectors = [Sector(spin = (nbody = 2, bogus = 1),
+                                 sectors = [Sector(spin = (sites = 2, bogus = 1),
                                                    cutoff = 5.0)])
         @test_throws E BasisSpec(_TRUNC_LABELS; lmax = 1, pmax = 2,
                                  sectors = [Sector(disp = (degree = 0:0,),
                                                    cutoff = 5.0)])   # degree hi < 1
         @test_throws E BasisSpec(_TRUNC_LABELS; lmax = 1, pmax = 2,
                                  sectors = [Sector(spin = [1, 1], disp = 1:2,
-                                                   nbody = 5, cutoff = 5.0)])
+                                                   sites = 5, cutoff = 5.0)])
         @test_throws E BasisSpec(_TRUNC_LABELS; lmax = 1, sectors = Sector[])
         # sector-mode keyword rules
         @test_throws E BasisSpec(_TRUNC_LABELS; lmax = 1, cutoff = 5.0,

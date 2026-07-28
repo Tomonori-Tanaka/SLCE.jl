@@ -301,7 +301,7 @@ end
             sc = SLCE.SLCEBasis(cr,
                 SLCE.BasisSpec(cr; lmax = ["Nd" => 2, "Fe" => 1, "B" => 0],
                                lsum = 4,
-                               sectors = [SLCE.Sector(spin = (nbody = 1:2,),
+                               sectors = [SLCE.Sector(spin = (sites = 1:2,),
                                                       cutoff = 3.7, soc = soc)]);
                 backend = SLCE.SpglibBackend())
             @test lg.salc_basis.keys == sc.salc_basis.keys

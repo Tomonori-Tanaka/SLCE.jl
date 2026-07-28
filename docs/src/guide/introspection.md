@@ -41,9 +41,9 @@ using SLCE, LinearAlgebra, Random
 
 cr = Crystal(Lattice(Matrix(3.0 * I(3))), [1/6 -1/6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
 spec = BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-    Sector(spin = (nbody = 1:2,), cutoff = 1.1),                      # pure spin
-    Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),  # coupled
-    Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)])         # force constants
+    Sector(spin = (sites = 1:2,), cutoff = 1.1),                      # pure spin
+    Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),  # coupled
+    Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)])         # force constants
 basis = SLCEBasis(cr, spec)
 model = SLCEModel(basis, 0.0, randn(MersenneTwister(1), n_salcs(basis)))
 
@@ -117,7 +117,7 @@ clamped = restrict(joint, :spin)             # exact: the joint model at u = 0
 
 # the same energies, fitted with no displacement coordinate at all
 sbasis = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
-    Sector(spin = (nbody = 1:2,), cutoff = 1.1)]))
+    Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
 sonly = SLCEModel(fit(SLCEFit, SLCEDataset(sbasis, [d.directions for d in data],
                                            [d.energy for d in data]), OLS()))
 

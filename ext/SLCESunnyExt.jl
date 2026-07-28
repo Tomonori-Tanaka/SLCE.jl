@@ -14,15 +14,16 @@ using StaticArrays
 using LinearAlgebra: dot
 
 # A `label -> S` effective-spin lookup from the user's `spins` (scalar or mapping).
-function _spin_lookup(spins)
+function _spin_lookup(spin_length)
     _checked(s) = (s > 0 ? Float64(s) :
                    error("effective spin S must be positive; got $s"))
-    spins isa Real && (s = _checked(spins); return _ -> s)
-    if spins isa AbstractDict
-        return label -> (haskey(spins, label) ? _checked(spins[label]) :
-                         error("`spins` has no entry for species \"$label\""))
+    spin_length isa Real && (s = _checked(spin_length); return _ -> s)
+    if spin_length isa AbstractDict
+        return label -> (haskey(spin_length, label) ?
+                         _checked(spin_length[label]) :
+                         error("`spin_length` has no entry for species \"$label\""))
     end
-    error("`spins` must be a number or a `species_label => S` Dict")
+    error("`spin_length` must be a number or a `species_label => S` Dict")
 end
 
 # A spin length is "half-integer" when 2s is an integer (Sunny's `Moment` accepts
@@ -78,9 +79,10 @@ _smom(plan::_SpinPlan, type::AbstractString)::Float64 =
 # Resolve `spins` over the crystal's species and pick the scaling route and single-ion
 # mode. `:auto` keys off whether every S_eff is a half-integer: `:moment` + `:dipole`
 # for genuine quantum spins, `:coupling` + `:dipole_uncorrected` for itinerant ones.
-function _resolve_plan(model::SLCEModel, spins, mode::Symbol, scaling::Symbol)::_SpinPlan
+function _resolve_plan(model::SLCEModel, spin_length, mode::Symbol,
+                       scaling::Symbol)::_SpinPlan
     cr = model.basis.crystal
-    lookup = _spin_lookup(spins)
+    lookup = _spin_lookup(spin_length)
     sphys = Float64[lookup(t) for t in cr.species_labels]   # one per species
     half = all(_is_half_integer, sphys)
 
@@ -177,11 +179,11 @@ function _build_primitive(prim::SunnyPrimitive, plan::_SpinPlan, g::Real)
     return sys
 end
 
-function to_sunny(model::SLCEModel; spins, g::Real = 2, mode::Symbol = :auto,
+function to_sunny(model::SLCEModel; spin_length, g::Real = 2, mode::Symbol = :auto,
                   scaling::Symbol = :auto, placement::Symbol = :auto)
     placement in (:auto, :primitive, :explicit) ||
         error("placement must be :auto, :primitive, or :explicit; got $placement")
-    plan = _resolve_plan(model, spins, mode, scaling)
+    plan = _resolve_plan(model, spin_length, mode, scaling)
     local sys, skipped
     if placement === :explicit
         sys, skipped = _build_supercell(model, plan, g)

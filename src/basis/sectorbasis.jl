@@ -9,7 +9,7 @@
 function _sector_orbit_labels(rule::SectorRule, N::Int, species_present::Vector{Int},
                               lmax::Vector{Int}, pmax::Vector{Int},
                               lsumN::Int)::Vector{Vector{SiteDecor}}
-    rule.nbody[1] <= N <= rule.nbody[2] || return Vector{SiteDecor}[]
+    rule.sites[1] <= N <= rule.sites[2] || return Vector{SiteDecor}[]
     lcap_present = maximum(lmax[sp] for sp in species_present)
     pcap_present = maximum(pmax[sp] for sp in species_present)
     # spin multiset candidates
@@ -49,7 +49,7 @@ end
 # sector's species-pair radius (same relative band as `candidate_clusters`).
 function _sector_admits(rule::SectorRule, N::Int,
                         gates::Vector{Tuple{Int,Int,Float64}}, tol::Float64)::Bool
-    rule.nbody[1] <= N <= rule.nbody[2] || return false
+    rule.sites[1] <= N <= rule.sites[2] || return false
     fac = (1 + tol)^2
     for (spa, spb, gate2) in gates
         gate2 <= rule.cutoff[spa, spb]^2 * fac || return false

@@ -354,7 +354,7 @@ function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator
     end
     X, y, xbar, ybar, groups = _assemble_problem(dataset, w, wF, rep)
     _warn_unidentified(dataset.basis, X, rep)
-    gamma = solve_coefficients(estimator, X, y; groups = groups,
+    gamma = solve_coefficients(estimator, X, y; row_groups = groups,
                                nullspace = rep === nothing ? nothing : rep.Z)
     j0 = ybar - dot(xbar, gamma)          # = ȳ − x̄_βᵀβ (γ-space x̄ under rep)
     jphi = rep === nothing ? gamma : rep.beta_p .+ rep.Z * gamma
@@ -487,7 +487,7 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
               "j0 falls back to mean(y_E)." threshold
     elseif rep === nothing
         jphi[support] .= solve_coefficients(estimator, view(X, :, support), y;
-                                            groups = groups)
+                                            row_groups = groups)
     else
         # Constrained / staged refit: the surviving columns form a new stage over
         # the SAME frozen part, so the constraint is re-derived as
@@ -517,7 +517,7 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
             Xs = X * stage.Z
             ys = any(!iszero, stage.beta_p) ? y .- X * stage.beta_p : y
             gamma = solve_coefficients(estimator, Xs, ys;
-                                       groups = groups, nullspace = stage.Z)
+                                       row_groups = groups, nullspace = stage.Z)
             jphi = stage.beta_p .+ stage.Z * gamma
         end
     end

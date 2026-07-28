@@ -134,7 +134,7 @@ A [`TrainingDatum`](@ref) is one configuration's observables: the spin channel
 (directions + moment magnitudes) plus energy are required, everything else —
 displacements, forces, constraining field/torques — is optional, with `nothing`
 meaning *not observed* (distinct from an observed zero). Spin-only data are built
-with the [`SpinDatum`](@ref) convenience constructor; `SpinDatum(energy, moments)`
+with the [`spin_datum`](@ref) convenience constructor; `spin_datum(energy, moments)`
 (no field) covers collinear/Ising configurations and codes without constrained
 noncollinear output, which contribute energy rows only. Each datum carries a
 [`DatumProvenance`](@ref): `torque_qualified` gates whether its torque rows enter a
@@ -157,19 +157,35 @@ force-carrying configuration enter the force design block for a three-block co-f
 ### Lattice-only data
 
 At the other end of the joint expansion sits the user with no magnetic state at all —
-force constants and phonons, nothing spin-dependent. [`LatticeDatum`](@ref) is
-[`SpinDatum`](@ref)'s counterpart for them, and the whole chain then runs without a
+force constants and phonons, nothing spin-dependent. [`lattice_datum`](@ref) is
+[`spin_datum`](@ref)'s counterpart for them, and the whole chain then runs without a
 spin argument anywhere:
 
 ```julia
-data = [LatticeDatum(E[i]; displacements = u[i], forces = F[i], reference = crystal)
+data = [lattice_datum(E[i]; displacements = u[i], forces = F[i], reference = crystal)
         for i in eachindex(E)]
 ds  = SLCEDataset(basis, data)             # use_torque resolves to false by itself
 f   = fit(SLCEFit, ds, OLS(); force_weight = 1.0)
 fcs = force_constants(SLCEModel(f); order = 2)     # `spins` not required either
 ```
 
-`LatticeDatum` fills the mandatory spin channel with the `ẑ` placeholder direction and
+### Both channels at once
+
+The joint case — a magnetic state *and* a displaced structure, the expansion's whole
+reason for existing — is [`joint_datum`](@ref). It does the spin-side derivation of
+[`spin_datum`](@ref) and the reference stamp of [`lattice_datum`](@ref) in one call,
+which is exactly the combination that a hand-written `TrainingDatum(; ...)` has to get
+right twice:
+
+```julia
+data = [joint_datum(E[i]; moments = m[i], field = B[i],
+                    displacements = u[i], forces = F[i], reference = crystal)
+        for i in eachindex(E)]
+ds = SLCEDataset(basis, data)
+f  = fit(SLCEFit, ds, OLS(); torque_weight = 0.3, force_weight = 0.3)
+```
+
+`lattice_datum` fills the mandatory spin channel with the `ẑ` placeholder direction and
 **exactly zero** moment magnitudes. Zero is the load-bearing part: a lattice-only basis
 reads no spin site, so the placeholder is never touched, and feeding the same data to a
 basis that *does* carry spin content trips the zero-moment invariant by name instead of

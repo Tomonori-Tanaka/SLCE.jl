@@ -63,7 +63,7 @@ still carries the inverted reading.
 ```julia
 BasisSpec(crystal; lmax = 2, pmax = ["*" => 0, "Fe" => 3], sectors = [
     Sector(disp = (degree = 2:3,), cutoff = 6.0),                # force constants
-    Sector(spin = (nbody = 2:4, lmax = 2), cutoff = 8.0),        # pure-spin SCE
+    Sector(spin = (sites = 2:4, lmax = 2), cutoff = 8.0),        # pure-spin SCE
     Sector(spin = [1, 1], disp = (degree = 1,), soc = false, cutoff = 5.0)])
 ```
 
@@ -127,9 +127,9 @@ struct BasisSpec
                 size(r.cutoff) == (nkd, nkd) ||
                     throw(ArgumentError("sectors[$i] cutoff matrix is " *
                                         "$(size(r.cutoff)), expected ($nkd, $nkd)"))
-                r.nbody[1] <= nbody ||
+                r.sites[1] <= nbody ||
                     throw(ArgumentError("sectors[$i] admits only body orders " *
-                                        "$(r.nbody[1]):$(r.nbody[2]) but nbody = " *
+                                        "$(r.sites[1]):$(r.sites[2]) but nbody = " *
                                         "$nbody — the sector would contribute " *
                                         "nothing"))
                 r.spin_mode == :explicit &&

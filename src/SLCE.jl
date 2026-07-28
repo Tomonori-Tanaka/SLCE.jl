@@ -91,7 +91,7 @@ include("interop/sunny.jl")
 
 # --- I/O: persistence (TOML model schema), TOML input files, and the code-agnostic DFT
 # data boundary. Concrete DFT-code adapters (e.g. the VASP reader/writer) live in
-# SLCETools.jl; the SCE pipeline only ever sees `SpinDatum` / `SLCEDataset`.
+# SLCETools.jl; the SCE pipeline only ever sees `spin_datum` / `SLCEDataset`.
 include("io/persist.jl")
 include("io/input.jl")
 include("io/dftsource.jl")
@@ -146,8 +146,8 @@ export EffectiveModel, EffectiveTerm, effective_model
 # adding a code touches neither the core nor this export list. The one in-core format
 # is Magesty's EMBSET training set — code-agnostic (it carries exactly what a
 # spin-only TrainingDatum stores), kept here for legacy-data reuse.
-export AbstractDFTSource, TrainingDatum, DatumProvenance, SpinDatum,
-       LatticeDatum, read_configs
+export AbstractDFTSource, TrainingDatum, DatumProvenance,
+       spin_datum, lattice_datum, joint_datum, read_configs
 export crystal_fingerprint
 export write_phonopy, write_alamode
 export EmbsetFile, read_embset

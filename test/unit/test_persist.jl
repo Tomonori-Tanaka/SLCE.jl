@@ -126,9 +126,9 @@ end
         crm = Crystal(Lattice(Matrix(3.0 * I(3))),
                       [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         bm = SLCEBasis(crm, BasisSpec(crm; lmax = 1, pmax = 2, sectors = [
-            Sector(spin = (nbody = 1:2,), cutoff = 1.1),
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1),
-            Sector(disp = (degree = 2,), nbody = 1:2, cutoff = 1.1)]))
+            Sector(spin = (sites = 1:2,), cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)]))
         km = bm.salc_basis.keys
         @test any(k -> any(MR.has_disp, k.decors), km)      # the fixture is decorated
         @test any(k -> k.L_S != k.Lf, km)                   # and L_S is a real field
@@ -194,7 +194,7 @@ end
         b2 = MR._basis_from_doc(doc)
         @test _basis_identical(b2, model.basis)
         # a v4+ document is NOT re-folded (loaded verbatim) — and is already canonical
-        @test Int(MR._to_doc(model)["schema_version"]) == 5
+        @test Int(MR._to_doc(model)["schema_version"]) == MR.PERSIST_SCHEMA_VERSION
     end
 
     @testset "v4 docs back-read through the pure-spin relabel (gate a)" begin
@@ -262,7 +262,7 @@ end
         labels = ["Nd", "Fe", "B"]
         sp = BasisSpec(labels; lmax = 2, pmax = ["*" => 0, "Fe" => 2],
                        sectors = [
-            Sector(spin = (nbody = 2:3, lmax = 2, lsum = 4), cutoff = 8.0),
+            Sector(spin = (sites = 2:3, lmax = 2, lsum = 4), cutoff = 8.0),
             Sector(spin = [1, 1], disp = 1:2, soc = false,
                    cutoff = ["Fe-*" => 6.0, "*-*" => Inf])])
         d = MR._spec_doc(sp)
@@ -287,6 +287,55 @@ end
         spl = MR._spec_from(dl)
         @test spl.soc == false && isempty(spl.sectors)
         @test spl.pmax == [0, 0, 0] && spl.disp_scale == 1.0
+    end
+
+    # The v6 rename (schema tags "scefitting/sce-*" → "slce/*", sector key "nbody" →
+    # "sites") deliberately kept the READ path compatible: breaking an API costs a
+    # call-site edit, breaking the on-disk format strands every model already saved.
+    # Without this test that promise is untested code, and the next refactor drops it.
+    @testset "pre-rename documents still load (schema tags + the v5 sector key)" begin
+        # A SECTOR-CARRYING fixture: the shared `model` above is the dense form, whose
+        # `spec.sectors` is empty — downgrading its (nonexistent) sector table would
+        # make the second half of this test silently vacuous. The `@test` below is the
+        # guard against that happening again.
+        crv = Crystal(Lattice(Matrix(3.0 * I(3))),
+                      [1 / 6 -1 / 6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        bv = SLCEBasis(crv, BasisSpec(crv; lmax = 1, pmax = 2, sectors = [
+            Sector(spin = (sites = 1:2,), cutoff = 1.1),
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1)]))
+        mv = SLCEModel(bv, 0.29, randn(rng, n_salcs(bv)), bv.salc_basis.keys)
+        @test length(bv.spec.sectors) == 2          # the downgrade below is not a no-op
+
+        doc = MR._to_doc(mv)
+        @test doc["schema"] == "slce/model" && Int(doc["schema_version"]) == 6
+        @test all(sec -> haskey(sec, "sites"), doc["spec"]["sectors"])
+
+        # Downgrade to exactly what this package used to write.
+        old = deepcopy(doc)
+        old["schema"] = "scefitting/sce-model"
+        old["schema_version"] = 5
+        for sec in old["spec"]["sectors"]
+            sec["nbody"] = sec["sites"]             # the v5 spelling
+            delete!(sec, "sites")
+        end
+        @test all(sec -> haskey(sec, "nbody") && !haskey(sec, "sites"),
+                  old["spec"]["sectors"])
+
+        m2 = MR._model_from_doc(old)
+        @test m2.jphi == mv.jphi && m2.j0 == mv.j0 && m2.keys == mv.keys
+        b2 = MR._basis_from_doc(old)
+        @test _basis_identical(b2, bv)
+        @test b2.spec == bv.spec                    # sector table survives the key rename
+        @test [r.sites for r in b2.spec.sectors] == [r.sites for r in bv.spec.sectors]
+
+        # the basis tag is accepted the same way
+        oldb = deepcopy(MR._to_doc(bv))
+        oldb["schema"] = "scefitting/sce-basis"
+        oldb["schema_version"] = 5
+        @test _basis_identical(MR._basis_from_doc(oldb), bv)
+        # ...and a tag that was never ours is still refused
+        bogus = deepcopy(doc); bogus["schema"] = "scefitting/sce-notathing"
+        @test_throws ArgumentError MR._basis_from_doc(bogus)
     end
 
     @testset "-0.0 is normalized to +0.0 on write" begin

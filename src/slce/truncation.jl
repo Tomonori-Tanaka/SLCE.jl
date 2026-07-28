@@ -251,7 +251,7 @@ _superset_cutoff(sp)::Matrix{Float64} =
 
 """
     Sector(; spin = nothing, disp = nothing, soc = true, cutoff = Inf,
-           nbody = nothing)
+           sites = nothing)
 
 One row of a [`BasisSpec`](@ref) sector table — a family of decorated-cluster
 labels admitted into the joint spin–lattice basis. The truncation is the
@@ -264,8 +264,8 @@ truncation table), intersected with the spec-global per-species caps
   - an `Int` or a `Vector{Int}` multiset (e.g. `[1, 1]`): exactly these
     tesseral ranks, one per spin-decorated site. `Σl` must be even — the
     time-reversal screen; an odd multiset can never enter the basis;
-  - a NamedTuple `(nbody = 2:4, lmax = 3, lsum = 6)`: every even-`Σl` rank
-    multiset over that many spin-decorated sites (`nbody`, an `Int` or range,
+  - a NamedTuple `(sites = 2:4, lmax = 3, lsum = 6)`: every even-`Σl` rank
+    multiset over that many spin-decorated sites (`sites`, an `Int` or range,
     required), per-site rank ≤ `lmax` (optional; intersected with the
     per-species `lmax`), `Σl ≤ lsum` (optional).
 - `disp` — the displacement-factor content: `nothing` (a clamped, `p = 0`
@@ -283,12 +283,22 @@ truncation table), intersected with the spec-global per-species caps
   table (`["Fe-*" => 6.0, "*-*" => 8.0]`, resolved like the [`BasisSpec`](@ref)
   cutoff sugar); every cluster edge must be within it. `Inf` = every cluster
   the crystal resolves (see [`MinimumImage`](@ref)).
-- `nbody` — optional total decorated-site count (`Int` or range). Default:
+- `sites` — optional total decorated-site count (`Int` or range). Default:
   every body order realizable from the `spin`/`disp` content — note a site may
   carry a spin factor AND a displacement factor, so e.g. `spin = [2]`,
   `disp = (degree = 1:2,)` realizes body orders 1 (both factors on one site)
   through 3 (the spin site plus two degree-1 displacement sites); pass
-  `nbody = 1` for the on-site SOC sector.
+  `sites = 1` for the on-site SOC sector.
+
+!!! warning "`sites` is a per-sector site *count*, not [`BasisSpec`](@ref)'s `nbody` cap"
+    An `Int` here means **exactly** that many decorated sites — `sites = 3` is a
+    3-body sector, not "up to 3-body". `BasisSpec(; nbody = 3)` means the
+    opposite: body orders `1:3`. That is why this knob is not called `nbody`;
+    under the old spelling, carrying the `BasisSpec` habit into a sector row
+    (`Sector(spin = (sites = 1:3,), sites = 3)`) silently dropped every 1- and
+    2-body spin term, and the fit still ran and still reported a good `R²` on a
+    basis that could not express exchange. Write a range (`sites = 1:3`) for
+    "up to".
 
 A `Sector` is unresolved sugar; the [`BasisSpec`](@ref) constructor resolves it
 against the species labels into the dense canonical [`SLCE.SectorRule`](@ref)
@@ -299,15 +309,15 @@ struct Sector
     disp::Any
     soc::Bool
     cutoff::Any
-    nbody::Any
+    sites::Any
 end
 
 Sector(; spin = nothing, disp = nothing, soc::Bool = true, cutoff = Inf,
-       nbody = nothing) = Sector(spin, disp, soc, cutoff, nbody)
+       sites = nothing) = Sector(spin, disp, soc, cutoff, sites)
 
 Base.:(==)(a::Sector, b::Sector) =
     isequal(a.spin, b.spin) && isequal(a.disp, b.disp) && a.soc == b.soc &&
-    isequal(a.cutoff, b.cutoff) && isequal(a.nbody, b.nbody)
+    isequal(a.cutoff, b.cutoff) && isequal(a.sites, b.sites)
 
 function Base.show(io::IO, s::Sector)
     parts = String[]
@@ -315,7 +325,7 @@ function Base.show(io::IO, s::Sector)
     s.disp === nothing || push!(parts, "disp = $(repr(s.disp))")
     s.soc || push!(parts, "soc = false")
     s.cutoff isa Real && isinf(s.cutoff) || push!(parts, "cutoff = $(repr(s.cutoff))")
-    s.nbody === nothing || push!(parts, "nbody = $(repr(s.nbody))")
+    s.sites === nothing || push!(parts, "sites = $(repr(s.sites))")
     print(io, "Sector(", join(parts, ", "), ")")
 end
 
@@ -333,7 +343,7 @@ The resolved, dense canonical form of one [`Sector`](@ref) row, stored in
   `Σl` cap for `:any` (`LSUM_UNCAPPED` = uncapped);
 - `disp_degree::Tuple{Int,Int}` — `(lo, hi)` total displacement degree
   `Σ(2k + l)`; `(0, 0)` = no displacement factors;
-- `nbody::Tuple{Int,Int}` — `(lo, hi)` total decorated-site count;
+- `sites::Tuple{Int,Int}` — `(lo, hi)` total decorated-site count;
 - `soc::Bool` — `false` keeps only the `L_S = 0` blocks;
 - `cutoff::Matrix{Float64}` — the resolved species-pair admission radii (Å).
 
@@ -347,14 +357,14 @@ struct SectorRule
     spin_lmax::Int
     spin_lsum::Int
     disp_degree::Tuple{Int,Int}
-    nbody::Tuple{Int,Int}
+    sites::Tuple{Int,Int}
     soc::Bool
     cutoff::Matrix{Float64}
 
     function SectorRule(spin_mode::Symbol, spin_ls::Vector{Int},
                         spin_nsites::Tuple{Int,Int}, spin_lmax::Int,
                         spin_lsum::Int, disp_degree::Tuple{Int,Int},
-                        nbody::Tuple{Int,Int}, soc::Bool,
+                        sites::Tuple{Int,Int}, soc::Bool,
                         cutoff::Matrix{Float64})
         spin_mode in (:none, :explicit, :any) ||
             throw(ArgumentError("spin_mode must be :none, :explicit, or :any; " *
@@ -395,8 +405,8 @@ struct SectorRule
                                 "0 ≤ lo ≤ hi with hi ≥ 1; got $disp_degree"))
         spin_mode == :none && disp_degree == (0, 0) &&
             throw(ArgumentError("a sector needs spin and/or displacement content"))
-        1 <= nbody[1] <= nbody[2] ||
-            throw(ArgumentError("nbody must satisfy 1 ≤ lo ≤ hi; got $nbody"))
+        1 <= sites[1] <= sites[2] ||
+            throw(ArgumentError("sites must satisfy 1 ≤ lo ≤ hi; got $sites"))
         size(cutoff, 1) == size(cutoff, 2) ||
             throw(ArgumentError("sector cutoff matrix is $(size(cutoff)), " *
                                 "expected square"))
@@ -405,7 +415,7 @@ struct SectorRule
         all(v -> !isnan(v) && v >= 0, cutoff) ||
             throw(ArgumentError("sector cutoff entries must be ≥ 0 or Inf"))
         return new(spin_mode, copy(spin_ls), spin_nsites, spin_lmax, spin_lsum,
-                   disp_degree, nbody, soc, copy(cutoff))
+                   disp_degree, sites, soc, copy(cutoff))
     end
 end
 
@@ -413,7 +423,7 @@ Base.:(==)(a::SectorRule, b::SectorRule) =
     a.spin_mode == b.spin_mode && a.spin_ls == b.spin_ls &&
     a.spin_nsites == b.spin_nsites && a.spin_lmax == b.spin_lmax &&
     a.spin_lsum == b.spin_lsum && a.disp_degree == b.disp_degree &&
-    a.nbody == b.nbody && a.soc == b.soc && a.cutoff == b.cutoff
+    a.sites == b.sites && a.soc == b.soc && a.cutoff == b.cutoff
 
 _rangestr(t::Tuple{Int,Int}) = t[1] == t[2] ? string(t[1]) : "$(t[1]):$(t[2])"
 
@@ -424,13 +434,13 @@ function Base.show(io::IO, r::SectorRule)
         caps = String[]
         r.spin_lmax == LSUM_UNCAPPED || push!(caps, "lmax = $(r.spin_lmax)")
         r.spin_lsum == LSUM_UNCAPPED || push!(caps, "lsum = $(r.spin_lsum)")
-        push!(parts, "spin = (nbody = $(_rangestr(r.spin_nsites))" *
+        push!(parts, "spin = (sites = $(_rangestr(r.spin_nsites))" *
                      (isempty(caps) ? "" : ", " * join(caps, ", ")) * ")")
     end
     r.disp_degree == (0, 0) ||
         push!(parts, "disp degree = $(_rangestr(r.disp_degree))")
     r.soc || push!(parts, "soc = false")
-    push!(parts, "nbody = $(_rangestr(r.nbody))")
+    push!(parts, "sites = $(_rangestr(r.sites))")
     c = r.cutoff
     push!(parts, all(==(c[1, 1]), c) ? "cutoff = $(c[1, 1]) Å" : "cutoff = per-pair")
     print(io, "SectorRule(", join(parts, ", "), ")")
@@ -480,11 +490,11 @@ function _resolve_sector(s::Sector, nkd::Int, labels::Vector{String},
         spin_mode = :explicit
         spin_nsites = (length(spin_ls), length(spin_ls))
     elseif s.spin isa NamedTuple
-        _check_nt_keys(s.spin, (:nbody, :lmax, :lsum), "$ctx spin")
-        haskey(s.spin, :nbody) ||
-            throw(ArgumentError("$ctx spin: the NamedTuple form needs `nbody` " *
+        _check_nt_keys(s.spin, (:sites, :lmax, :lsum), "$ctx spin")
+        haskey(s.spin, :sites) ||
+            throw(ArgumentError("$ctx spin: the NamedTuple form needs `sites` " *
                                 "(an Int or range of spin-decorated site counts)"))
-        spin_nsites = _resolve_intrange(s.spin.nbody, "$ctx spin nbody"; lo_min = 1)
+        spin_nsites = _resolve_intrange(s.spin.sites, "$ctx spin sites"; lo_min = 1)
         if haskey(s.spin, :lmax)
             v = s.spin.lmax
             v isa Integer && v >= 1 ||
@@ -501,7 +511,7 @@ function _resolve_sector(s::Sector, nkd::Int, labels::Vector{String},
     else
         throw(ArgumentError("$ctx spin: unsupported form $(typeof(s.spin)) — use " *
                             "nothing, a rank multiset like [1, 1], or a NamedTuple " *
-                            "like (nbody = 2:4, lmax = 3)"))
+                            "like (sites = 2:4, lmax = 3)"))
     end
     # --- displacement content ---
     if s.disp === nothing
@@ -529,13 +539,13 @@ function _resolve_sector(s::Sector, nkd::Int, labels::Vector{String},
     dlo = disp_degree[1] > 0 ? 1 : 0
     dhi = disp_degree[2]
     derived = (max(1, spin_nsites[1], dlo), spin_nsites[2] + dhi)
-    if s.nbody === nothing
-        nbody = derived
+    if s.sites === nothing
+        sites = derived
     else
-        e = _resolve_intrange(s.nbody, "$ctx nbody"; lo_min = 1)
-        nbody = (max(e[1], derived[1]), min(e[2], derived[2]))
-        nbody[1] <= nbody[2] ||
-            throw(ArgumentError("$ctx: nbody = $(repr(s.nbody)) is incompatible " *
+        e = _resolve_intrange(s.sites, "$ctx sites"; lo_min = 1)
+        sites = (max(e[1], derived[1]), min(e[2], derived[2]))
+        sites[1] <= sites[2] ||
+            throw(ArgumentError("$ctx: sites = $(repr(s.sites)) is incompatible " *
                                 "with the spin/disp content (realizable body " *
                                 "orders $(derived[1]):$(derived[2]))"))
     end
@@ -544,7 +554,7 @@ function _resolve_sector(s::Sector, nkd::Int, labels::Vector{String},
         fill(_check_cutoff_value(s.cutoff, "$ctx cutoff"), nkd, nkd) :
         _resolve_pair_table(s.cutoff, nkd, labels, "$ctx cutoff")
     return SectorRule(spin_mode, spin_ls, spin_nsites, spin_lmax, spin_lsum,
-                      disp_degree, nbody, s.soc, M)
+                      disp_degree, sites, s.soc, M)
 end
 
 # Resolve the whole sector table; returns (rules, nbody, cutoff_envelope) with
@@ -561,18 +571,18 @@ function _resolve_sectors(sectors, nkd::Int, labels::Vector{String},
     isempty(secs) && throw(ArgumentError("sectors must be nonempty"))
     rules = SectorRule[_resolve_sector(s, nkd, labels, i)
                        for (i, s) in enumerate(secs)]
-    derived = maximum(r.nbody[2] for r in rules)
+    derived = maximum(r.sites[2] for r in rules)
     nbody = nbody_kw === nothing ? derived : Int(nbody_kw)
     nbody >= 1 || throw(ArgumentError("nbody must be ≥ 1; got $nbody"))
     for (i, r) in enumerate(rules)
-        r.nbody[1] <= nbody ||
+        r.sites[1] <= nbody ||
             throw(ArgumentError("sectors[$i] admits only body orders " *
-                                "$(_rangestr(r.nbody)) but nbody = $nbody — the " *
+                                "$(_rangestr(r.sites)) but nbody = $nbody — the " *
                                 "sector would contribute nothing"))
     end
     envelope = Matrix{Float64}[zeros(nkd, nkd) for _ = 2:nbody]
     for N = 2:nbody, r in rules
-        r.nbody[1] <= N <= r.nbody[2] || continue
+        r.sites[1] <= N <= r.sites[2] || continue
         envelope[N - 1] .= max.(envelope[N - 1], r.cutoff)
     end
     return rules, nbody, envelope

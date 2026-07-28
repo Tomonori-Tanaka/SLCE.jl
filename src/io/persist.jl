@@ -16,8 +16,13 @@ library — no external dependency; Float64 round-trips exactly) by [`save`](@re
 [`load`](@ref).
 """
 
-const _SCHEMA_BASIS = "scefitting/sce-basis"
-const _SCHEMA_MODEL = "scefitting/sce-model"
+const _SCHEMA_BASIS = "slce/basis"
+const _SCHEMA_MODEL = "slce/model"
+# Documents written before the package was renamed carry the old tags. Reading
+# them costs two dictionary entries; refusing them would strand every model
+# already saved to disk, which is a different thing from an API rename.
+const _LEGACY_SCHEMA_TAGS = Dict("scefitting/sce-basis" => _SCHEMA_BASIS,
+                                 "scefitting/sce-model" => _SCHEMA_MODEL)
 # v2: the basis-spec section key renamed "interaction" → "spec" (with the SLCEBasis field).
 # v3: BasisSpec canonical truncation — "pair_cutoff" replaced by per-body-order
 #     "cutoff" matrices (species × species, Inf = no cutoff), plus "lsum" (per body
@@ -36,8 +41,12 @@ const _SCHEMA_MODEL = "scefitting/sce-model"
 #     The spec section stores "soc" (= !isotropy), "pmax", "disp_scale", and the
 #     resolved "sectors" table; legacy "isotropy"-keyed spec docs are still
 #     readable (`_spec_from` branches on the "soc" key, not the version).
-const PERSIST_SCHEMA_VERSION = 5
-const _PERSIST_READABLE_VERSIONS = (2, 3, 4, 5)
+# v6: the sector-table key "nbody" renamed "sites" (a per-sector decorated-site
+#     COUNT, never the BasisSpec-style body-order cap), and the schema tags moved
+#     from "scefitting/sce-*" to "slce/*". Early-v5 documents are read through the
+#     legacy key and the legacy tags.
+const PERSIST_SCHEMA_VERSION = 6
+const _PERSIST_READABLE_VERSIONS = (2, 3, 4, 5, 6)
 
 # Normalize -0.0 → +0.0 so two builds of the same object serialize byte-identically
 # (eigensolvers on different BLAS can flip a sign of zero); -0.0 == 0.0 anyway.
@@ -101,7 +110,7 @@ _sector_doc(r::SectorRule) = Dict{String,Any}(
     "spin_lmax" => r.spin_lmax,                             # typemax(Int64) = uncapped
     "spin_lsum" => r.spin_lsum,                             # typemax(Int64) = uncapped
     "disp_degree" => Int[r.disp_degree...],
-    "nbody" => Int[r.nbody...],
+    "sites" => Int[r.sites...],
     "soc" => r.soc,
     "cutoff" => _cutoff_rows(r.cutoff))
 
@@ -249,7 +258,8 @@ _sector_from(d)::SectorRule =
     SectorRule(Symbol(String(d["spin_mode"])), _intvec(d["spin_ls"]),
                _tuple2(d["spin_nsites"]), Int(d["spin_lmax"]),
                Int(d["spin_lsum"]), _tuple2(d["disp_degree"]),
-               _tuple2(d["nbody"]), Bool(d["soc"]), _cutoff_matrix(d["cutoff"]))
+               _tuple2(haskey(d, "sites") ? d["sites"] : d["nbody"]),   # v5 key
+               Bool(d["soc"]), _cutoff_matrix(d["cutoff"]))
 
 function _spec_from(d)::BasisSpec
     nbody = Int(d["nbody"])
@@ -274,6 +284,7 @@ end
 
 function _check_schema(d, allowed::Tuple)
     s = get(d, "schema", nothing)
+    s = get(_LEGACY_SCHEMA_TAGS, s, s)          # pre-rename documents
     s in allowed ||
         throw(ArgumentError("unexpected schema $(repr(s)); expected one of $(allowed)"))
     v = get(d, "schema_version", nothing)

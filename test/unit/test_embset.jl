@@ -1,5 +1,5 @@
 # The EMBSET reader (src/io/embset.jl): Magesty's legacy training-set format into
-# SpinDatum. The format rules (comment/blank filtering, block-shape auto-detection,
+# spin_datum. The format rules (comment/blank filtering, block-shape auto-detection,
 # ≥7-column atom lines, index-column check) are pinned here on hand-written files;
 # agreement with Magesty's own reader is pinned in test/oracle (which carries the
 # pinned Magesty dependency the core suite deliberately omits).

@@ -74,10 +74,10 @@ _rc_unit(rng) = normalize(randn(rng, 3))
         cs = build_clusters(cr, nl, sg; nbody = 3)
         mkspec(soc_pair) = BasisSpec(cr; lmax = ["Fe" => 1, "O" => 0],
                                      pmax = ["Fe" => 1, "O" => 1], sectors = [
-            Sector(spin = [1, 1], nbody = 2, cutoff = 2.1, soc = soc_pair),
-            Sector(spin = [1, 1], disp = (degree = 1,), nbody = 2, cutoff = 2.1,
+            Sector(spin = [1, 1], sites = 2, cutoff = 2.1, soc = soc_pair),
+            Sector(spin = [1, 1], disp = (degree = 1,), sites = 2, cutoff = 2.1,
                    soc = false),
-            Sector(spin = [1, 1], disp = (degree = 1,), nbody = 3, cutoff = 2.3,
+            Sector(spin = [1, 1], disp = (degree = 1,), sites = 3, cutoff = 2.3,
                    soc = false)])
         # (odd max displacement degree ⇒ the boundedness warning must fire)
         spec0 = @test_logs (:warn, r"odd") mkspec(false)
@@ -160,7 +160,7 @@ _rc_unit(rng) = normalize(randn(rng, 3))
         cs = build_clusters(cr, nl, sg; nbody = 2)
         spec = @test_logs (:warn, r"odd") BasisSpec(cr;
             lmax = ["Fe" => 2, "O" => 0], pmax = ["Fe" => 0, "O" => 1],
-            sectors = [Sector(spin = [2], disp = (degree = 1,), nbody = 2,
+            sectors = [Sector(spin = [2], disp = (degree = 1,), sites = 2,
                               cutoff = 2.1)])
         b = SLCE.build_salc_basis(cr, sg, cs, spec; neighbors = nl)
         @test length(b.salcs) == 2
@@ -219,7 +219,7 @@ _rc_unit(rng) = normalize(randn(rng, 3))
         nlB = build_neighbor_list(xtalB, 1.1)
         csB = build_clusters(xtalB, nlB, sgB; nbody = 2)
         mkspec(soc) = BasisSpec(xtalB; lmax = 1, pmax = 1, sectors = [
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1,
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1,
                    soc = soc)])
         b = SLCE.build_salc_basis(xtalB, sgB, csB, mkspec(true); neighbors = nlB)
         @test length(b.salcs) == 9
@@ -278,7 +278,7 @@ _rc_unit(rng) = normalize(randn(rng, 3))
         csB = build_clusters(xtalB, nlB, sgB; nbody = 2)
         spec = BasisSpec(xtalB; lmax = 1, pmax = 2, sectors = [
             Sector(disp = (degree = 2,), cutoff = 1.1),
-            Sector(spin = [1, 1], disp = (degree = 2,), nbody = 2, cutoff = 1.1,
+            Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1,
                    soc = false)])
         b = SLCE.build_salc_basis(xtalB, sgB, csB, spec; neighbors = nlB)
         @test !isempty(b.salcs)
