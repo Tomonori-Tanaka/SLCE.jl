@@ -335,10 +335,11 @@ capability consumed by both the introspection and the Sunny interop.
   (`has_force`, `residuals_force`, `rss_force`, `r2_force`, `rmse_force`)
   mirror the torque block with uncentered baselines. Joint predicts
   `predict_energy/torque/force(model, e, u)`; the 2-arg forms refuse a joint
-  model (no silent `u = 0`). The selection layer stays force-unaware by
-  design (channel-split `group_costs` is future work): `cross_validate` /
-  `select_fit` score energy(+torque) only, `select_support` rejects force
-  co-fits. Gate (j) at model level + synthetic recovery plan A:
+  model (no silent `u = 0`). The selection layer stays force-unaware:
+  `cross_validate` / `select_fit` score energy(+torque) only, `select_support`
+  rejects force co-fits. (`group_costs` itself now handles joint bases —
+  the remaining gap is the scorers' three-block objective and force-presence
+  fold strata.) Gate (j) at model level + synthetic recovery plan A:
   `test/unit/test_jointdata.jl`.
 - **ASR — exact translation-invariance constraints (M3 slice 4)**: `A·β = 0`
   enforced by null-space reparameterization `β = Z·γ` (design record §6 +
@@ -363,7 +364,9 @@ capability consumed by both the introspection and the Sunny interop.
   reject); `refit` re-derives `null(A[:, S])` on its support;
   `dof = p − rank(A) + 1`, `effective_dof`/`gcv` whiten by Cholesky
   congruence, GCV's `n` excludes zero-weight rows;
-  `select_fit`/`select_support` reject joint bases (pure-spin cost model).
+  `select_fit`/`select_support` refuse to run *under* a reparameterization
+  (unconstrained cached Gram + β-indexed alive rule), but `select_fit(...; asr =
+  false)` selects a deliberately unconstrained joint model end to end.
   Gates (k): `test/unit/test_asr.jl` — symbolic ≡ numerical rank +
   subspace agreement, forbidden band, translation invariance and per-config
   `Σ_a f_a = 0` at physical `t` after `fit` AND after `refit`, the
@@ -661,9 +664,15 @@ capability consumed by both the introspection and the Sunny interop.
   constructor) — unrelated to the per-row `row_groups` kwarg of `solve_coefficients`. The
   weight map `_gar_weights!` is the single definition shared with the GCV diagnostics.
 - **Basis helpers** (`fitting/selection.jl`; public, unexported): `salc_groups(basis)`
-  — column → group labels by `(body, orbit_id, ls)`, the granularity at which MC
-  contraction entries vanish; `group_costs(basis, column_groups)` — per-group distinct-entry
-  union count over canonical members (additive across the `salc_groups` partition);
+  — column → group labels by `(body, orbit_id, decors)`, the granularity at which MC
+  contraction entries vanish; `group_costs(basis, column_groups)` — per-group summed
+  **slot count** over the distinct entries `(atoms, shifts, slotkeys, index)` in the
+  union over canonical members (additive across the `salc_groups` partition, and under
+  any coarser one). The slot factor is the number of **site** programs
+  `_push_term_programs!` emits per entry (`nnz · length(slots)`, walked every sweep);
+  the bare entry count is the size of the separate **energy** program, walked once per
+  run, so counting it mis-ranked across body orders. Joint (displacement-decorated)
+  bases are supported — the slot-keyed entry is what makes them well-defined;
   `cost_weights(basis; cost_exponent)` — `v_g = √p_g·(c_g/c̄)^θ` with `θ = cost_exponent
   ∈ [0, 1]`, tilting the
   penalty from cost-blind to cost-proportional. Convenience constructor

@@ -130,6 +130,18 @@ than trusting a flag. `asr = false` fits unconstrained, for ablations only: on
 noisy data the resulting model demonstrably gains energy under rigid
 translations.
 
+`asr` threads through [`cross_validate`](@ref) and [`select_fit`](@ref) to every fit
+they run. For the two λ/threshold path drivers it is more than a knob: they solve on a
+cached **unconstrained** Gram and decide alive groups by a β-indexed magnitude rule, so
+they refuse to run *under* a reparameterization — a path that ignored the constraint
+would report a support the constrained solve never chose. Selecting a joint model with
+them therefore means selecting a deliberately unconstrained one
+(`select_fit(...; asr = false)`, and a fit made with `asr = false` for
+[`select_support`](@ref)); the selected fit is re-solved cold with the same `asr`, so a
+plain `fit` call reproduces it. For a constrained joint model, use
+[`cross_validate`](@ref) (which fits constrained per fold) and [`refit`](@ref) (which
+re-derives the null space on the support) directly.
+
 The constraint is not only about physical propriety — it is often what makes the
 fit *identifiable at all*. Displacement samples that leave the center of mass
 fixed (the natural DFT protocol) cannot see the translation-violating directions:
@@ -312,7 +324,8 @@ realizes exactly the support the path reported.)
 The convenience constructor bundles `SLCE.salc_groups` (the column → group
 labels) with `SLCE.cost_weights`, which sets the fixed per-group weights to
 ``v_g = \sqrt{p_g}\,(c_g/\bar c)^\theta`` — ``c_g`` being the group's a-priori
-Monte-Carlo cost (its distinct contraction entries, `SLCE.group_costs`), and ``\theta``
+Monte-Carlo sweep cost (`SLCE.group_costs`: over its distinct contraction entries, the
+summed number of site programs each one costs the sweep), and ``\theta``
 the `cost_exponent` keyword. Two independent knobs shape the cost–accuracy trade:
 
 - **`cost_exponent ∈ [0, 1]`** (the ``\theta`` above) tilts the *penalty*: `0` ignores

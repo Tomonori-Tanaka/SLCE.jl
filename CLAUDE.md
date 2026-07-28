@@ -412,8 +412,15 @@ Easy to break silently — confirm before touching the algorithm.
   `torque_config` (`_assemble_problem` does, via its `tblock`/`fblock` searchsorted
   counts), never off `3·n_atoms`. The selection layer has NO `force_weight`
   yet: `cross_validate`/`select_fit` score energy(+torque) only (documented), and
-  `select_support` rejects a force co-fit outright — extending any of them means adding
-  force-presence strata AND the channel-split `group_costs` (design record §6).
+  `select_support` rejects a force co-fit outright. Extending them means force-presence
+  fold strata (`_grouped_folds` currently takes a `Bool` stratum and deals `true`
+  first — the deal ORDER is load-bearing for seed reproducibility, so generalizing to
+  multiple strata must keep it), a force fold cap alongside the torque one, the
+  three-block score in all of `select_support` / `cross_validate`, `rmse_force` on the
+  public `SupportPath` / `CVResult` (both Tables sources with pinned column tuples) —
+  and `select_support`'s `_assemble_problem(f.dataset, w)` must gain the `wF` argument
+  `refit` already passes, or its magnitudes and the `threshold` it hands `refit` are in
+  different units. `group_costs` no longer blocks any of this (it handles joint bases).
 - **ASR constraint chain** (`fitting/asr.jl` builder ↔ `basis/SolidHarmonics.jl`
   `solid_harmonic_poly` ↔ `slce/model.jl` `SLCEDataset.asr`/`ASRReparam` ↔
   `fitting/fit.jl` `_assemble_problem`/`fit`/`refit` ↔ `fitting/estimators.jl`
@@ -464,7 +471,17 @@ Easy to break silently — confirm before touching the algorithm.
   identity `size(Z, 2) == p − rank` therefore holds only for a basis-level
   reparameterization, NOT for a stage. `SLCEFit.reparam` is what every re-derivation
   (`refit`/`gcv`/`effective_dof`/`identifiability`/`dof`) must read — reading
-  `dataset.asr` instead silently re-assembles a staged fit as an unstaged one. Whether
+  `dataset.asr` instead silently re-assembles a staged fit as an unstaged one.
+  **Asking "is this fit staged?" is `_is_staged(f)` (`fitting/fit.jl`), never
+  `f.reparam !== nothing`** — `fit` stores the DATASET's reparameterization for an
+  ordinary constrained fit and only substitutes a freshly built one for a stage, so the
+  question is object identity against `f.dataset.asr` and the three states are
+  unconstrained (`nothing`, including a deliberate `asr = false` on a joint basis) /
+  plain ASR / staged. The `!== nothing` shortcut reads true for every plain joint fit;
+  that is how `select_support` came to tell unstaged callers their fit was staged, and
+  the regression is pinned by the error TEXT in `test/unit/test_asr.jl` (a type-only
+  `@test_throws ArgumentError` cannot see it — the fixture there was a force co-fit
+  hitting a different refusal entirely). Whether
   the frozen part counts as ASR-satisfying is the RELATIVE `asr_residual` measure, not
   `A·β == 0`: a fitted stage leaves ~1e-16, and treating that as a violation sends the
   next stage down the affine path where a roundoff-sized right-hand side is generically
@@ -615,13 +632,36 @@ Easy to break silently — confirm before touching the algorithm.
   `cross_validate`'s holdout score share the prediction-space convention
   (`y_E − (j0 + X_E·jϕ)`, `y_T − X_T·jϕ`, combined as `(1−w)·MSE_E + w·MSE_T`) —
   change `fit`'s objective normalization and both scores must follow.
-  `salc_groups`/`group_costs` assume sorted
-  `SALCBasis.keys` and canonical (v4) members; the entry key `(atoms, shifts, ls, index)`
-  mirrors what the SLCEMonteCarlo adjacency merge folds — change either representation
-  and re-check the brute-force union test (`test_selection.jl` "group_costs: brute-force
-  union, additivity, validation"). The cross-package half — that `Σ_{g alive} c_g` really
-  equals SLCEMonteCarlo's contraction-entry count — has been confirmed **by hand once**, on
-  l044; there is no script and SLCEMonteCarlo references neither `salc_groups` nor
+  `salc_groups`/`group_costs` assume sorted `SALCBasis.keys` and canonical members; the
+  entry key is `(atoms, shifts, slotkeys, index)` and the cost is the summed **slot
+  count** over distinct entries — change either and re-check the brute-force union test
+  (`test_selection.jl` "group_costs: brute-force union, additivity, validation").
+  **What that key does and does not mirror, established 2026-07-28 and previously
+  recorded wrongly here.** It matches the shape of SLCEMonteCarlo's
+  `_reduced_key_type(::Type{DecoratedTerm})` (`reduce.jl`), and the canonical slot order
+  is the one `_align_reduced` reproduces — but there is **no adjacency merge on that
+  key**: `decorated_terms` emits one term per `(SALC, member, SALCTerm)` without
+  merging, `TiledHamiltonian` tiles without merging, and `reduce_cell` buckets on the
+  key and then splits each bucket by `(coef, folded)`, i.e. it merges *translation
+  orbits*, not channels. So the union is a genuine lower bound, not an identity, and
+  any claim that it equals a realized entry count needs re-deriving.
+  The **slot-count factor is load-bearing and was missing until 2026-07-28**:
+  `_push_term_programs!` emits one **site** program per member site position
+  (`nnz · length(slots)` entries, walked every sweep) plus one **energy** program
+  (`nnz`, walked once per run by `total_energy`). Counting `nnz` priced the energy
+  program, so groups were mis-ranked by a factor `body`. Do not "simplify" it back, and
+  do not hoist it to a per-group constant — `column_groups` may be coarser than
+  `salc_groups`, and only a per-entry factor stays additive under that.
+  What the metric deliberately omits: the per-visit `O(nrows)` block (`nrows` comes from
+  `row_layout` over basis *keys*, so it never shrinks when a group dies — selection-
+  invariant and unattributable), and sweep multiplicity (spin / overrelaxation /
+  displacement passes, whose counts are run-time `UpdatePlan` inputs and whose
+  `site_has_*` predicates depend on which *other* groups survive, making the true cost
+  supermodular).
+  The cross-package check on record — `Σc_g = 744,636` on l044 — was against the term
+  tensors' `Σnnz`, i.e. against the **energy** program, so it confirmed internal
+  consistency and not the sweep cost; it needs redoing against site-program entries.
+  There is no script, and SLCEMonteCarlo references neither `salc_groups` nor
   `group_costs`. Deliberately left manual: a mismatch costs prediction accuracy in the
   cost-weighted selection, not correctness of any fitted number.
 - **`fit` ↔ `refit` share `_assemble_problem`** (`fitting/fit.jl`): the `(X, y, xbar, ybar,

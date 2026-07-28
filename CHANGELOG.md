@@ -6,6 +6,74 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — the group cost model priced the wrong Monte-Carlo program
+
+`group_costs` counted one entry per nonzero tensor element. That is the size of
+`SLCEMonteCarlo`'s **energy** program, which `total_energy` walks **once per run**.
+What a sweep walks is the **site** programs, and `_push_term_programs!` emits one per
+member site position — `nnz · length(slots)` entries, every sweep. The cost is now the
+summed slot count over distinct entries.
+
+The consequence was a live mis-ranking in the shipped cost-weighted selection: at equal
+entry count a 3-body group was priced at 2/3 of its real sweep cost relative to a 2-body
+group, so `select_fit` / `select_support` systematically preferred keeping high-body
+groups. Absolute costs change; only ratios matter to selection, and those change too.
+
+- **`group_costs` now accepts joint (displacement-decorated) bases.** The entry key
+  moved from the pure-spin per-site `ls` to per-slot `(channel, site, k, l)` labels,
+  which is what makes a joint basis well-defined at all: keying on `ls` drops every
+  displacement slot, collapsing distinct lattice groups onto one key and destroying the
+  additivity the selection relies on. The key mirrors the shape of SLCEMonteCarlo's
+  `_reduced_key_type(::Type{DecoratedTerm})`.
+- The slot factor is read **per entry**, off the key, not applied as a per-group
+  constant: `column_groups` may be coarser than `salc_groups`, and only a per-entry
+  factor stays additive under that.
+- **Two claims in the docs were wrong and are corrected**, not just reworded. There is
+  no adjacency merge on the entry key — `decorated_terms` emits one term per
+  `(SALC, member, SALCTerm)` without merging, `TiledHamiltonian` tiles without merging,
+  and `reduce_cell` buckets on the key then splits each bucket by `(coef, folded)`,
+  merging *translation orbits*, not channels. And the one cross-package check on record
+  (`Σc_g = 744,636` on l044) was against the term tensors' `Σnnz`, i.e. against the
+  energy program — it confirmed internal consistency, not the sweep cost, and needs
+  redoing.
+
+`group_costs` now also states what it deliberately does **not** model: the per-visit
+`O(nrows)` block (`nrows` comes from `row_layout` over basis *keys*, so it never shrinks
+when a group dies — selection-invariant and unattributable to any group), and sweep
+multiplicity across the spin / overrelaxation / displacement passes (run-time
+`UpdatePlan` counts, with `site_has_*` predicates that depend on which *other* groups
+survive, making the true cost supermodular).
+
+### Fixed — `select_support` told unstaged callers their fit was staged
+
+The staged-fit refusal keyed on `f.reparam === nothing`. But `fit` stores
+`reparam = _resolve_asr_rep(dataset, asr)`, so **every** plain fit on a joint basis
+carries one, and an ordinary `fit(SLCEFit, joint_ds, est)` was reported as a
+"staged fit (frozen / sector_mask)". It was masked only because the ASR refusal above it
+fired first. The distinction is now one named predicate, `_is_staged(f)` —
+`f.reparam !== nothing && f.reparam !== f.dataset.asr` — with the three states
+(unconstrained / plain ASR / staged) spelled out where it is defined.
+
+### Added — `select_fit(...; asr)`, and joint selection when the fit is unconstrained
+
+`select_fit` and `select_support` refused *any* ASR-carrying dataset. The λ path solves
+on a cached unconstrained Gram and decides alive groups by a β-indexed magnitude rule,
+so that refusal is right for a **constrained** fit — but a displacement basis carries an
+ASR by default, which made every joint model unselectable even when the user had
+deliberately opted out with `asr = false`.
+
+- `select_fit` gains `asr::Bool = true`, threaded to `fit` exactly as `cross_validate`
+  already threads it, including the cold re-solve of the selected λ. `asr = false`
+  now selects a deliberately unconstrained joint model end to end.
+- Both refusals now say *why* (unconstrained Gram, β-indexed alive rule) and *what to
+  do*, instead of "not implemented yet".
+- The refusal tests were pinned on exception **type** only, so the `select_support`
+  fixture was a force co-fit and had been exercising the force refusal, not the ASR one,
+  the whole time. The messages are now pinned by text.
+
+Selection *under* the constraint (dual β/γ assembly, `nullspace` into the solve) and
+`force_weight` in the selection scorers remain unimplemented.
+
 ### Changed — BREAKING: the fourth naming batch, single-package names
 
 The audit's mid tier: names inside one package that say the wrong thing about what

@@ -368,6 +368,20 @@ function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator
                    rep !== nothing && size(rep.A, 1) > 0, resid, rep)
 end
 
+# Is this fit STAGED (`frozen` / `sector_mask`), as opposed to merely ASR-constrained?
+#
+# `fit` sets `reparam = _resolve_asr_rep(dataset, asr)` — which is `dataset.asr` itself
+# for an ordinary constrained fit — and replaces it with a FRESHLY BUILT `ASRReparam`
+# only when a staging request is present, so object identity against `dataset.asr` is
+# exactly the question being asked.
+#
+# Do NOT weaken this to `reparam !== nothing`. That reads true for every plain joint
+# fit (a displacement basis carries an ASR by default), which is how `select_support`
+# came to tell unstaged callers their fit was staged. The three states a consumer must
+# distinguish are: unconstrained (`reparam === nothing`, incl. a deliberate
+# `asr = false` on a joint basis), plain ASR (`reparam === dataset.asr`), and staged.
+_is_staged(f::SLCEFit)::Bool = f.reparam !== nothing && f.reparam !== f.dataset.asr
+
 # Resolve the staging request into the reparameterization the solve runs under.
 function _fit_stage(dataset::SLCEDataset, rep::Union{Nothing,ASRReparam},
                     frozen::Union{Nothing,SLCEModel}, sector_mask,

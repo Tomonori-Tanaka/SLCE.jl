@@ -318,10 +318,37 @@ end
         @test fa.jphi == fb.jphi && fa.j0 == fb.j0      # bitwise
         @test !fa.asr && fa.asr_residual == 0.0
         @test asr_residual(SLCEModel(fa)) == 0.0
-        # selection-layer fences on the joint basis
+        # Selection-layer fences on the joint basis. Under the DEFAULT `asr = true`
+        # both refuse: the λ path solves on an unconstrained Gram and the alive rule
+        # is β-indexed, so neither is faithful to the constrained solve.
         gar = GroupAdaptiveRidge(collect(1:m), ones(m); lambda = 1e-6)
         @test_throws ArgumentError select_fit(ds, gar; lambdas = [1e-6])
         @test_throws ArgumentError select_support(f)
+        # ...but a DELIBERATELY unconstrained joint fit selects end to end. This is
+        # the path the constrained one is measured against later; it also exercises
+        # `group_costs` on a displacement-decorated basis, which used to be refused.
+        pu = select_fit(ds, gar; lambdas = [1e-4, 1e-6], asr = false)
+        @test !pu.fit.asr && pu.fit.reparam === nothing
+        @test pu.selected in eachindex(pu.lambda)
+        @test all(>(0), pu.cost)
+        fu = fit(SLCEFit, ds, OLS(); torque_weight = 0.3, asr = false)
+        su = select_support(fu; npoints = 4)
+        @test length(su.threshold) >= 1 && all(>=(0), su.cost)
+        # A plain joint fit is NOT a staged fit — the predicate that decides which
+        # refusal fires. Before `_is_staged` this reported "staged (frozen /
+        # sector_mask)" for an ordinary `fit(...)` call.
+        @test !SLCE._is_staged(f) && f.reparam === ds.asr
+        @test !SLCE._is_staged(fu) && fu.reparam === nothing
+        fstg = fit(SLCEFit, ds, OLS(); torque_weight = 0.3, sector_mask = :spin)
+        @test SLCE._is_staged(fstg)
+        @test occursin("staged", sprint(showerror,
+            try select_support(fstg) catch e; e end))
+        # `f` is a force co-fit, so ITS refusal is the force one — the ASR message
+        # needs a constrained fit with no force weight to be reachable at all.
+        fasr = fit(SLCEFit, ds, OLS(); torque_weight = 0.3)
+        @test !SLCE._is_staged(fasr) && fasr.reparam === ds.asr
+        @test occursin("asr = false", sprint(showerror,
+            try select_support(fasr) catch e; e end))
         # cross_validate runs constrained per fold; asr = false threads through
         cv = cross_validate(ds, OLS(); torque_weight = 0.3, nfolds = 3)
         @test cv.pooled_rmse_energy < 1e-10
