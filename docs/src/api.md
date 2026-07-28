@@ -289,6 +289,7 @@ ForceConstantSet
 force_constants
 dynamical_matrix
 write_phonopy
+write_alamode
 ```
 
 ## Effective models at a displaced structure

@@ -6,6 +6,42 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the anharmonic exit: ALAMODE's `anphon`
+
+`write_phonopy` covers the harmonic channel, and phonopy stops there. Cubic and
+quartic constants are precisely what SLCE can produce and nothing downstream could
+consume, so `write_alamode(path, fcs...)` writes an ALAMODE `FCSXML` — harmonic plus
+any anharmonic orders — and `anphon` turns them into relaxation-time thermal
+conductivity, self-consistent phonons, Grüneisen parameters and isotope scattering.
+
+The format is positional in three ways at once, so none of it was inferred from
+documentation:
+
+- `pair1` names a **primitive-cell** atom (`anphon` resolves it through
+  `map_p2s[a][0]`), while `pairK` for `K ≥ 2` names a **supercell** atom. The
+  supercell order is ours, but `Data.Symmetry.Translations` must agree with it and
+  translation 1 must be the identity.
+- `cell_s` indexes a fixed 27-entry table of **supercell** shifts (origin first, then
+  `ix, iy, iz ∈ {-1,0,1}` skipping it, `iz` fastest). It is what lets a shift pointing
+  out of the supercell keep its sign; writing the folded residue with `cell_s = 1`
+  instead moves the frequencies by **5.2e-1** (mutation-tested).
+- Values are Rydberg atomic units, converted from eV/Åⁿ.
+
+Gated by running `anphon` and comparing its frequencies against `dynamical_matrix`
+(`test/alamode/`, local-only like the oracle — anphon is a C++ binary wanting Boost,
+FFTW, spglib and MPI). The comparison fits one scale across all modes at all q and
+checks two separate things: the absolute residual after it (**3.7e-5 cm⁻¹**, bounded
+below by anphon printing four decimals, which is why it is absolute — a relative
+tolerance is meaningless on a soft mode) and that the fitted scale is 1 to
+**5.5e-10**, which is the units claim. The cubic block is proven to parse and be
+consumed (`GRUNEISEN = 1` refuses without cubic constants), not numerically verified;
+the harmonic block pins units, sign and `cell_s`, and the cubic block is written by
+the same code path. The core suite keeps what CI can defend without anphon — the
+`cell_s` table rebuilt from its specification, and that every value parses as a bare
+number, since `anphon` uses `boost::lexical_cast`, which rejects leading whitespace
+and killed this exporter's first run on a padded `%25.15e`.
+
+
 ### Added — the lattice channel's exit, and its other restriction
 
 - **`write_phonopy(dir, fcs)`** writes a `ForceConstantSet` as a phonopy calculation

@@ -96,7 +96,8 @@ include("io/persist.jl")
 include("io/input.jl")
 include("io/dftsource.jl")
 include("io/embset.jl")
-include("io/phonopy.jl")   # harmonic force constants -> phonopy FORCE_CONSTANTS
+include("io/phonopy.jl")   # (see below)
+include("io/alamode.jl")   # harmonic + anharmonic -> ALAMODE FCSXML for anphon   # harmonic force constants -> phonopy FORCE_CONSTANTS
 
 # --- Public API (exported) --------------------------------------------------------
 # The fitting workflow a user reaches for. Construction internals (cluster / neighbor /
@@ -148,7 +149,7 @@ export EffectiveModel, EffectiveTerm, effective_model
 export AbstractDFTSource, TrainingDatum, DatumProvenance, SpinDatum,
        LatticeDatum, read_configs
 export crystal_fingerprint
-export write_phonopy
+export write_phonopy, write_alamode
 export EmbsetFile, read_embset
 
 # --- Public, unexported -----------------------------------------------------------

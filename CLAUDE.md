@@ -230,6 +230,25 @@ Easy to break silently — confirm before touching the algorithm.
   fixture had `R ∈ {0, ±(1,1,0)}`, and reversing the lattice-axis order produced a
   BYTE-IDENTICAL file). Change the writer → re-run the phonopy suite, and if you
   change the fixture, re-verify all three mutations still bite.
+- **`write_alamode` is the SECOND external convention, and a harder one**
+  (`io/alamode.jl` ↔ `test/alamode/`, local-only like the oracle — `anphon` is a C++
+  binary wanting Boost/FFTW/spglib/MPI). Three things are positional at once and none
+  came from documentation: `pair1` names a PRIMITIVE atom (`anphon` resolves it via
+  `map_p2s[a][0]`) while `pairK≥2` names a SUPERCELL atom; the supercell order is ours
+  but `Data.Symmetry.Translations` must match it with translation 1 the identity; and
+  `cell_s` indexes a fixed 27-entry table of SUPERCELL shifts (origin first, then
+  `ix,iy,iz ∈ {-1,0,1}` skipping it, `iz` fastest) which is what keeps a shift's SIGN
+  — folding to the residue with `cell_s = 1` moves frequencies by 5.2e-1
+  (mutation-tested). Values are Rydberg atomic units. The gate fits ONE scale over all
+  modes at all q and asserts the absolute residual after it (3.7e-5 cm⁻¹, bounded
+  below by anphon printing four decimals — a RELATIVE tolerance is meaningless on a
+  soft mode) AND that the scale is 1 to 5.5e-10; the two claims are separate, and a
+  single `≈` loose enough to absorb the constants would pass a sign error. The cubic
+  block is proven to PARSE and be consumed (`GRUNEISEN = 1` refuses without it), never
+  numerically verified — the harmonic block pins units/sign/`cell_s` and the cubic
+  block rides the same code path. **`anphon` uses `boost::lexical_cast`, which rejects
+  leading whitespace**: a padded `%25.15e` in the value field aborts the reader, so
+  the core suite checks every value parses bare.
 - **The spin-free entry path shares ONE predicate** (`slce/model.jl`
   `_basis_has_spin` ↔ `io/dftsource.jl` `SLCEDataset`'s `use_torque = nothing` ↔
   `slce/forceconstants.jl` `force_constants(; spins = nothing)` ↔ `fitting/fit.jl`

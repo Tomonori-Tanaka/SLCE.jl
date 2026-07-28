@@ -331,4 +331,48 @@ end
         @test_logs((:warn, r"too small"), match_mode = :any,
                    write_phonopy(mktempdir(), fcs; dim = (1, 1, 1)))
     end
+
+    # `write_alamode`'s real gate runs `anphon` and is local-only (`test/alamode/`,
+    # like the oracle — anphon is a C++ binary wanting Boost, FFTW, spglib and MPI).
+    # These are the parts CI can still defend: the `cell_s` table, which is the one
+    # mechanism this format has and phonopy's does not, and the refusals.
+    @testset "write_alamode: the parts CI can defend" begin
+        rng = MersenneTwister(0x21)
+        mj = SLCEModel(joint, 0.0, randn(rng, n_salcs(joint)))
+        ez = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:nat])
+        f2 = force_constants(mj; spins = ez, order = 2)
+
+        # ALAMODE's 27-entry supercell-shift table: entry 1 is the origin, then
+        # ix, iy, iz over {-1,0,1} skipping it, iz fastest. Rebuilt here from the
+        # spec rather than from the implementation, so the two must agree.
+        table = [(0, 0, 0)]
+        for ix = -1:1, iy = -1:1, iz = -1:1
+            (ix, iy, iz) == (0, 0, 0) || push!(table, (ix, iy, iz))
+        end
+        @test length(table) == 27
+        for (i, s) in enumerate(table)
+            @test SLCE._alamode_cell_s(s) == i
+        end
+        # a shift beyond ±1 supercell has no entry and must not be silently folded
+        @test_throws ArgumentError SLCE._alamode_cell_s((2, 0, 0))
+
+        mktempdir() do dir
+            p = joinpath(dir, "x.xml")
+            out = write_alamode(p, f2)
+            @test out.orders == [2] && isfile(p)
+            doc = read(p, String)
+            @test occursin("<HARMONIC>", doc)
+            @test occursin("<NumberOfAtoms>$(out.n_super)</NumberOfAtoms>", doc)
+            # every FC value must parse as a bare number: `anphon` uses
+            # boost::lexical_cast, which rejects leading whitespace outright — this
+            # exporter's first run died on exactly that, from a padded %25.15e.
+            for m in eachmatch(r"<FC2 [^>]*>([^<]*)</FC2>", doc)
+                @test tryparse(Float64, m.captures[1]) !== nothing
+                @test !startswith(m.captures[1], " ")
+            end
+            @test_throws ArgumentError write_alamode(p)              # nothing given
+            @test_throws ArgumentError write_alamode(p, f2, f2)      # duplicate order
+            @test_throws ArgumentError write_alamode(p, f2; dim = (0, 1, 1))
+        end
+    end
 end

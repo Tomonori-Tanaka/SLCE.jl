@@ -152,6 +152,21 @@ in, and phonopy's supercell ordering is pinned by a test that runs phonopy itsel
 (`test/phonopy/`), because a permuted export still diagonalizes and still has three
 acoustic modes at Γ.
 
+### Anharmonic constants: ALAMODE
+
+phonopy takes the harmonic channel and stops. [`write_alamode`](@ref) writes an
+ALAMODE `FCSXML` carrying the harmonic set *and* any anharmonic ones, which is what
+`anphon` needs for relaxation-time thermal conductivity, self-consistent phonons and
+Grüneisen parameters:
+
+```julia
+write_alamode("si.xml", force_constants(model; spins = e, order = 2),
+                        force_constants(model; spins = e, order = 3))
+```
+
+All sets must come from one crystal and one spin state — they are the expansion of a
+single energy surface, and `anphon` has no notion of a magnetic state.
+
 ## Force constants and phonons
 
 [`force_constants`](@ref) differentiates the energy with respect to displacements at

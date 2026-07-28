@@ -14,6 +14,7 @@ lcov.info
 /test/sunny/Manifest.toml
 /test/glmnet/Manifest.toml
 /test/phonopy/Manifest.toml
+/test/alamode/Manifest.toml
 /examples/Manifest.toml
 
 # Documenter build output
