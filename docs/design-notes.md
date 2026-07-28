@@ -612,6 +612,18 @@ of `Q` leave its span. **So the "Born–Huang is complete" result does not cover
 regime this package operates in.** That is the concrete reason the layer-2 gap
 above is a real gap and not a bookkeeping one.
 
+The freely-fitted regime is the "general tensor force" model of the older
+literature, and the warning is explicit there — **Ramamurthy, Phys. Rev. B 57,
+13554 (1998)**: the GTF model "is not at all invariant with respect to rigid body
+rotations even in the case of high symmetry cubic crystals… the harmonic force
+constants of the GTF model comply with Born–Huang conditions so long as the
+crystal is in equilibrium, but they fail to satisfy the additional conditions that
+reduce the change in potential energy to zero", with two consequences he names:
+elastic inconsistency (two different expressions for `C₄₄` in noncubic crystals)
+and the Cauchy discrepancies vanishing once all invariance conditions are imposed.
+Both are reproducible on this package's own fitted models. Cite that paper, not a
+derivation, if the gap ever needs justifying to a reviewer.
+
 **When the gap is benign, and when it is not.**
 
 - **Harmonic order, training data from a relaxed structure: benign.** The six
