@@ -215,7 +215,7 @@ fit(SLCEFit, dataset, AdaptiveLasso())                  # pilot-reweighted Lasso
 ```
 
 `AdaptiveLasso` runs a pilot estimator (default `OLS`, any estimator allowed — including a
-`PrecomputedPilot` reusing a prior fit) and then a weighted Lasso that spares the columns
+`FixedCoefficients` reusing a prior fit) and then a weighted Lasso that spares the columns
 the pilot found large. For an energy+torque co-fit the cross-validation folds are grouped
 by configuration.
 

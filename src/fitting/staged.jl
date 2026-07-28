@@ -13,7 +13,7 @@
 # STAGE fits, the spec chooses what the model can express. The two share the
 # `soc`-free predicate (`is_soc_free`) so they cannot drift apart.
 
-const _SECTOR_SELECTORS = (:all, :spin, :lattice, :coupled, :soc_free, :soc)
+const _SECTOR_SELECTORS = (:all, :spin, :lattice, :coupled, :soc_free, :soc_only)
 
 """
     sector_columns(basis, selector) -> Vector{Int}
@@ -29,14 +29,20 @@ The design-matrix columns a `selector` picks out, ascending. The selector is a
 | `:lattice` | spin-free SALCs (displacement only — force constants) |
 | `:coupled` | SALCs carrying both channels |
 | `:soc_free` | `L_S = 0` — the channel a SOC-less calculation can produce |
-| `:soc` | `L_S ≠ 0` — the spin-orbit-only channel |
+| `:soc_only` | `L_S ≠ 0` — the spin-orbit-only channel |
 
-`:spin` / `:lattice` / `:coupled` partition the basis; `:soc_free` / `:soc`
+`:spin` / `:lattice` / `:coupled` partition the basis; `:soc_free` / `:soc_only`
 partition it a second, crosscutting way. `:soc_free` uses the same predicate as
 the basis-level `Sector(soc = false)` truncation ([`SLCE.is_soc_free`](@ref)), so
 the staging axis and the truncation axis cannot drift apart — but they stay
 different axes: masking `:soc_free` on a `soc = true` basis freezes the `L_S ≠ 0`
 columns of the model it can still express, it does not rebuild the model.
+
+The `_only` suffix is load-bearing. `Sector(soc = true)` **admits** the spin-orbit
+channels — its support is a superset containing the `L_S = 0` columns as well — while
+this selector picks the `L_S ≠ 0` columns **alone**, the complement of `:soc_free`. A
+bare `:soc` spells the two opposite meanings with one word, one of which silently
+freezes the columns the caller meant to fit.
 
 Used by [`fit`](@ref)'s `sector_mask`; public (unexported) for inspecting a
 staging plan before running it.
@@ -55,7 +61,7 @@ function sector_columns(basis::SLCEBasis, sel::Symbol)::Vector{Int}
         k -> any(has_spin, k.decors) && any(has_disp, k.decors)
     elseif sel === :soc_free
         is_soc_free
-    else                                            # :soc
+    else                                            # :soc_only
         k -> !is_soc_free(k)
     end
     return findall(pred, ks)

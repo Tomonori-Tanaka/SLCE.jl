@@ -6,6 +6,67 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — BREAKING: the fourth naming batch, single-package names
+
+The audit's mid tier: names inside one package that say the wrong thing about what
+they hold. Three of the candidates were dropped on inspection and are recorded here
+so the question is not reopened.
+
+- **`SlotRef` → `Slot`** (`public`, and `DecoratedTerm.slots` / SLCEMonteCarlo's
+  adjacency builder read it). It is not a reference to a slot — it *is* the slot
+  (site index + site factor), as its own docstring said. `Ref` additionally means
+  a mutable box in Julia (`Base.Ref`), which this is not. SLCEMonteCarlo.jl moves
+  with it.
+- **`PrecomputedPilot` → `FixedCoefficients`.** The type holds a fixed coefficient
+  vector and returns it from `solve_coefficients`; being an `AdaptiveLasso` pilot is
+  where it is first plugged in, not what it is — and it is already used as a plain
+  fixed-coefficient estimator in the fit, ASR and selection suites.
+- **`SelectionPath` → `LambdaPath`.** `select_fit` and `select_support` are two
+  selection paths; the λ sweep had claimed the generic word, leaving its sibling
+  `SupportPath` looking like a different kind of thing. Now each is named for what it
+  sweeps.
+- **`sector_mask = :soc` → `:soc_only`.** `Sector(soc = true)` *admits* the
+  spin-orbit channels — a superset that still contains the `L_S = 0` columns — while
+  the mask selector picks the `L_S ≠ 0` columns *alone*. One word for the two
+  opposite meanings, and picking the wrong one silently freezes the columns the
+  caller meant to fit.
+- **`BasisSpec.sectors` → `BasisSpec.sector_rules`.** The keyword `sectors = ...`
+  takes `Sector` **sugar**; the field holds the resolved dense `SectorRule` rows. The
+  shared name blurred exactly the resolution boundary the spec's design depends on.
+  The keyword is unchanged, and so is the persisted document key `"sectors"` — no
+  saved model is affected.
+- **`restrict(model, channel)` → `restrict(model, sector)`** (parameter name only,
+  not the call syntax). `:spin` / `:lattice` are the selector names
+  `SLCE.sector_columns` already uses; calling them "channels" pointed at the
+  `Channel` enum, whose members are `SPIN` / `DISP` / `OCC` and label a *site
+  factor*, not a whole SALC.
+- **`select_support(; thresholds = 25)` → `select_support(; npoints = 25)`**, with
+  `thresholds` now taking the explicit vector only. One keyword meant "25 grid
+  points" for an `Integer` and "these absolute thresholds" for a vector, so
+  `thresholds = 10` — "sweep down to a magnitude of 10" — silently became a ten-point
+  grid, distinguishable from `thresholds = [10.0]` only by the literal's type. It is
+  now a `TypeError`.
+
+- **`theta` → `cost_exponent`, `delta` → `score_rtol`** (`cost_weights`,
+  `GroupAdaptiveRidge(basis; …)`, `select_fit`, `select_support`, and the
+  `LambdaPath` / `SupportPath` fields and `show`). These were bare Greek letters
+  carried straight out of the implementation plan into the public API. `theta` is
+  purely the exponent in `v_g = √p_g·(c_g/c̄)^θ` — `cost_exponent = 0.5` tells the
+  reader the functional form, `theta = 0.5` tells them nothing — and `delta` is the
+  relative tolerance in `score ≤ (1 + δ)·min`, which is what this package spells
+  `rtol` everywhere else (`_SAME_DIST_RTOL`, `_DEAD_COL_RTOL`). The symbols `θ` and
+  `δ` stay in the formulas and in `docs/design-notes.md` §13, now with the
+  keyword-name mapping written next to them: renaming the math would make the
+  derivation unreadable.
+
+Dropped after inspection, deliberately unchanged:
+
+- `write_phonopy(; comment)` vs `write_alamode(; description)` — not the same field.
+  `comment` is the POSCAR's comment line (what the VASP format calls it); `description`
+  fills alamode's `<OriginalXML>` element. Each is named after its host format.
+- `images = MinimumImage()` vs the type `AbstractImageSelection` — the call site reads
+  better than `selection = MinimumImage()` would, and no name is wrong.
+
 ### Added — the documentation is published
 
 - **<https://tomonori-tanaka.github.io/SLCE.jl/dev/>** — the Documenter site is

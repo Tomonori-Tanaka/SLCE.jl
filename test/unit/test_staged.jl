@@ -43,13 +43,13 @@ _st_cfg(rng, nat) = reduce(hcat, [_st_unit(rng) for _ = 1:nat])
 
     @testset "sector selectors" begin
         cs = Dict(s => sector_columns(basis, s)
-                  for s in (:all, :spin, :lattice, :coupled, :soc_free, :soc))
+                  for s in (:all, :spin, :lattice, :coupled, :soc_free, :soc_only))
         @test cs[:all] == collect(1:m)
         # channel partition
         @test sort(vcat(cs[:spin], cs[:lattice], cs[:coupled])) == cs[:all]
         @test all(!isempty, (cs[:spin], cs[:lattice], cs[:coupled]))
         # the L_S partition, crosscutting the channel one
-        @test sort(vcat(cs[:soc_free], cs[:soc])) == cs[:all]
+        @test sort(vcat(cs[:soc_free], cs[:soc_only])) == cs[:all]
         @test cs[:soc_free] == findall(k -> k.L_S == 0, ks)
         @test all(j -> !any(has_disp, ks[j].decors), cs[:spin])
         @test all(j -> !any(has_spin, ks[j].decors), cs[:lattice])

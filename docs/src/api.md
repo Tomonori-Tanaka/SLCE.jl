@@ -140,7 +140,7 @@ Lasso
 AdaptiveLasso
 AdaptiveRidge
 GroupAdaptiveRidge
-PrecomputedPilot
+FixedCoefficients
 islinear
 solve_coefficients
 ```
@@ -222,7 +222,7 @@ configuration-grouped K-fold assessment for comparing any estimators or
 gcv
 effective_dof
 select_fit
-SelectionPath
+LambdaPath
 select_support
 SupportPath
 cross_validate
@@ -273,7 +273,7 @@ restrict
 SpinMultipoleTerm
 spin_multipole_terms
 bilinear_terms
-SLCE.SlotRef
+SLCE.Slot
 ```
 
 ## Lattice dynamics

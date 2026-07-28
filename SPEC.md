@@ -155,7 +155,7 @@ capability consumed by both the introspection and the Sunny interop.
   rank `L_S` (spin-first coupling; a good quantum number of the projection).
   The pure-spin construction emits `decors = spin_decors(ls)` with `L_S = Lf`
   (the v4 shape); `spin_ls(key)` reads the `ls` label back. `SALCTerm` axes are
-  `SlotRef`s (member-site index + `SiteFactor`, canonical order SPIN axes before
+  `Slot`s (member-site index + `SiteFactor`, canonical order SPIN axes before
   DISP axes each by site) — the slot → site map that admits several axes on one
   site; pure-spin terms are the identity list `spin_slots(ls)`.
 - **Mixed-channel engine (M2b-2)**: `_orbit_salcs_decors(crystal, sg, N,
@@ -184,7 +184,9 @@ capability consumed by both the introspection and the Sunny interop.
   soc, cutoff, sites)` sugar declares one truncation-table row (theory note
   §3/§7); `BasisSpec(labels; sectors, lmax, pmax, ...)` resolves it once into
   the dense canonical `SectorRule` (`spin_mode ∈ :none/:explicit/:any`, range
-  tuples, resolved per-pair cutoff — validated, comparable, persisted). The
+  tuples, resolved per-pair cutoff — validated, comparable, persisted), stored on
+  the field `BasisSpec.sector_rules` (named apart from the `sectors` keyword so the
+  sugar/resolved boundary is visible; the persisted key stays `"sectors"`). The
   admitted label set is the union of the rows ∩ the global per-species
   `lmax`/`pmax` and per-body `lsum` caps; `nbody` and the per-body `cutoff`
   envelope are derived (elementwise max over the sectors admitting each body
@@ -357,7 +359,7 @@ capability consumed by both the introspection and the Sunny interop.
   `SLCEFit` records the applied flag + achieved residual; nothing persisted
   (`asr_residual(model)` recomputes — the public verifier physical
   consumers gate on). β-space penalties compress to `Z'·D(β)·Z`
-  (`solve_coefficients(...; nullspace)`; L1/GLMNet and `PrecomputedPilot`
+  (`solve_coefficients(...; nullspace)`; L1/GLMNet and `FixedCoefficients`
   reject); `refit` re-derives `null(A[:, S])` on its support;
   `dof = p − rank(A) + 1`, `effective_dof`/`gcv` whiten by Cholesky
   congruence, GCV's `n` excludes zero-weight rows;
@@ -372,7 +374,7 @@ capability consumed by both the introspection and the Sunny interop.
   third-order force-constant case; every other fixture is a 2-body bond).
 - **Downstream term contract — M4 slice 1**: `DecoratedTerm` / `decorated_terms(model)`
   (`slce/introspect.jl`) — one term per member and slot layout, each tensor axis
-  labelled by a `SLCE.SlotRef` (member-site index + `(channel, k, l)` factor), with
+  labelled by a `SLCE.Slot` (member-site index + `(channel, k, l)` factor), with
   the consumer scale `(4π)^{n_spin_slots/2}` carried as a field (single definition
   `_slot_scale`; NOT `(4π)^{body/2}`, which agrees only when every site holds exactly
   one spin factor). `spin_multipole_terms` stays the frozen p = 0 view and refuses any
@@ -437,7 +439,7 @@ capability consumed by both the introspection and the Sunny interop.
 - **Staged (hierarchical) fitting — M3 slice 6 (closes M3)**: `fit(...; frozen,
   sector_mask)` (`fitting/staged.jl`). `SLCE.sector_columns(basis, selector)` —
   `:all` / `:spin` / `:lattice` / `:coupled` (channel partition) and `:soc_free` /
-  `:soc` (`L_S` partition), unions, explicit columns, `Bool` masks; `:soc_free`
+  `:soc_only` (`L_S` partition), unions, explicit columns, `Bool` masks; `:soc_free`
   shares `SLCE.is_soc_free` with the `Sector(soc = false)` truncation (anti-drift
   gate: masked keys ≡ SOC-less rebuild's keys). `frozen::SLCEModel` matched by
   `SALCKey` (orphan nonzero key ⇒ error); free-column frozen values ignored; `j0`
@@ -624,7 +626,7 @@ capability consumed by both the introspection and the Sunny interop.
   epsilon, max_iter, tol)` — iterative reweighted ridge (Frommlet & Nuel 2016), an L0
   approximation that refits `(X'X + λ·Diagonal(w)) \ X'y` with `wⱼ = 1/(βⱼ² + ε)` until the
   ∞-norm change drops below `tol`; `lambda = 0` ⇒ OLS. `islinear` ⇒ `true` (a linear
-  smoother in the converged-weight sense). `PrecomputedPilot(beta)` — adapter returning a
+  smoother in the converged-weight sense). `FixedCoefficients(beta)` — adapter returning a
   fixed coefficient vector (length-checked against `size(X, 2)`), for reuse as an
   `AdaptiveLasso` pilot.
 - **GLMNet-backed types in core, solve in extension** (`ext/SLCEGLMNetExt`,
@@ -644,9 +646,9 @@ capability consumed by both the introspection and the Sunny interop.
 - Validated in a separate `test/glmnet/` environment: tiny-λ ≈ OLS, the analytic-`j0`
   centering invariant, CV support recovery + sparsity, `:lambda_1se` shrinkage,
   reproducibility, ElasticNet ≠ Lasso, AdaptiveLasso support recovery, `γ = 0` ≡ plain
-  Lasso, pilot pluggability (`Ridge`/`PrecomputedPilot`), and energy+torque grouped-CV
+  Lasso, pilot pluggability (`Ridge`/`FixedCoefficients`), and energy+torque grouped-CV
   co-fits. Core-only construction / validation / deferred-backend error, plus the full
-  `AdaptiveRidge` / `PrecomputedPilot` solves, in `test/unit/test_fit.jl`.
+  `AdaptiveRidge` / `FixedCoefficients` solves, in `test/unit/test_fit.jl`.
 
 ### Cost-weighted group selection (M13)
 - **Estimator** (`fitting/estimators.jl`, in-core): `GroupAdaptiveRidge(column_groups,
@@ -662,9 +664,10 @@ capability consumed by both the introspection and the Sunny interop.
   — column → group labels by `(body, orbit_id, ls)`, the granularity at which MC
   contraction entries vanish; `group_costs(basis, column_groups)` — per-group distinct-entry
   union count over canonical members (additive across the `salc_groups` partition);
-  `cost_weights(basis; theta)` — `v_g = √p_g·(c_g/c̄)^θ`, `θ ∈ [0, 1]` tilting the
+  `cost_weights(basis; cost_exponent)` — `v_g = √p_g·(c_g/c̄)^θ` with `θ = cost_exponent
+  ∈ [0, 1]`, tilting the
   penalty from cost-blind to cost-proportional. Convenience constructor
-  `GroupAdaptiveRidge(basis; lambda, theta, …)` bundles them.
+  `GroupAdaptiveRidge(basis; lambda, cost_exponent, …)` bundles them.
 - **GCV / effective dof** (exported): `effective_dof(f)` = `tr(X(X'X+λD)⁻¹X') + 1` with
   the converged penalty diagonal recomputed from the fitted coefficients
   (`_penalty_diagonal`, one method per linear estimator); `gcv(f)` = `n·RSS/(n−df)²` on
@@ -674,10 +677,10 @@ capability consumed by both the introspection and the Sunny interop.
   only; on torque co-fits GCV is optimistic (correlated within-configuration rows) —
   grouped CV is the ground truth there (documented, not an error).
 - **λ path + Pareto** (exported): `select_fit(dataset, est; lambdas, torque_weight,
-  criterion = :gcv|:cv, delta, costs, threshold, nfolds, seed) -> SelectionPath` —
+  criterion = :gcv|:cv, score_rtol, costs, threshold, nfolds, seed) -> LambdaPath` —
   descending warm-started path on a once-assembled Gram; per-λ score, effective dof,
   alive groups (the `refit` scaled-magnitude rule, any-column-per-group) and predicted
-  MC cost `Σ_{g alive} c_g`; selection = cheapest λ within `(1+δ)` of the minimum score
+  MC cost `Σ_{g alive} c_g`; selection = cheapest λ within `(1 + score_rtol)` of the minimum score
   (the cost-aware generalization of `:lambda_1se`; `Inf` scores never eligible, cost
   ties → larger λ). The adaptive iteration never yields exact zeros, so the default
   `threshold = nothing` is a per-λ **relative** alive floor (`_ALIVE_RTOL = 1e-6` of
@@ -687,8 +690,8 @@ capability consumed by both the introspection and the Sunny interop.
   selected fit is re-solved cold — its path row (`n_alive`/`cost`) is re-derived from
   that cold solve and the effective absolute threshold is returned as
   `path.threshold`, so `refit(path.fit; threshold = path.threshold)` realizes exactly
-  the reported support; `SelectionPath` is a Tables.jl source.
-- **Threshold front** (exported): `select_support(f; thresholds = 25, delta, column_groups,
+  the reported support; `LambdaPath` is a Tables.jl source.
+- **Threshold front** (exported): `select_support(f; npoints = 25, thresholds, score_rtol, column_groups,
   costs, evalset = f.dataset, estimator = OLS()) -> SupportPath` — the second knob:
   sweeps the alive threshold at a fixed fit (auto grid = log-rank-spaced points on
   the per-group scaled-magnitude spectrum + the full-support anchor, or an explicit
@@ -705,7 +708,7 @@ capability consumed by both the introspection and the Sunny interop.
   per-fold and pooled out-of-fold energy **and** torque RMSEs independently of
   `torque_weight`, plus the `(1−w)·MSE_E + w·MSE_T` score. Deterministic seeded
   folds (`_grouped_folds`); fold reduction warns, `< 6` configs errors; a
-  `PrecomputedPilot` is rejected (fold-independent coefficients would leak).
+  `FixedCoefficients` is rejected (fold-independent coefficients would leak).
   `CVResult` is a Tables.jl source. Unlike `select_fit(criterion = :cv)` (global
   whitening, λ ranking only), this is the honest generalization-error estimate.
 - Validated in `test/unit/test_selection.jl`: construction/validation, exact

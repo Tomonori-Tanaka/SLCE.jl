@@ -120,7 +120,7 @@ _spec_doc(sp::BasisSpec) = Dict{String,Any}(
     "lsum" => collect(Int, sp.lsum),                       # typemax(Int64) = uncapped
     "cutoff" => [_cutoff_rows(M) for M in sp.cutoff],       # per body order
     "soc" => sp.soc,
-    "sectors" => [_sector_doc(r) for r in sp.sectors],
+    "sectors" => [_sector_doc(r) for r in sp.sector_rules],
     "disp_scale" => _jnum(sp.disp_scale),
     "species_labels" => collect(String, sp.species_labels))
 
@@ -193,8 +193,8 @@ function _term_from(d)::SALCTerm
     # v5 terms carry explicit slots; v2-v4 terms carry the per-site "ls", which
     # maps to the identity pure-spin slot list.
     slots = haskey(d, "slots") ?
-        SlotRef[SlotRef(Int(t[1]), SiteFactor(Channel(UInt8(t[2])), Int(t[3]), Int(t[4])))
-                for t in d["slots"]] :
+        Slot[Slot(Int(t[1]), SiteFactor(Channel(UInt8(t[2])), Int(t[3]), Int(t[4])))
+             for t in d["slots"]] :
         spin_slots(_intvec(d["ls"]))
     shape = _intvec(d["shape"])
     flat = _floatvec(d["folded"])

@@ -161,20 +161,20 @@ end
         @test maximum(abs.(b1[setdiff(1:p, [3, 7])])) >= maximum(inactive) - 1e-12
     end
 
-    @testset "PrecomputedPilot: returns fixed coefficients, flows through fit" begin
+    @testset "FixedCoefficients: returns fixed coefficients, flows through fit" begin
         dense = randn(rng, m)
         y = 0.3 .+ ds0.X_E * dense
         ds = SLCEDataset(basis, configs, y)
         beta = randn(rng, m)
-        @test solve_coefficients(PrecomputedPilot(beta), ds.X_E, ds.y_E) == beta
-        @test_throws DimensionMismatch solve_coefficients(PrecomputedPilot([1.0]), ds.X_E, ds.y_E)
+        @test solve_coefficients(FixedCoefficients(beta), ds.X_E, ds.y_E) == beta
+        @test_throws DimensionMismatch solve_coefficients(FixedCoefficients([1.0]), ds.X_E, ds.y_E)
         # The stored vector is copied at construction, so caller mutation does not leak in.
-        src = copy(beta); pp = PrecomputedPilot(src); src[1] += 100.0
+        src = copy(beta); pp = FixedCoefficients(src); src[1] += 100.0
         @test solve_coefficients(pp, ds.X_E, ds.y_E)[1] == beta[1]
         # Used as the estimator itself: jphi is the stored vector, j0 recovered analytically.
-        f = fit(SLCEFit, ds, PrecomputedPilot(beta))
+        f = fit(SLCEFit, ds, FixedCoefficients(beta))
         @test coef(f) == beta
-        @test sprint(show, PrecomputedPilot(beta)) == "PrecomputedPilot($m coefficients)"
+        @test sprint(show, FixedCoefficients(beta)) == "FixedCoefficients($m coefficients)"
     end
 
     @testset "AdaptiveLasso: construction, validation, deferred backend" begin
@@ -286,10 +286,10 @@ end
         @test all(iszero, coef(fr))
         @test isapprox(intercept(fr), sum(y) / length(y); atol = 1e-9)
         @test_throws ArgumentError refit(f; threshold = -1.0)
-        # A PrecomputedPilot (its fixed vector has the full column count) is rejected, as is
+        # A FixedCoefficients (its fixed vector has the full column count) is rejected, as is
         # an AdaptiveLasso carrying one.
-        @test_throws ArgumentError refit(f, PrecomputedPilot(coef(f)))
-        @test_throws ArgumentError refit(f, AdaptiveLasso(pilot = PrecomputedPilot(coef(f)),
+        @test_throws ArgumentError refit(f, FixedCoefficients(coef(f)))
+        @test_throws ArgumentError refit(f, AdaptiveLasso(pilot = FixedCoefficients(coef(f)),
                                                           lambda = 1e-3))
     end
 end

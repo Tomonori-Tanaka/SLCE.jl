@@ -149,7 +149,7 @@ for the textbook Zou form).
 `n_salcs ≥ nconfig` at `torque_weight = 0`) prefer `pilot = Ridge(lambda = small)`: the
 OLS minimum-norm solution puts ~1e-10 noise in the null-space directions, which is
 not floored by `epsilon = eps(Float64)` and miscalibrates those weights. Any pilot is
-allowed, including a cross-validating [`ElasticNet`](@ref) or a [`PrecomputedPilot`](@ref)
+allowed, including a cross-validating [`ElasticNet`](@ref) or a [`FixedCoefficients`](@ref)
 reusing a prior fit's coefficients; the pilot's own solve receives the co-fit `row_groups`.
 
 Penalty strength and the remaining keywords (`lambda`, `standardize`, `nfolds`,
@@ -187,18 +187,20 @@ function AdaptiveLasso(; pilot::AbstractEstimator = OLS(),
 end
 
 """
-    PrecomputedPilot(beta)
+    FixedCoefficients(beta)
 
 Estimator adapter that returns a fixed coefficient vector from `solve_coefficients`,
-ignoring `(X, y)` except for a length check against `size(X, 2)`. Intended as an
-[`AdaptiveLasso`](@ref) `pilot`: it lets the adaptive reweighting reuse coefficients
-from a previous fit (`coef(f)`) instead of running a fresh pilot regression. The
-vector is copied at construction, so later mutation of the caller's storage does not
-leak in.
+ignoring `(X, y)` except for a length check against `size(X, 2)`. The vector is copied
+at construction, so later mutation of the caller's storage does not leak in.
+
+Its first use is as an [`AdaptiveLasso`](@ref) `pilot` — it lets the adaptive
+reweighting reuse coefficients from a previous fit (`coef(f)`) instead of running a
+fresh pilot regression — but nothing about it is pilot-specific, which is why the name
+describes what it holds rather than where it is plugged in.
 """
-struct PrecomputedPilot <: AbstractEstimator
+struct FixedCoefficients <: AbstractEstimator
     beta::Vector{Float64}
-    PrecomputedPilot(b::AbstractVector{<:Real}) = new(Vector{Float64}(b))
+    FixedCoefficients(b::AbstractVector{<:Real}) = new(Vector{Float64}(b))
 end
 
 """
@@ -319,8 +321,8 @@ end
 
 # Compact display: the default struct printer would dump the whole `beta` vector
 # (hundreds–thousands of entries) and recurse into the nested pilot.
-Base.show(io::IO, p::PrecomputedPilot) =
-    print(io, "PrecomputedPilot(", length(p.beta), " coefficients)")
+Base.show(io::IO, p::FixedCoefficients) =
+    print(io, "FixedCoefficients(", length(p.beta), " coefficients)")
 Base.show(io::IO, e::AdaptiveLasso) =
     print(io, "AdaptiveLasso(pilot=", e.pilot, ", lambda=", e.lambda, ", gamma=",
           e.gamma, ", epsilon=", e.epsilon, ", standardize=", e.standardize, ")")
@@ -524,15 +526,15 @@ function solve_coefficients(est::GroupAdaptiveRidge, X::AbstractMatrix, y::Abstr
                       est.epsilon, est.max_iter, est.tol; nullspace = nullspace)
 end
 
-function solve_coefficients(est::PrecomputedPilot, X::AbstractMatrix, y::AbstractVector;
+function solve_coefficients(est::FixedCoefficients, X::AbstractMatrix, y::AbstractVector;
                             row_groups = nothing, nullspace = nothing)::Vector{Float64}
     nullspace === nothing ||
-        throw(ArgumentError("PrecomputedPilot carries a fixed β-space coefficient " *
+        throw(ArgumentError("FixedCoefficients carries a fixed β-space coefficient " *
                             "vector — an ASR-constrained (γ-space) solve is " *
                             "undefined for it. Fit with asr = false, or use a " *
                             "fresh estimator."))
     length(est.beta) == size(X, 2) || throw(DimensionMismatch(
-        "PrecomputedPilot coefficient length $(length(est.beta)) does not match " *
+        "FixedCoefficients coefficient length $(length(est.beta)) does not match " *
         "design-matrix column count $(size(X, 2)); the pilot was likely fit on a " *
         "different SLCEBasis."))
     return copy(est.beta)

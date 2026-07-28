@@ -180,21 +180,21 @@ end
         G = maximum(labels)
         p = [count(==(g), labels) for g = 1:G]
 
-        lw0 = cost_weights(basis; theta = 0.0)
+        lw0 = cost_weights(basis; cost_exponent = 0.0)
         @test lw0.column_groups == labels
-        @test lw0.weights == sqrt.(p)                       # exactly √p_g at theta = 0
+        @test lw0.weights == sqrt.(p)             # exactly √p_g at cost_exponent = 0
 
-        lw1 = cost_weights(basis; theta = 1.0)
+        lw1 = cost_weights(basis; cost_exponent = 1.0)
         @test lw1.weights ≈ sqrt.(p) .* (c ./ mean(c))
 
-        lw5 = cost_weights(basis; theta = 0.5)
+        lw5 = cost_weights(basis; cost_exponent = 0.5)
         @test all(min.(lw0.weights, lw1.weights) .<= lw5.weights .+ 1e-12) &&
               all(lw5.weights .<= max.(lw0.weights, lw1.weights) .+ 1e-12)
 
-        @test_throws ArgumentError cost_weights(basis; theta = -0.1)
-        @test_throws ArgumentError cost_weights(basis; theta = 1.1)
+        @test_throws ArgumentError cost_weights(basis; cost_exponent = -0.1)
+        @test_throws ArgumentError cost_weights(basis; cost_exponent = 1.1)
 
-        est = GroupAdaptiveRidge(basis; lambda = 1e-3, theta = 1.0)
+        est = GroupAdaptiveRidge(basis; lambda = 1e-3, cost_exponent = 1.0)
         @test est.column_groups == labels
         @test est.group_weights == lw1.weights
         @test est.lambda === 1e-3
@@ -279,7 +279,7 @@ end
         fni = fit(SLCEFit, ds, Ridge(; lambda = 1e-14))
         @test gcv(fni) == Inf
         # non-linear estimators are rejected
-        fp = fit(SLCEFit, ds, PrecomputedPilot(zeros(n_salcs(basis))))
+        fp = fit(SLCEFit, ds, FixedCoefficients(zeros(n_salcs(basis))))
         @test_throws ArgumentError gcv(fp)
         @test_throws ArgumentError effective_dof(fp)
     end
@@ -364,7 +364,7 @@ end
         @test path.threshold > 0
         @test minimum(path.n_alive) < maximum(path.n_alive)
         # widening the accuracy tolerance can only cheapen the selection
-        pwide = select_fit(ds_p, est_p; lambdas = lams, criterion = :gcv, delta = 0.5)
+        pwide = select_fit(ds_p, est_p; lambdas = lams, criterion = :gcv, score_rtol = 0.5)
         @test pwide.cost[pwide.selected] <= path.cost[path.selected]
         # de-bias on exactly the reported support and recover the data
         fr = refit(path.fit; threshold = path.threshold)
@@ -403,7 +403,7 @@ end
         @test_throws ArgumentError select_fit(ds_p, est_p; lambdas = [1.0],
                                               criterion = :bogus)
         @test_throws ArgumentError select_fit(ds_p, est_p; lambdas = [1.0],
-                                              delta = -0.1)
+                                              score_rtol = -0.1)
         @test_throws ArgumentError select_fit(ds_p, est_p; lambdas = [1.0],
                                               costs = [1.0])
         @test_throws ArgumentError select_fit(ds_p, est_p; lambdas = [1.0], nfolds = 1)
@@ -423,7 +423,7 @@ end
         ds_tr2 = ds_p[1:30]
         ds_ev = ds_p[31:40]                       # held-out evaluation slice
         f = fit(SLCEFit, ds_tr2, GroupAdaptiveRidge(basis; lambda = 1e-4))
-        sp = select_support(f; thresholds = 8, evalset = ds_ev)
+        sp = select_support(f; npoints = 8, evalset = ds_ev)
 
         nt = length(sp.threshold)
         @test issorted(sp.threshold; rev = true)                  # sparsest first
@@ -444,8 +444,8 @@ end
         # here, n = 30 rows < p = 44 columns — it overfits the held-out slice)
         @test sp.rmse_energy[sp.selected] < 1e-2
         @test sp.rmse_energy[sp.selected] < sp.rmse_energy[end]
-        # Pareto: widening delta can only cheapen the selection
-        spw = select_support(f; thresholds = 8, evalset = ds_ev, delta = 0.5)
+        # Pareto: widening score_rtol can only cheapen the selection
+        spw = select_support(f; npoints = 8, evalset = ds_ev, score_rtol = 0.5)
         @test spw.cost[spw.selected] <= sp.cost[sp.selected]
 
         # explicit thresholds vector; single full-support point
@@ -485,19 +485,25 @@ end
         fco = fit(SLCEFit, ds_cofit, GroupAdaptiveRidge(glab, ones(maximum(glab));
                                                        lambda = 1e-3);
                   torque_weight = 0.4)
-        spc = select_support(fco; thresholds = 3)
+        spc = select_support(fco; npoints = 3)
         @test all(isfinite, spc.rmse_torque)
         @test length(spc.threshold) == 1        # single-group basis: grid collapses
         @test_throws ArgumentError select_support(fco;
                                                   evalset = SLCEDataset(small, cfg_s, en_s))
 
         # validation errors
-        @test_throws ArgumentError select_support(f; delta = -0.1)
+        @test_throws ArgumentError select_support(f; score_rtol = -0.1)
         @test_throws ArgumentError select_support(f; thresholds = Float64[])
         @test_throws ArgumentError select_support(f; thresholds = [-1.0])
-        @test_throws ArgumentError select_support(f; thresholds = 1)
+        @test_throws ArgumentError select_support(f; npoints = 1)
         @test_throws ArgumentError select_support(f; costs = [1.0])
-        @test_throws ArgumentError select_support(f; estimator = PrecomputedPilot(
+        # the count knob and the explicit vector are separate keywords: a scalar
+        # passed to `thresholds` is a loud type error, not a silent 8-point grid
+        @test_throws TypeError select_support(f; thresholds = 8)
+        # and an explicit vector wins over the grid count
+        @test length(select_support(f; npoints = 25,
+                                    thresholds = [0.0]).threshold) == 1
+        @test_throws ArgumentError select_support(f; estimator = FixedCoefficients(
             zeros(n_salcs(basis))))
         ds_other = SLCEDataset(small, [Matrix(randcfg(rngs, 2)) for _ = 1:4],
                               randn(rngs, 4))
@@ -581,9 +587,9 @@ end
         @test_throws ArgumentError cross_validate(ds_c, OLS(); torque_weight = 0.5)
         @test_throws ArgumentError cross_validate(ds_c, OLS(); nfolds = 1)
         @test_throws ArgumentError cross_validate(ds_c[1:5], OLS())
-        @test_throws ArgumentError cross_validate(ds_c, PrecomputedPilot(
+        @test_throws ArgumentError cross_validate(ds_c, FixedCoefficients(
             zeros(n_salcs(small))))
         @test_throws ArgumentError cross_validate(ds_c, AdaptiveLasso(
-            pilot = PrecomputedPilot(zeros(n_salcs(small)))))
+            pilot = FixedCoefficients(zeros(n_salcs(small)))))
     end
 end

@@ -435,7 +435,10 @@ and the denominator form is deliberate. At a fixed point a surviving group's pen
 contribution is `λ·v_g·‖β_g‖²/(‖β_g‖² + p_g ε) → λ·v_g`: the fixed multiplier `v_g`
 **is** the group-L0 weight, so pricing groups by cost means simply setting
 `v_g = √p_g·(c_g/c̄)^θ` (`√p_g` is the Yuan–Lin group-size factor; `θ` tilts from
-cost-blind to cost-proportional and changes the *order* in which groups die). Writing
+cost-blind to cost-proportional and changes the *order* in which groups die). The two
+Greek symbols in this section are the derivation's; the API spells them out — `θ` is
+the `cost_exponent` keyword of `cost_weights` / `GroupAdaptiveRidge`, and the `δ`
+below is `score_rtol` on `select_fit` / `select_support`. Writing
 the denominator as `p_g·(mean_j βⱼ² + ε)` also keeps `ε` a per-coefficient magnitude
 floor independent of group size — the same calibration as `AdaptiveRidge`'s `βⱼ² + ε`,
 to which the update degenerates exactly for singleton groups with unit weights (pinned

@@ -1,5 +1,5 @@
 # Sector-driven SALC basis construction (M2b-3b): expand a resolved sector
-# table (`BasisSpec.sectors`, see `slce/truncation.jl`) into per-orbit
+# table (`BasisSpec.sector_rules`, see `slce/truncation.jl`) into per-orbit
 # decoration labels and project them through the mixed-channel decor engine
 # (`basis/salcbasis.jl`). Lives in its own file because it consumes the spec
 # types, which are include-ordered after the basis layer.
@@ -68,7 +68,7 @@ function _orbit_salcs_sectors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
                               wcache::_WigCache)::Vector{SALC}
     lsumN = spec.lsum[N]
     soc_by_label = Dict{Vector{SiteDecor},Bool}()
-    for rule in spec.sectors
+    for rule in spec.sector_rules
         _sector_admits(rule, N, gates, tol) || continue
         for label in _sector_orbit_labels(rule, N, O.species, spec.lmax, spec.pmax,
                                           lsumN)
@@ -107,13 +107,13 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup,
                           clusters::ClusterSet, spec::BasisSpec;
                           neighbors::NeighborList,
                           selection::AbstractImageSelection = MinimumImage())::SALCBasis
-    isempty(spec.sectors) &&
+    isempty(spec.sector_rules) &&
         throw(ArgumentError("the spec has no sectors — use the dense keyword " *
                             "form of build_salc_basis"))
     # Wigner cache over BOTH channels' ranks: spin l ≤ max(lmax), displacement
     # l ≤ the maximum total degree (k = 0 realizes l = 2k + l).
     maxl = max(maximum(spec.lmax; init = 0),
-               maximum(r.disp_degree[2] for r in spec.sectors; init = 0))
+               maximum(r.disp_degree[2] for r in spec.sector_rules; init = 0))
     wcache = _build_wig_cache(spacegroup, maxl)
     use_minimage = selection isa MinimumImage
     dmin2 = use_minimage ? _dmin2_matrix(neighbors, n_atoms(crystal)) :

@@ -111,7 +111,7 @@ the successor of [`SpinMultipoleTerm`](@ref), and the surface new consumers shou
 | `scale` | `(4π)^(n_spin_slots / 2)` — the factor the energy expression needs |
 | `body` | the cluster's site count |
 | `atoms`, `shifts` | the member's sites and their periodic images (`shifts[1] = 0`) |
-| `slots` | one [`SLCE.SlotRef`](@ref) per tensor axis: which site, and the site factor `(channel, k, l)` on it |
+| `slots` | one [`SLCE.Slot`](@ref) per tensor axis: which site, and the site factor `(channel, k, l)` on it |
 | `folded` | the rank-`length(slots)` real coefficient tensor |
 
 The term's contribution on a configuration `(e, u)` is
@@ -140,14 +140,14 @@ struct DecoratedTerm
     body::Int
     atoms::Vector{Int}
     shifts::Vector{SVector{3,Int}}
-    slots::Vector{SlotRef}
+    slots::Vector{Slot}
     folded::Array{Float64}
 end
 
 # The one definition of the consumer scale rule (design record §7). Everything that
 # needs it — `DecoratedTerm`, the reconstruction gate — calls this, so the rule cannot
 # drift into a second, cluster-shaped form.
-_slot_scale(slots::AbstractVector{SlotRef})::Float64 =
+_slot_scale(slots::AbstractVector{Slot})::Float64 =
     (4π)^(count(s -> s.factor.channel == SPIN, slots) / 2)
 
 """
@@ -181,9 +181,12 @@ function decorated_terms(model::SLCEModel)::Vector{DecoratedTerm}
 end
 
 """
-    restrict(model::SLCEModel, channel::Symbol) -> SLCEModel
+    restrict(model::SLCEModel, sector::Symbol) -> SLCEModel
 
-The exact sub-model of one channel, `:spin` or `:lattice`.
+The exact sub-model of one sector, `:spin` or `:lattice` — the same two selector
+names [`SLCE.sector_columns`](@ref) uses, and deliberately *not* the [`SLCE.Channel`](@ref)
+enum: `:lattice` is "carries no spin factor", which is a property of a whole SALC,
+while `DISP` labels one site factor.
 
 `:lattice` keeps the SALCs carrying **no spin factor at all** — the part of the
 energy surface no magnetic state can change. Its predictions are independent of `e`
@@ -230,12 +233,12 @@ already pure spin is returned unchanged.
     want the renormalized couplings at some displacement state, that is a
     thermodynamic average over the joint model, not a restriction of it.
 """
-function restrict(model::SLCEModel, channel::Symbol)::SLCEModel
-    channel in (:spin, :lattice) || throw(ArgumentError(
-        "restrict supports channel = :spin (the clamped-ion sub-model) or " *
-        ":lattice (the spin-independent sub-model); got :$channel"))
+function restrict(model::SLCEModel, sector::Symbol)::SLCEModel
+    sector in (:spin, :lattice) || throw(ArgumentError(
+        "restrict supports sector = :spin (the clamped-ion sub-model) or " *
+        ":lattice (the spin-independent sub-model); got :$sector"))
     basis = model.basis
-    if channel === :spin
+    if sector === :spin
         _basis_has_disp(basis) || return model     # already the p = 0 view
         keep = findall(is_pure_spin, basis.salc_basis.keys)
         spec = _spin_spec(basis.spec)
@@ -258,7 +261,7 @@ end
 # displacement sector would be refused by the very surfaces `restrict` exists to reach.
 function _spin_spec(spec::BasisSpec)::BasisSpec
     rules = SectorRule[]
-    for r in spec.sectors
+    for r in spec.sector_rules
         (r.disp_degree[1] == 0 && r.spin_mode !== :none) || continue
         push!(rules, SectorRule(r.spin_mode, r.spin_ls, r.spin_nsites, r.spin_lmax,
                                 r.spin_lsum, (0, 0), r.sites, r.soc, r.cutoff))
@@ -273,7 +276,7 @@ end
 # what `_basis_has_spin` reads, so a restricted model that still advertised a spin
 # sector would keep demanding the very `spins` argument `restrict` exists to remove.
 function _lattice_spec(spec::BasisSpec)::BasisSpec
-    rules = SectorRule[r for r in spec.sectors
+    rules = SectorRule[r for r in spec.sector_rules
                        if r.spin_mode === :none && r.disp_degree[2] > 0]
     return BasisSpec(spec.nbody, zeros(Int, length(spec.lmax)), spec.pmax, spec.lsum,
                      spec.cutoff, spec.soc, rules, spec.disp_scale,

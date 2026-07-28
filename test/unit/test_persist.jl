@@ -272,9 +272,9 @@ end
         d2 = TOML.parse(String(take!(buf)))["spec"]
         sp2 = MR._spec_from(d2)
         @test sp2 == sp
-        @test sp2.sectors[2].soc == false && isinf(sp2.sectors[2].cutoff[1, 1])
-        @test sp2.sectors[1].spin_lmax == 2 && sp2.sectors[1].spin_lsum == 4
-        @test sp2.sectors[2].spin_lmax == SLCE.LSUM_UNCAPPED
+        @test sp2.sector_rules[2].soc == false && isinf(sp2.sector_rules[2].cutoff[1, 1])
+        @test sp2.sector_rules[1].spin_lmax == 2 && sp2.sector_rules[1].spin_lsum == 4
+        @test sp2.sector_rules[2].spin_lmax == SLCE.LSUM_UNCAPPED
         @test sp2.disp_scale == 1.0 && sp2.pmax == [0, 2, 0]
         # a legacy "isotropy"-keyed spec doc (v3/v4 layout) reads with the inversion
         dl = MR._spec_doc(BasisSpec(labels; nbody = 2, cutoff = 3.7, lmax = 1))
@@ -285,7 +285,7 @@ end
         delete!(dl, "disp_scale")
         dl["isotropy"] = true
         spl = MR._spec_from(dl)
-        @test spl.soc == false && isempty(spl.sectors)
+        @test spl.soc == false && isempty(spl.sector_rules)
         @test spl.pmax == [0, 0, 0] && spl.disp_scale == 1.0
     end
 
@@ -295,7 +295,7 @@ end
     # Without this test that promise is untested code, and the next refactor drops it.
     @testset "pre-rename documents still load (schema tags + the v5 sector key)" begin
         # A SECTOR-CARRYING fixture: the shared `model` above is the dense form, whose
-        # `spec.sectors` is empty — downgrading its (nonexistent) sector table would
+        # `spec.sector_rules` is empty — downgrading its (nonexistent) sector table would
         # make the second half of this test silently vacuous. The `@test` below is the
         # guard against that happening again.
         crv = Crystal(Lattice(Matrix(3.0 * I(3))),
@@ -304,7 +304,7 @@ end
             Sector(spin = (sites = 1:2,), cutoff = 1.1),
             Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1)]))
         mv = SLCEModel(bv, 0.29, randn(rng, n_salcs(bv)), bv.salc_basis.keys)
-        @test length(bv.spec.sectors) == 2          # the downgrade below is not a no-op
+        @test length(bv.spec.sector_rules) == 2          # the downgrade below is not a no-op
 
         doc = MR._to_doc(mv)
         @test doc["schema"] == "slce/model" && Int(doc["schema_version"]) == 6
@@ -326,7 +326,7 @@ end
         b2 = MR._basis_from_doc(old)
         @test _basis_identical(b2, bv)
         @test b2.spec == bv.spec                    # sector table survives the key rename
-        @test [r.sites for r in b2.spec.sectors] == [r.sites for r in bv.spec.sectors]
+        @test [r.sites for r in b2.spec.sector_rules] == [r.sites for r in bv.spec.sector_rules]
 
         # the basis tag is accepted the same way
         oldb = deepcopy(MR._to_doc(bv))

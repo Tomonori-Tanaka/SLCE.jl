@@ -303,7 +303,10 @@ Easy to break silently — confirm before touching the algorithm.
   `_LEGACY_SCHEMA_TAGS` and the v5 sector-key fallback stay for as long as
   pre-rename files exist on disk. A persisted-document rename is NOT an API rename:
   breaking the API costs a call-site edit, breaking the format strands saved models,
-  so the read path keeps compatibility even when the write path does not.
+  so the read path keeps compatibility even when the write path does not. The
+  converse also holds and is why the document key stayed `"sectors"` when the struct
+  field became `sector_rules`: a rename that buys clarity in the API buys nothing in
+  a format nobody reads by hand, and costs a compatibility branch forever.
 - **BasisSpec sugar resolution ↔ canonical consumers** (`slce/truncation.jl`,
   `slce/model.jl`, `io/input.jl`): the ergonomic forms (label keys, `"*"` wildcards,
   body-keyed tables, unordered `"A-B"` pair keys, specificity resolution) are expanded
@@ -314,7 +317,8 @@ Easy to break silently — confirm before touching the algorithm.
   specificity rule → update the TOML reader (`_cutoff_from_input` etc.), the BasisSpec
   docstring, and `test/unit/test_truncation.jl` together. The sector table follows the
   same discipline: `Sector` is unresolved sugar, `_resolve_sector(s)` (truncation.jl)
-  produces the dense `SectorRule` rows, and `nbody` / the per-body `cutoff` envelope
+  produces the dense `SectorRule` rows stored on `BasisSpec.sector_rules`, and `nbody` /
+  the per-body `cutoff` envelope
   are DERIVED from them — a new sector knob must be resolved there, persisted in
   `_sector_doc`/`_sector_from`, compared in `==`, and printed in `show`, or specs stop
   round-tripping. Renaming a spec keyword touches FOUR surfaces at once: the keyword
@@ -582,14 +586,14 @@ Easy to break silently — confirm before touching the algorithm.
   torque-component rows share a label); a resampling estimator (CV-based `ElasticNet` /
   `Lasso` / `AdaptiveLasso` in `ext/SLCEGLMNetExt.jl`) must keep same-label rows
   in the same fold so CV does not leak within-configuration structure. The analytic / adapter
-  estimators (`OLS` / `Ridge` / `AdaptiveRidge` / `PrecomputedPilot`) ignore it. The GLMNet
+  estimators (`OLS` / `Ridge` / `AdaptiveRidge` / `FixedCoefficients`) ignore it. The GLMNet
   solve uses `intercept = false` + column `standardize` and selects λ by configuration-
   grouped, seeded CV (`:lambda_min`/`:lambda_1se`); change the centering/whitening in
   `fit` and the penalty scale (`λ·std`) moves with it. `AdaptiveLasso` runs its `pilot`
   through `solve_coefficients` (forwarding `row_groups`), then a weighted-L1 GLMNet solve with
   fixed `penalty_factor`; `AdaptiveRidge` is a pure-core reweighted-ridge loop sharing the
   centered-`X` contract. Validated in the separate `test/glmnet/` env (GLMNet-backed) and
-  `test/unit/test_fit.jl` (core `AdaptiveRidge` / `PrecomputedPilot` solves), never mixing
+  `test/unit/test_fit.jl` (core `AdaptiveRidge` / `FixedCoefficients` solves), never mixing
   the two (GLMNet absent in the core suite).
 - **GCV ↔ `_assemble_problem` ↔ `islinear` ↔ the GAR weight map** (`fitting/selection.jl`,
   `fitting/estimators.jl`): `gcv`/`effective_dof` reassemble the design through
@@ -600,7 +604,10 @@ Easy to break silently — confirm before touching the algorithm.
   and `AdaptiveRidge`'s `1/(β² + ε)` must stay in sync with its solve loop). Change a
   weight formula in the solver and the `_penalty_diagonal` method, the design-notes §13
   derivation, and the dense-hat-matrix tests in `test/unit/test_selection.jl` move
-  together. `select_fit`'s alive-group rule is the `refit` scaled-magnitude support rule
+  together. §13 states the derivation in `θ` and `δ`; the API spells those out as
+  `cost_exponent` and `score_rtol`, and the mapping is written in §13 itself and in the
+  `cost_weights` docstring — keep the formulas in Greek (a derivation written in
+  `score_rtol` is unreadable) and the keywords in words, never the other way round. `select_fit`'s alive-group rule is the `refit` scaled-magnitude support rule
   (`|jϕⱼ|·‖X[:,j]‖ > threshold`) applied per group — change one side and the other (and
   the E2E cost-recomputation test) follows; `select_support` reuses the same rule for its
   per-point alive/cost columns while delegating each point's fit to `refit` itself
@@ -622,7 +629,7 @@ Easy to break silently — confirm before touching the algorithm.
   designs — change the centering or whitening there and **both** move together (the oracle
   pins `fit`'s numerics). `refit` re-solves on the scaled-magnitude support
   `|jϕ_j|·‖X[:,j]‖ > threshold` of an existing fit (a column sub-matrix), so it rejects a
-  `PrecomputedPilot`-backed estimator (fixed-length pilot vector ≠ support length).
+  `FixedCoefficients`-backed estimator (fixed-length pilot vector ≠ support length).
   **`identifiability` (`fitting/diagnostics.jl`) is a third consumer of that same
   assembly** — it reports the numerical rank of the design the fit solved (or would
   solve), so it must reassemble through `_assemble_problem` with the fit's own

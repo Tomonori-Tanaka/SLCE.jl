@@ -126,11 +126,11 @@ avg(x) = sum(x) / length(x)
         far = MR.fit(MR.SLCEFit, dssparse, MR.AdaptiveLasso(pilot = MR.Ridge(lambda = 1e-4),
                                                            lambda = 1e-3))
         @test MR.r2_energy(far) > 0.95
-        # PrecomputedPilot reuses a prior fit's coefficients instead of a fresh pilot run;
+        # FixedCoefficients reuses a prior fit's coefficients instead of a fresh pilot run;
         # with the OLS pilot's own coefficients it matches the OLS-pilot AdaptiveLasso.
         prior = MR.fit(MR.SLCEFit, dssparse, MR.OLS())
         fpp = MR.fit(MR.SLCEFit, dssparse,
-                     MR.AdaptiveLasso(pilot = MR.PrecomputedPilot(MR.coef(prior)), lambda = 1e-3))
+                     MR.AdaptiveLasso(pilot = MR.FixedCoefficients(MR.coef(prior)), lambda = 1e-3))
         fos = MR.fit(MR.SLCEFit, dssparse, MR.AdaptiveLasso(pilot = MR.OLS(), lambda = 1e-3))
         @test isapprox(MR.coef(fpp), MR.coef(fos); atol = 1e-8)
     end

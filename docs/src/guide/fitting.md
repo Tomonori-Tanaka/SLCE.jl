@@ -209,12 +209,12 @@ with per-column penalty factors ``w_j = 1/\max(|\hat\beta_j^{\text{pilot}}|,
 \varepsilon)^\gamma`` — penalizing columns the pilot found small and sparing those it
 found large, which gives it oracle selection. `gamma = 0` reduces to a plain Lasso; the
 pilot defaults to [`OLS`](@ref) but any estimator works, including a
-[`PrecomputedPilot`](@ref) that reuses a prior fit's coefficients:
+[`FixedCoefficients`](@ref) that reuses a prior fit's coefficients:
 
 ```julia
 fit(SLCEFit, dataset, AdaptiveLasso(gamma = 1.0))                       # OLS pilot (Zou 2006)
 fit(SLCEFit, dataset, AdaptiveLasso(pilot = Ridge(lambda = 1e-4)))      # for ill-conditioned designs
-fit(SLCEFit, dataset, AdaptiveLasso(pilot = PrecomputedPilot(coef(prior)), lambda = 1e-3))
+fit(SLCEFit, dataset, AdaptiveLasso(pilot = FixedCoefficients(coef(prior)), lambda = 1e-3))
 ```
 
 It shares `lambda` / `standardize` / CV behavior with [`ElasticNet`](@ref) (`lambda =
@@ -243,7 +243,7 @@ f3 = fit(SLCEFit, ds, OLS(); sector_mask = :lattice, frozen = SLCEModel(f2),
 ```
 
 Selectors are `:all`, `:spin`, `:lattice`, `:coupled` (a partition by channel),
-and `:soc_free` / `:soc` (a crosscutting partition by `L_S`); a collection of them
+and `:soc_free` / `:soc_only` (a crosscutting partition by `L_S`); a collection of them
 is their union, and an explicit column list or `Bool` mask also works. Inspect a
 plan before running it with [`SLCE.sector_columns`](@ref). Frozen coefficients are
 matched by `SALCKey`, never positionally, and a frozen value on a column the mask
@@ -299,7 +299,7 @@ the surviving groups, not the coefficient count. The workflow prices each group 
 front and lets the penalty act at exactly that granularity:
 
 ```julia
-est  = GroupAdaptiveRidge(basis; lambda = 1.0, theta = 1.0)   # cost-proportional weights
+est  = GroupAdaptiveRidge(basis; lambda = 1.0, cost_exponent = 1.0)   # cost-proportional weights
 path = select_fit(dataset, est; lambdas = 10.0 .^ range(2, -8; length = 25))
 fbest = refit(path.fit; threshold = path.threshold)   # de-bias exactly the alive support
 ```
@@ -312,21 +312,21 @@ realizes exactly the support the path reported.)
 The convenience constructor bundles `SLCE.salc_groups` (the column → group
 labels) with `SLCE.cost_weights`, which sets the fixed per-group weights to
 ``v_g = \sqrt{p_g}\,(c_g/\bar c)^\theta`` — ``c_g`` being the group's a-priori
-Monte-Carlo cost (its distinct contraction entries, `SLCE.group_costs`). Two
-independent knobs shape the cost–accuracy trade:
+Monte-Carlo cost (its distinct contraction entries, `SLCE.group_costs`), and ``\theta``
+the `cost_exponent` keyword. Two independent knobs shape the cost–accuracy trade:
 
-- **`theta ∈ [0, 1]`** tilts the *penalty*: `theta = 0` ignores cost (plain group
-  selection), `theta = 1` makes an expensive group earn its keep with a
-  correspondingly larger error reduction. Different `theta` change the *order* in
+- **`cost_exponent ∈ [0, 1]`** (the ``\theta`` above) tilts the *penalty*: `0` ignores
+  cost (plain group selection), `1` makes an expensive group earn its keep with a
+  correspondingly larger error reduction. Different values change the *order* in
   which groups die along the λ path.
-- **`delta ≥ 0`** tilts the *selection*: [`select_fit`](@ref) scores every λ (GCV by
+- **`score_rtol ≥ 0`** tilts the *selection*: [`select_fit`](@ref) scores every λ (GCV by
   default, or configuration-grouped CV with `criterion = :cv`) and picks the
-  **cheapest** λ whose score is within `(1 + delta)` of the path minimum — the
+  **cheapest** λ whose score is within `(1 + score_rtol)` of the path minimum — the
   cost-aware generalization of the conventional `:lambda_1se` rule.
 
-The returned [`SelectionPath`](@ref) is a Tables.jl source with one row per λ
-(`lambda`, `score`, `edof`, `n_alive`, `cost`, `selected`); sweeping `theta` and taking
-the lower envelope of the per-θ paths traces the full (cost, error) Pareto front. For
+The returned [`LambdaPath`](@ref) is a Tables.jl source with one row per λ
+(`lambda`, `score`, `edof`, `n_alive`, `cost`, `selected`); sweeping `cost_exponent`
+and taking the lower envelope of the paths traces the full (cost, error) Pareto front. For
 a torque co-fit prefer `criterion = :cv` — see the caveat in [`gcv`](@ref).
 
 On real data the group-magnitude spectrum is usually **continuous** — there is no
@@ -338,8 +338,8 @@ evaluation dataset, and applies the same Pareto rule:
 
 ```julia
 train, held = dataset[1:80], dataset[81:100]        # dataset slicing
-f     = fit(SLCEFit, train, GroupAdaptiveRidge(basis; lambda = 1e-5, theta = 1.0))
-front = select_support(f; thresholds = 25, evalset = held, delta = 0.05)
+f     = fit(SLCEFit, train, GroupAdaptiveRidge(basis; lambda = 1e-5, cost_exponent = 1.0))
+front = select_support(f; npoints = 25, evalset = held, score_rtol = 0.05)
 front.fit                                           # the selected de-biased refit
 ```
 

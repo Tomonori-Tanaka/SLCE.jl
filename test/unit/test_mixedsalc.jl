@@ -8,7 +8,7 @@
 
 using Test
 using SLCE
-using SLCE: SiteDecor, SiteFactor, SlotRef, SPIN, DISP, spin_decors, spin_ls,
+using SLCE: SiteDecor, SiteFactor, Slot, SPIN, DISP, spin_decors, spin_ls,
             _orbit_salcs_decors, _orbit_salcs, _build_wig_cache, evaluate_salc,
             build_clusters, build_neighbor_list, _assemble_spacegroup, salcs
 using LinearAlgebra

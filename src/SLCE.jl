@@ -118,7 +118,7 @@ export predict_energy, predict_torque, predict_force, has_torque, has_force
 export asr_residual
 # estimators
 export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, AdaptiveLasso, AdaptiveRidge,
-    GroupAdaptiveRidge, PrecomputedPilot
+    GroupAdaptiveRidge, FixedCoefficients
 # fit diagnostics (predict / residuals / r2 are StatsAPI generics defaulting to the
 # energy block; the explicit *_energy / *_torque / *_force forms are the full surface)
 export identifiability
@@ -129,7 +129,7 @@ export coef, intercept, nobs, dof, predict, residuals, r2,
 export coeftable, SLCECoefficients
 # model selection: GCV / effective dof (linear estimators), the cost-aware λ path,
 # and the threshold-swept refit front
-export gcv, effective_dof, select_fit, SelectionPath, select_support, SupportPath
+export gcv, effective_dof, select_fit, LambdaPath, select_support, SupportPath
 export cross_validate, CVResult
 export to_sunny
 # Fitted-model introspection: a code-neutral view of the multipole / bilinear terms of a
@@ -166,7 +166,7 @@ public analyze_symmetry, n_ops, SymOp, SpaceGroup
 public build_clusters, ClusterMember, ClusterOrbit, ClusterSet
 public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
 public Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor                # decoration labels
-public SlotRef                                       # a DecoratedTerm's axis label
+public Slot                                       # a DecoratedTerm's axis label
 public SectorRule                                                     # resolved sector row
 public has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin, is_soc_free
 public spin_decors, spin_ls, rep_scale

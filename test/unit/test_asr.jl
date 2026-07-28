@@ -300,9 +300,9 @@ end
         end
         fR = fit(SLCEFit, ds, Ridge(1e-9); torque_weight = 0.3)
         @test maximum(abs, fR.jphi .- beta_true) < 1e-3
-        # PrecomputedPilot carries β-space coefficients — undefined under ASR
-        @test_throws ArgumentError fit(SLCEFit, ds, PrecomputedPilot(beta_true))
-        fp = fit(SLCEFit, ds, PrecomputedPilot(beta_true); asr = false)
+        # FixedCoefficients carries β-space coefficients — undefined under ASR
+        @test_throws ArgumentError fit(SLCEFit, ds, FixedCoefficients(beta_true))
+        fp = fit(SLCEFit, ds, FixedCoefficients(beta_true); asr = false)
         @test fp.jphi == beta_true
     end
 

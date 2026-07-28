@@ -420,7 +420,7 @@ is returned (with a warning) and `j0` falls back to `mean(y_E)` — on a staged 
 frozen part and the constraint's particular solution are kept instead (that is the
 `γ = 0` model), and `j0` is re-derived from it.
 
-A [`PrecomputedPilot`](@ref) (or an [`AdaptiveLasso`](@ref) whose pilot is one) is
+A [`FixedCoefficients`](@ref) (or an [`AdaptiveLasso`](@ref) whose pilot is one) is
 rejected: its fixed coefficient vector has the original column count, not the refit
 support length, and is meaningless once a support has been chosen.
 
@@ -441,7 +441,7 @@ model is exactly as translation-invariant as the staged one.
 function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
                threshold::Real = 0.0)::SLCEFit
     threshold >= 0 || throw(ArgumentError("refit threshold must be ≥ 0; got $threshold"))
-    _reject_precomputed_pilot(estimator)
+    _reject_fixed_coefficients(estimator)
     dataset = f.dataset
     w = f.torque_weight
     wF = f.force_weight
@@ -528,24 +528,24 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
                    rep !== nothing && size(rep.A, 1) > 0, resid, rep)
 end
 
-# A `PrecomputedPilot` carries a fixed, full-design coefficient vector. `refit` and
+# A `FixedCoefficients` carries a fixed, full-design coefficient vector. `refit` and
 # `cross_validate` must both reject it (with rationales of their own), so the predicate
 # lives here as the single definition both rejection sites share.
-_carries_precomputed_pilot(e::AbstractEstimator)::Bool =
-    e isa PrecomputedPilot || (e isa AdaptiveLasso && e.pilot isa PrecomputedPilot)
+_carries_fixed_coefficients(e::AbstractEstimator)::Bool =
+    e isa FixedCoefficients || (e isa AdaptiveLasso && e.pilot isa FixedCoefficients)
 
-# `refit` re-solves on a column sub-matrix `X[:, support]`, so a `PrecomputedPilot` —
+# `refit` re-solves on a column sub-matrix `X[:, support]`, so a `FixedCoefficients` —
 # whose fixed coefficient vector carries the original full column count — would throw a
 # `DimensionMismatch` deep in `solve_coefficients`, and is meaningless once a support has
 # been chosen. Reject it (and an `AdaptiveLasso` carrying one) upfront with a clear message.
-function _reject_precomputed_pilot(e::AbstractEstimator)
-    if e isa PrecomputedPilot
-        throw(ArgumentError("refit does not accept a PrecomputedPilot: its fixed " *
+function _reject_fixed_coefficients(e::AbstractEstimator)
+    if e isa FixedCoefficients
+        throw(ArgumentError("refit does not accept a FixedCoefficients: its fixed " *
             "coefficient vector has the original column count, not the refit support " *
             "length. Pass a fresh estimator such as OLS()."))
-    elseif e isa AdaptiveLasso && e.pilot isa PrecomputedPilot
+    elseif e isa AdaptiveLasso && e.pilot isa FixedCoefficients
         throw(ArgumentError("refit does not accept an AdaptiveLasso whose pilot is a " *
-            "PrecomputedPilot: the pilot's fixed coefficient vector has the original " *
+            "FixedCoefficients: the pilot's fixed coefficient vector has the original " *
             "column count, not the refit support length. Use a fresh pilot such as OLS()."))
     end
     return nothing

@@ -333,7 +333,7 @@ end
     SectorRule
 
 The resolved, dense canonical form of one [`Sector`](@ref) row, stored in
-`BasisSpec.sectors` (public, unexported — construct via [`Sector`](@ref)):
+`BasisSpec.sector_rules` (public, unexported — construct via [`Sector`](@ref)):
 
 - `spin_mode::Symbol` — `:none` (no spin factors) | `:explicit` (the exact
   multiset `spin_ls`) | `:any` (every even-`Σl` multiset within the caps);

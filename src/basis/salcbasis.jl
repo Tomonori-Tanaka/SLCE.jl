@@ -317,20 +317,20 @@ end
 # ---------------------------------------------------------------------------
 
 # Canonical slot list of a per-site decor assignment.
-function _assignment_slots(a::Vector{SiteDecor})::Vector{SlotRef}
-    slots = SlotRef[]
+function _assignment_slots(a::Vector{SiteDecor})::Vector{Slot}
+    slots = Slot[]
     for s in eachindex(a)
-        has_spin(a[s]) && push!(slots, SlotRef(s, SiteFactor(SPIN, 0, a[s].spin_l)))
+        has_spin(a[s]) && push!(slots, Slot(s, SiteFactor(SPIN, 0, a[s].spin_l)))
     end
     for s in eachindex(a)
         has_disp(a[s]) &&
-            push!(slots, SlotRef(s, SiteFactor(DISP, a[s].disp_k, a[s].disp_l)))
+            push!(slots, Slot(s, SiteFactor(DISP, a[s].disp_k, a[s].disp_l)))
     end
     return slots
 end
 
-_slot_ls(slots::Vector{SlotRef})::Vector{Int} = Int[sl.factor.l for sl in slots]
-_n_spin_slots(slots::Vector{SlotRef})::Int =
+_slot_ls(slots::Vector{Slot})::Vector{Int} = Int[sl.factor.l for sl in slots]
+_n_spin_slots(slots::Vector{Slot})::Int =
     count(sl -> sl.factor.channel == SPIN, slots)
 
 # Total spin rank of a left-coupling path over a spin-first slot list: the
@@ -377,11 +377,11 @@ end
 # σ[j] = position of the image of slot j (site perm[s], same factor) in the
 # image assignment's canonical slot list. Unique by the (site, channel) slot
 # invariant.
-function _slot_sigma(slots::Vector{SlotRef}, slots2::Vector{SlotRef},
+function _slot_sigma(slots::Vector{Slot}, slots2::Vector{Slot},
                      perm::Vector{Int})::Vector{Int}
     σ = Vector{Int}(undef, length(slots))
     for j in eachindex(slots)
-        target = SlotRef(perm[slots[j].site], slots[j].factor)
+        target = Slot(perm[slots[j].site], slots[j].factor)
         jp = findfirst(==(target), slots2)
         jp === nothing && error("slot lists not closed under the site permutation")
         σ[j] = jp
@@ -391,7 +391,7 @@ end
 
 # Coupled bases of one assignment, tagged with L_S: (L_S, Lf, tensor) triples
 # over the slot-order `l`s (spin first ⇒ L_S well-defined per path).
-function _decor_coupled_bases(slots::Vector{SlotRef})
+function _decor_coupled_bases(slots::Vector{Slot})
     ls = _slot_ls(slots)
     n_spin = _n_spin_slots(slots)
     out = Tuple{Int,Int,Array{Float64}}[]
@@ -406,7 +406,7 @@ end
 # of invariant blocks; each is `Vector{(assignment index, folded)}`.
 function _project_and_fold_decors(stab::Vector{Tuple{Int,Vector{Int}}},
                                   assignments::Vector{Vector{SiteDecor}},
-                                  slotlists::Vector{Vector{SlotRef}},
+                                  slotlists::Vector{Vector{Slot}},
                                   cbs::Vector, L_S::Int, Lf::Int,
                                   wcache::_WigCache)
     tens = [Array{Float64}[] for _ in assignments]
@@ -478,7 +478,7 @@ end
 # Decor-general `_transport_term`: rotate every slot axis, relabel sites through
 # the connecting permutation, and return the member term in its canonical slot
 # order.
-function _transport_term_decors(a::Vector{SiteDecor}, slots::Vector{SlotRef},
+function _transport_term_decors(a::Vector{SiteDecor}, slots::Vector{Slot},
                                 F::Array{Float64}, g::Int, perm::Vector{Int},
                                 wcache::_WigCache)::SALCTerm
     T = F

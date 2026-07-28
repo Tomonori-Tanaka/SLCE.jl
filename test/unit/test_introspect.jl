@@ -286,7 +286,7 @@ end
             Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)]))
         mlat = SLCEModel(blat, 0.7, randn(rng, n_salcs(blat)))
         rlat = restrict(mlat, :spin)
-        @test n_salcs(rlat.basis) == 0 && isempty(rlat.basis.spec.sectors)
+        @test n_salcs(rlat.basis) == 0 && isempty(rlat.basis.spec.sector_rules)
         @test predict_energy(rlat, _rand_config(rng, 2)) == 0.7 ==
               predict_energy(mlat, _rand_config(rng, 2), z)
         @test spin_multipole_terms(rlat) == SpinMultipoleTerm[]

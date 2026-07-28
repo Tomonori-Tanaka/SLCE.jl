@@ -343,7 +343,7 @@ end
         # explicit spin multiset + displacement degree budget (Int/range forms)
         sp = BasisSpec(_TRUNC_LABELS; lmax = 2, pmax = ["*" => 0, "Fe" => 2],
                        sectors = [Sector(spin = [1, 1], disp = 1:2, cutoff = 5.0)])
-        r = sp.sectors[1]
+        r = sp.sector_rules[1]
         @test r.spin_mode == :explicit && r.spin_ls == [1, 1]
         @test r.spin_nsites == (2, 2) && r.disp_degree == (1, 2)
         @test r.sites == (2, 4)          # spin pair + up to two degree-1 disp sites
@@ -354,34 +354,34 @@ end
         # single-Int spin, NamedTuple disp, explicit sites intersection
         s2 = BasisSpec(_TRUNC_LABELS; lmax = 2, pmax = 2,
                        sectors = Sector(spin = 2, disp = (degree = 1:2,),
-                                        sites = 1, cutoff = 4.0)).sectors[1]
+                                        sites = 1, cutoff = 4.0)).sector_rules[1]
         @test s2.spin_mode == :explicit && s2.spin_ls == [2]
         @test s2.sites == (1, 1)         # both factors forced onto one site
         # general-truncation spin sector + sector-local caps
         s3 = BasisSpec(_TRUNC_LABELS; lmax = 3,
                        sectors = Sector(spin = (sites = 2:3, lmax = 2, lsum = 4),
-                                        cutoff = 8.0)).sectors[1]
+                                        cutoff = 8.0)).sector_rules[1]
         @test s3.spin_mode == :any && s3.spin_nsites == (2, 3)
         @test s3.spin_lmax == 2 && s3.spin_lsum == 4 && s3.sites == (2, 3)
         @test s3.disp_degree == (0, 0)
         # lattice-only sector; pure-disp needs pmax
         s4 = BasisSpec(_TRUNC_LABELS; lmax = 0, pmax = 4,
                        sectors = Sector(disp = (degree = 2:4,),
-                                        cutoff = 6.0)).sectors[1]
+                                        cutoff = 6.0)).sector_rules[1]
         @test s4.spin_mode == :none && s4.spin_nsites == (0, 0)
         @test s4.disp_degree == (2, 4) && s4.sites == (1, 4)
         # per-sector pair-table cutoff resolves with the labels
         s5 = BasisSpec(_TRUNC_LABELS; lmax = 1,
                        sectors = Sector(spin = (sites = 2,),
                                         cutoff = ["Fe-*" => 6.0,
-                                                  "*-*" => 8.0])).sectors[1]
+                                                  "*-*" => 8.0])).sector_rules[1]
         @test s5.cutoff[2, 2] == 6.0 && s5.cutoff[1, 2] == 6.0
         @test s5.cutoff[1, 1] == 8.0 && s5.cutoff == s5.cutoff'
         @test s5.soc                     # default
         # soc = false is per sector
         s6 = BasisSpec(_TRUNC_LABELS; lmax = 1,
                        sectors = Sector(spin = [1, 1], soc = false,
-                                        cutoff = 5.0)).sectors[1]
+                                        cutoff = 5.0)).sector_rules[1]
         @test !s6.soc
     end
 
@@ -470,7 +470,7 @@ end
         @test sp2 == BasisSpec(_TRUNC_LABELS; lmax = 2, pmax = 2,
                                sectors = [Sector(spin = [1, 1], disp = 2,
                                                  cutoff = 5.0)])
-        @test occursin("SectorRule", sprint(show, sp2.sectors[1]))
+        @test occursin("SectorRule", sprint(show, sp2.sector_rules[1]))
         @test occursin("sector 1", sprint(show, MIME("text/plain"), sp2))
         # sector specs build (M2b-3b); the sector-driven content is gated in
         # test_sectorbasis.jl / test_mixedsalc.jl

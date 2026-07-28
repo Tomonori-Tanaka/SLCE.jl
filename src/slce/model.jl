@@ -23,8 +23,11 @@ interaction term itself. Stored in resolved, dense canonical form:
 - `soc::Bool` — dense pure-spin form only: `false` keeps only the total-spin
   scalar (`L_S = 0`, here `≡ Lf = 0`) channel. In sector mode SOC selection is
   per sector and this field is `true`.
-- `sectors::Vector{SLCE.SectorRule}` — the resolved sector table (empty = the
-  dense pure-spin specification above; see [`Sector`](@ref)).
+- `sector_rules::Vector{SLCE.SectorRule}` — the resolved sector table (empty = the
+  dense pure-spin specification above). The field name differs from the `sectors`
+  keyword on purpose: the keyword takes [`Sector`](@ref) **sugar**, this field holds
+  the dense [`SLCE.SectorRule`](@ref) rows `_resolve_sector` produced from it, and
+  everything downstream reads only the resolved side.
 - `disp_scale::Float64` — the fixed displacement scale (Å) the displacement
   kernels are evaluated in units of; persisted with the basis (like the `(4π)`
   spin normalization, it is part of the model definition, not a fit knob).
@@ -81,14 +84,14 @@ struct BasisSpec
     lsum::Vector{Int}
     cutoff::Vector{Matrix{Float64}}
     soc::Bool
-    sectors::Vector{SectorRule}
+    sector_rules::Vector{SectorRule}
     disp_scale::Float64
     species_labels::Vector{String}
 
     # Positional canonical-form constructor; all construction paths validate here.
     function BasisSpec(nbody::Int, lmax::Vector{Int}, pmax::Vector{Int},
                        lsum::Vector{Int}, cutoff::Vector{Matrix{Float64}},
-                       soc::Bool, sectors::Vector{SectorRule}, disp_scale::Float64,
+                       soc::Bool, sector_rules::Vector{SectorRule}, disp_scale::Float64,
                        species_labels::Vector{String})
         nbody >= 1 || throw(ArgumentError("nbody must be ≥ 1; got $nbody"))
         isempty(lmax) && throw(ArgumentError("lmax must have one entry per species"))
@@ -115,7 +118,7 @@ struct BasisSpec
             all(v -> !isnan(v) && v >= 0, M) ||
                 throw(ArgumentError("cutoff body$(k + 1) entries must be ≥ 0 or Inf"))
         end
-        if isempty(sectors)
+        if isempty(sector_rules)
             all(==(0), pmax) ||
                 throw(ArgumentError("pmax > 0 needs a sector table with " *
                                     "displacement content (`sectors = ...`)"))
@@ -123,7 +126,7 @@ struct BasisSpec
             soc || throw(ArgumentError("with a sector table, SOC selection is " *
                                        "per sector (`Sector(; soc = false)`), " *
                                        "not a global flag"))
-            for (i, r) in enumerate(sectors)
+            for (i, r) in enumerate(sector_rules)
                 size(r.cutoff) == (nkd, nkd) ||
                     throw(ArgumentError("sectors[$i] cutoff matrix is " *
                                         "$(size(r.cutoff)), expected ($nkd, $nkd)"))
@@ -158,7 +161,7 @@ struct BasisSpec
         allunique(species_labels) ||
             throw(ArgumentError("species labels must be unique; got $species_labels"))
         return new(nbody, copy(lmax), copy(pmax), copy(lsum),
-                   Matrix{Float64}[copy(M) for M in cutoff], soc, copy(sectors),
+                   Matrix{Float64}[copy(M) for M in cutoff], soc, copy(sector_rules),
                    disp_scale, copy(species_labels))
     end
 end
@@ -235,7 +238,7 @@ BasisSpec(crystal::Crystal; kwargs...) = BasisSpec(crystal.species_labels; kwarg
 Base.:(==)(a::BasisSpec, b::BasisSpec) =
     a.nbody == b.nbody && a.lmax == b.lmax && a.pmax == b.pmax &&
     a.lsum == b.lsum && a.cutoff == b.cutoff && a.soc == b.soc &&
-    a.sectors == b.sectors && a.disp_scale == b.disp_scale &&
+    a.sector_rules == b.sector_rules && a.disp_scale == b.disp_scale &&
     a.species_labels == b.species_labels
 
 function Base.show(io::IO, ::MIME"text/plain", sp::BasisSpec)
@@ -263,7 +266,7 @@ function Base.show(io::IO, ::MIME"text/plain", sp::BasisSpec)
     end
     sp.disp_scale == 1.0 ||
         println(io, "  disp_scale: ", sp.disp_scale, " Å")
-    for (i, r) in enumerate(sp.sectors)
+    for (i, r) in enumerate(sp.sector_rules)
         println(io, "  sector $i: ", sprint(show, r))
     end
 end
@@ -321,7 +324,7 @@ function SLCEBasis(crystal::Crystal, spec::BasisSpec;
     nl = build_neighbor_list(crystal, _superset_cutoff(spec), images)
     clusters = build_clusters(crystal, nl, sg; nbody = spec.nbody, selection = images,
                               cutoff = spec.cutoff)
-    salcs = isempty(spec.sectors) ?
+    salcs = isempty(spec.sector_rules) ?
         build_salc_basis(crystal, sg, clusters;
                          lmax_by_species = spec.lmax, lsum_by_body = spec.lsum,
                          scalar_only = !spec.soc) :
@@ -823,8 +826,8 @@ _basis_has_disp(basis::SLCEBasis)::Bool =
 # model silently skip its spin argument and evaluate at a fabricated state.
 function _basis_has_spin(basis::SLCEBasis)::Bool
     spec = basis.spec
-    declared = isempty(spec.sectors) ? any(>(0), spec.lmax) :
-               any(r -> r.spin_mode !== :none, spec.sectors)
+    declared = isempty(spec.sector_rules) ? any(>(0), spec.lmax) :
+               any(r -> r.spin_mode !== :none, spec.sector_rules)
     return declared || any(s -> any(has_spin, s.key.decors), salcs(basis))
 end
 

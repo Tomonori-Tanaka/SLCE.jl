@@ -109,23 +109,25 @@ function group_costs(basis::SLCEBasis,
 end
 
 """
-    cost_weights(basis::SLCEBasis; theta::Real = 1.0)
+    cost_weights(basis::SLCEBasis; cost_exponent::Real = 1.0)
         -> (; column_groups::Vector{Int}, weights::Vector{Float64})
 
 Fixed [`GroupAdaptiveRidge`](@ref) weights over the [`salc_groups`](@ref) partition:
 
-    v_g = √p_g · (c_g / c̄)^theta
+    v_g = √p_g · (c_g / c̄)^θ,    θ = cost_exponent
 
 with `p_g` the group's column count (the Yuan–Lin group-size factor), `c_g =`
-[`group_costs`](@ref) and `c̄` their mean. `theta ∈ [0, 1]` sets the cost-vs-accuracy
-tilt of the penalty: `theta = 0` is cost-blind group selection, `theta = 1` penalizes
-each group in proportion to its Monte-Carlo cost — an expensive group must then earn
-its keep with a correspondingly larger error reduction. Sweeping `theta` changes the
-*order* in which groups are eliminated along a λ path, so the lower envelope over
-several `theta` values traces the (cost, error) Pareto front (see [`select_fit`](@ref)).
+[`group_costs`](@ref) and `c̄` their mean. `cost_exponent ∈ [0, 1]` — the derivation in
+`docs/design-notes.md` §13 writes it `θ` — sets the cost-vs-accuracy tilt of the
+penalty: `0` is cost-blind group selection, `1` penalizes each group in proportion to
+its Monte-Carlo cost, so an expensive group must earn its keep with a correspondingly
+larger error reduction. Sweeping it changes the *order* in which groups are eliminated
+along a λ path, so the lower envelope over several values traces the (cost, error)
+Pareto front (see [`select_fit`](@ref)).
 """
-function cost_weights(basis::SLCEBasis; theta::Real = 1.0)
-    (0 <= theta <= 1) || throw(ArgumentError("theta must be in [0, 1]; got $theta"))
+function cost_weights(basis::SLCEBasis; cost_exponent::Real = 1.0)
+    (0 <= cost_exponent <= 1) || throw(ArgumentError(
+        "cost_exponent must be in [0, 1]; got $cost_exponent"))
     column_groups = salc_groups(basis)
     c = group_costs(basis, column_groups)
     isempty(c) && return (; column_groups, weights = Float64[])
@@ -137,23 +139,23 @@ function cost_weights(basis::SLCEBasis; theta::Real = 1.0)
         p[g] += 1
     end
     cbar = mean(c)
-    t = Float64(theta)
+    t = Float64(cost_exponent)
     weights = [sqrt(p[g]) * (c[g] / cbar)^t for g = 1:G]
     return (; column_groups, weights)
 end
 
 """
-    GroupAdaptiveRidge(basis::SLCEBasis; lambda, theta = 1.0, epsilon = 1e-8,
+    GroupAdaptiveRidge(basis::SLCEBasis; lambda, cost_exponent = 1.0, epsilon = 1e-8,
                        max_iter = 50, tol = 1e-6)
 
 Cost-weighted group estimator for `basis`: [`salc_groups`](@ref) column labels with the
-fixed [`cost_weights`](@ref)`(basis; theta)` weights. See the primary
+fixed [`cost_weights`](@ref)`(basis; cost_exponent)` weights. See the primary
 [`GroupAdaptiveRidge`](@ref) constructor for the estimator itself.
 """
-function GroupAdaptiveRidge(basis::SLCEBasis; lambda::Real, theta::Real = 1.0,
+function GroupAdaptiveRidge(basis::SLCEBasis; lambda::Real, cost_exponent::Real = 1.0,
                             epsilon::Real = 1e-8, max_iter::Integer = 50,
                             tol::Real = 1e-6)
-    lw = cost_weights(basis; theta = theta)
+    lw = cost_weights(basis; cost_exponent = cost_exponent)
     return GroupAdaptiveRidge(lw.column_groups, lw.weights; lambda = lambda,
                               epsilon = epsilon,
                               max_iter = max_iter, tol = tol)
@@ -424,12 +426,12 @@ end
 const _ALIVE_RTOL = 1e-6
 
 # The cost-aware selection rule: among the path points whose score is within
-# `(1 + delta)` of the finite minimum, pick the one of smallest predicted cost; ties
+# `(1 + score_rtol)` of the finite minimum, pick the one of smallest predicted cost; ties
 # go to the earlier index (the larger λ, i.e. the more-regularized fit). `Inf` scores
 # (near-interpolating fits) are never eligible.
 function _select_pareto(scores::Vector{Float64}, costs::Vector{Float64},
-                        delta::Float64)::Int
-    delta >= 0 || throw(ArgumentError("delta must be ≥ 0; got $delta"))
+                        score_rtol::Float64)::Int
+    score_rtol >= 0 || throw(ArgumentError("score_rtol must be ≥ 0; got $score_rtol"))
     length(scores) == length(costs) || throw(DimensionMismatch(
         "scores length $(length(scores)) ≠ costs length $(length(costs))"))
     emin = Inf
@@ -441,7 +443,7 @@ function _select_pareto(scores::Vector{Float64}, costs::Vector{Float64},
         "extend `lambdas` toward larger values"))
     best = 0
     for i in eachindex(scores)
-        scores[i] <= (1 + delta) * emin || continue
+        scores[i] <= (1 + score_rtol) * emin || continue
         if best == 0 || costs[i] < costs[best]
             best = i
         end
@@ -450,12 +452,16 @@ function _select_pareto(scores::Vector{Float64}, costs::Vector{Float64},
 end
 
 """
-    SelectionPath
+    LambdaPath
 
-Result of [`select_fit`](@ref): the descending λ path with the per-λ selection score
+Result of [`select_fit`](@ref) — the regularization path, named for the knob it
+sweeps so it does not claim the generic word "selection" that this whole layer
+(`select_fit`, `select_support`, [`SupportPath`](@ref)) shares.
+
+The descending λ path with the per-λ selection score
 (GCV, or grouped-CV mean squared error), effective dof (`NaN` under `criterion = :cv`,
 where it is not computed), alive-group count, and predicted Monte-Carlo cost
-`Σ_{g alive} c_g`; plus the selection tolerance `delta`, the effective absolute alive
+`Σ_{g alive} c_g`; plus the selection tolerance `score_rtol`, the effective absolute alive
 `threshold` at the selected λ, the `selected` index, and the selected `fit` (re-solved
 cold at the selected λ, so `fit(SLCEFit, dataset, estimator)` reproduces it — and its
 row of the table is re-derived from that cold solve, so `fit` / `threshold` /
@@ -464,27 +470,27 @@ row of the table is re-derived from that cold solve, so `fit` / `threshold` /
 alive support. A Tables.jl source with one row per λ (columns `lambda`, `score`,
 `edof`, `n_alive`, `cost`, `selected`).
 """
-struct SelectionPath
+struct LambdaPath
     lambda::Vector{Float64}       # descending
     score::Vector{Float64}
     criterion::Symbol             # :gcv | :cv
     edof::Vector{Float64}         # NaN per entry when criterion == :cv
     n_alive::Vector{Int}
     cost::Vector{Float64}
-    delta::Float64
+    score_rtol::Float64
     threshold::Float64            # effective absolute alive threshold at `selected`
     selected::Int
     fit::SLCEFit
 end
 
-Tables.istable(::Type{SelectionPath}) = true
-Tables.columnaccess(::Type{SelectionPath}) = true
-Tables.columns(p::SelectionPath) =
+Tables.istable(::Type{LambdaPath}) = true
+Tables.columnaccess(::Type{LambdaPath}) = true
+Tables.columns(p::LambdaPath) =
     (; lambda = p.lambda, score = p.score, edof = p.edof, n_alive = p.n_alive,
        cost = p.cost, selected = [i == p.selected for i in eachindex(p.lambda)])
 
-function Base.show(io::IO, ::MIME"text/plain", p::SelectionPath)
-    print(io, "SelectionPath (criterion = :", p.criterion, ", delta = ", p.delta,
+function Base.show(io::IO, ::MIME"text/plain", p::LambdaPath)
+    print(io, "LambdaPath (criterion = :", p.criterion, ", score_rtol = ", p.score_rtol,
           "; ", length(p.lambda), " λ):")
     for i in eachindex(p.lambda)
         print(io, "\n  λ = ", round(p.lambda[i]; sigdigits = 4),
@@ -497,14 +503,14 @@ end
 
 """
     select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
-               lambdas, torque_weight = 0.0, criterion = :gcv, delta = 0.05,
+               lambdas, torque_weight = 0.0, criterion = :gcv, score_rtol = 0.05,
                costs = nothing, threshold = nothing, nfolds = 5, seed = 1)
-        -> SelectionPath
+        -> LambdaPath
 
 Fit `est` along the descending λ path `lambdas` (each solve warm-started from the
 previous λ's coefficients), score every fit, and select the **cheapest** λ whose score
-is within `(1 + delta)` of the path minimum — the cost-aware generalization of the
-conventional `:lambda_1se` rule. The returned [`SelectionPath`](@ref) carries the full
+is within `(1 + score_rtol)` of the path minimum — the cost-aware generalization of the
+conventional `:lambda_1se` rule. The returned [`LambdaPath`](@ref) carries the full
 per-λ table and the selected fit (re-solved cold, so it is reproducible by a plain
 [`fit`](@ref) call); follow with [`refit`](@ref) to de-bias the surviving groups.
 
@@ -531,8 +537,8 @@ flat). The effective absolute threshold at the selected λ is returned as
 `path.threshold`; de-bias with `refit(path.fit; threshold = path.threshold)` to
 realize exactly the reported support. The predicted Monte-Carlo cost of a fit is
 `Σ_{g alive} c_g` with `c_g` from `costs` (default: `SLCE.group_costs` of the
-dataset's basis under `est`'s column partition). `delta` sets the accuracy tolerance
-of the cost–error trade; sweep the `theta` of `SLCE.cost_weights` to tilt the
+dataset's basis under `est`'s column partition). `score_rtol` sets the accuracy tolerance
+of the cost–error trade; sweep the `cost_exponent` of `SLCE.cost_weights` to tilt the
 penalty itself and trace a Pareto front over both knobs.
 
 !!! note "Force channel"
@@ -542,10 +548,10 @@ penalty itself and trace a Pareto front over both knobs.
 """
 function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
                     lambdas::AbstractVector{<:Real}, torque_weight::Real = 0.0,
-                    criterion::Symbol = :gcv, delta::Real = 0.05,
+                    criterion::Symbol = :gcv, score_rtol::Real = 0.05,
                     costs::Union{Nothing,AbstractVector{<:Real}} = nothing,
                     threshold::Union{Nothing,Real} = nothing, nfolds::Integer = 5,
-                    seed::Integer = 1)::SelectionPath
+                    seed::Integer = 1)::LambdaPath
     isempty(dataset.y_E) && throw(ArgumentError("dataset has no observations"))
     # The λ path below solves UNCONSTRAINED (direct `_solve_gar` on the cached
     # Gram); running it on an ASR-carrying joint basis would silently diverge from
@@ -566,7 +572,7 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
         throw(ArgumentError("lambdas must be finite and ≥ 0"))
     criterion in (:gcv, :cv) ||
         throw(ArgumentError("criterion must be :gcv or :cv; got :$criterion"))
-    delta >= 0 || throw(ArgumentError("delta must be ≥ 0; got $delta"))
+    score_rtol >= 0 || throw(ArgumentError("score_rtol must be ≥ 0; got $score_rtol"))
     threshold === nothing || threshold >= 0 ||
         throw(ArgumentError("threshold must be ≥ 0 (or nothing for the relative " *
                             "default); got $threshold"))
@@ -697,7 +703,7 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
         score .= sse ./ n
     end
 
-    sel = _select_pareto(score, cost, Float64(delta))
+    sel = _select_pareto(score, cost, Float64(score_rtol))
     est_sel = GroupAdaptiveRidge(lams[sel], est.column_groups, est.group_weights,
                                  est.epsilon, est.max_iter, est.tol)
     fsel = fit(SLCEFit, dataset, est_sel; torque_weight = w)
@@ -721,8 +727,8 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
                                                XtX = XtX, n_eff = neff)
         end
     end
-    return SelectionPath(lams, score, criterion, edof, n_alive, cost, Float64(delta),
-                         t_sel, sel, fsel)
+    return LambdaPath(lams, score, criterion, edof, n_alive, cost, Float64(score_rtol),
+                      t_sel, sel, fsel)
 end
 
 # --- threshold sweep: the (cost, error) front of de-biased refits -----------------
@@ -735,7 +741,7 @@ end
 # (sparsest refit first); duplicates and degenerate ranks collapse, so fewer than `n`
 # points can come back (always ≥ 1: the anchor).
 function _support_thresholds(n::Integer, m_g::Vector{Float64})::Vector{Float64}
-    n >= 2 || throw(ArgumentError("thresholds count must be ≥ 2; got $n"))
+    n >= 2 || throw(ArgumentError("npoints must be ≥ 2; got $n"))
     ms = sort(m_g; rev = true)
     G = length(ms)
     thr = Float64[]
@@ -756,7 +762,7 @@ Result of [`select_support`](@ref): the descending threshold sweep with, per poi
 the alive-group count, predicted Monte-Carlo cost `Σ_{g alive} c_g`, the selection
 `score` (the fit's own `(1−w)·MSE_E + w·MSE_T` objective on the evaluation dataset),
 and the energy / torque RMSEs (`rmse_torque` is `NaN` when the evaluation dataset
-carries no torque data); plus the tolerance `delta`, the `selected` index, and the
+carries no torque data); plus the tolerance `score_rtol`, the `selected` index, and the
 de-biased refit `fit` at the selected threshold. A Tables.jl source with one row per
 threshold (columns `threshold`, `n_alive`, `cost`, `score`, `rmse_energy`,
 `rmse_torque`, `selected`).
@@ -768,7 +774,7 @@ struct SupportPath
     score::Vector{Float64}
     rmse_energy::Vector{Float64}
     rmse_torque::Vector{Float64}  # NaN per entry when the evalset has no torque
-    delta::Float64
+    score_rtol::Float64
     selected::Int
     fit::SLCEFit
 end
@@ -781,7 +787,7 @@ Tables.columns(p::SupportPath) =
        selected = [i == p.selected for i in eachindex(p.threshold)])
 
 function Base.show(io::IO, ::MIME"text/plain", p::SupportPath)
-    print(io, "SupportPath (delta = ", p.delta, "; ", length(p.threshold),
+    print(io, "SupportPath (score_rtol = ", p.score_rtol, "; ", length(p.threshold),
           " thresholds):")
     for i in eachindex(p.threshold)
         print(io, "\n  thr = ", round(p.threshold[i]; sigdigits = 4),
@@ -793,13 +799,14 @@ function Base.show(io::IO, ::MIME"text/plain", p::SupportPath)
 end
 
 """
-    select_support(f::SLCEFit; thresholds = 25, delta = 0.05, column_groups = nothing,
-                   costs = nothing, evalset = f.dataset, estimator = OLS())
+    select_support(f::SLCEFit; npoints = 25, thresholds = nothing, score_rtol = 0.05,
+                   column_groups = nothing, costs = nothing, evalset = f.dataset,
+                   estimator = OLS())
         -> SupportPath
 
 Trace the (predicted Monte-Carlo cost, error) front of **de-biased refits** of `f`
 over a sweep of alive thresholds, and select the cheapest point whose score is within
-`(1 + delta)` of the front minimum — the same Pareto rule as [`select_fit`](@ref).
+`(1 + score_rtol)` of the front minimum — the same Pareto rule as [`select_fit`](@ref).
 This is the second knob of the cost-aware workflow: [`select_fit`](@ref) sweeps the
 penalty λ, while this sweeps the support directly. On real data the group-magnitude
 spectrum is typically continuous (no clean alive/dead gap), so most of the
@@ -813,21 +820,28 @@ weak column of an alive group may still be dropped (the group's cost is paid eit
 way). The `score` is the fit's own objective `(1 − w)·MSE_E + w·MSE_T`
 (`w = f.torque_weight`) evaluated on `evalset` — pass a held-out `SLCEDataset` (built
 on the same basis; see dataset slicing) for an honest error axis; the default is the
-in-sample training set. `thresholds` is either a point count for the automatic grid
-(**at most** that many points, log-rank-spaced on the per-group magnitude spectrum
-plus the full-support anchor — duplicate ranks and exact magnitude ties collapse) or
-an explicit vector of absolute thresholds. `column_groups`/`costs` default to
-`SLCE.salc_groups` / `SLCE.group_costs` of the training basis.
+in-sample training set.
+
+The sweep is either automatic or explicit, and the two are **separate keywords** on
+purpose: `npoints` is a point count for the automatic grid (**at most** that many
+points, log-rank-spaced on the per-group magnitude spectrum plus the full-support
+anchor — duplicate ranks and exact magnitude ties collapse), while `thresholds` is an
+explicit vector of absolute thresholds and overrides it. One keyword carrying both
+meanings turned `thresholds = 10` — "sweep down to a magnitude of 10" — into a
+silent ten-point grid, distinguishable from `thresholds = [10.0]` only by the literal's
+type. `column_groups`/`costs` default to `SLCE.salc_groups` / `SLCE.group_costs` of
+the training basis.
 """
 function select_support(f::SLCEFit;
-                        thresholds::Union{Integer,AbstractVector{<:Real}} = 25,
-                        delta::Real = 0.05,
+                        npoints::Integer = 25,
+                        thresholds::Union{Nothing,AbstractVector{<:Real}} = nothing,
+                        score_rtol::Real = 0.05,
                         column_groups::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                         costs::Union{Nothing,AbstractVector{<:Real}} = nothing,
                         evalset::SLCEDataset = f.dataset,
                         estimator::AbstractEstimator = OLS())::SupportPath
-    delta >= 0 || throw(ArgumentError("delta must be ≥ 0; got $delta"))
-    _reject_precomputed_pilot(estimator)
+    score_rtol >= 0 || throw(ArgumentError("score_rtol must be ≥ 0; got $score_rtol"))
+    _reject_fixed_coefficients(estimator)
     isempty(evalset.y_E) && throw(ArgumentError("evalset has no observations"))
     basis = f.dataset.basis
     lab = column_groups === nothing ? salc_groups(basis) : Vector{Int}(column_groups)
@@ -872,8 +886,8 @@ function select_support(f::SLCEFit;
         g = lab[j]
         m > m_g[g] && (m_g[g] = m)
     end
-    thr = if thresholds isa Integer
-        _support_thresholds(thresholds, m_g)
+    thr = if thresholds === nothing
+        _support_thresholds(npoints, m_g)
     else
         isempty(thresholds) && throw(ArgumentError("thresholds must be nonempty"))
         all(t -> isfinite(t) && t >= 0, thresholds) ||
@@ -907,8 +921,8 @@ function select_support(f::SLCEFit;
             score[i] = mseE
         end
     end
-    sel = _select_pareto(score, cost, Float64(delta))
-    return SupportPath(thr, n_alive, cost, score, rmseE, rmseT, Float64(delta), sel,
+    sel = _select_pareto(score, cost, Float64(score_rtol))
+    return SupportPath(thr, n_alive, cost, score, rmseE, rmseT, Float64(score_rtol), sel,
                        fits[sel])
 end
 
@@ -1001,7 +1015,7 @@ folds re-estimate — so a plan whose earlier stage was fitted on *these* same
 configurations reports an optimistic score; cross-validate the whole chain (or fit
 the frozen stage on separate data) if that matters.
 
-A `PrecomputedPilot` (or an `AdaptiveLasso` carrying one) is rejected: its fixed,
+A `FixedCoefficients` (or an `AdaptiveLasso` carrying one) is rejected: its fixed,
 full-data coefficient vector does not depend on the training fold, so the holdout
 score would leak the held-out data.
 
@@ -1021,8 +1035,8 @@ function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
         throw(ArgumentError("torque_weight = $w but the dataset has no torque data"))
     end
     nfolds >= 2 || throw(ArgumentError("nfolds must be ≥ 2; got $nfolds"))
-    if _carries_precomputed_pilot(estimator)
-        throw(ArgumentError("cross_validate does not accept a PrecomputedPilot (or " *
+    if _carries_fixed_coefficients(estimator)
+        throw(ArgumentError("cross_validate does not accept a FixedCoefficients (or " *
             "an AdaptiveLasso carrying one): its fixed full-data coefficient vector " *
             "does not depend on the training fold, so the holdout score would leak. " *
             "Pass the estimator that produced the pilot instead."))
