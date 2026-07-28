@@ -56,6 +56,32 @@ function Base.show(io::IO, fcs::ForceConstantSet)
           n_atoms(fcs.crystal), " atoms)")
 end
 
+# Resolve the magnetic state a derivative deliverable is evaluated at. Shared by
+# `force_constants` and `strain_derivatives` (`slce/strain.jl`) because the rule is one
+# rule: omitting the spin state is legal exactly when no spin factor exists to
+# evaluate. The predicate is `_basis_has_spin` (spec ∪ surviving SALCs) and NOT
+# `is_soc_free`, which asks whether `L_S == 0` — true for most ordinary `soc = false`
+# spin labels, so it would wave a spin-carrying model through and silently evaluate it
+# at the all-zero state.
+function _resolve_spins(model::SLCEModel,
+                        spins::Union{AbstractMatrix{<:Real},Nothing},
+                        what::AbstractString)::Matrix{Float64}
+    nat = n_atoms(model.basis.crystal)
+    if spins === nothing
+        _basis_has_spin(model.basis) && throw(ArgumentError(
+            "`spins` is required: this model's basis carries spin content, so $what " *
+            "depend on the magnetic state. Pass the 3 × $nat unit directions to " *
+            "evaluate at."))
+        # Zeros, not a fabricated ferromagnet: nothing reads them, and a marker that
+        # is obviously not a spin configuration cannot be mistaken for one if it
+        # surfaces through `ForceConstantSet.spins`.
+        return zeros(Float64, 3, nat)
+    end
+    size(spins) == (3, nat) || throw(DimensionMismatch(
+        "spins is $(size(spins)); expected (3, $nat) — one unit column per atom"))
+    return Matrix{Float64}(spins)
+end
+
 # Derivative of one site's displacement factor at u = 0: the site factor is the
 # homogeneous polynomial `|u|^{2k} R_{lm}(u)` of degree `2k + l`, so differentiating
 # it `length(comps)` times at the origin is nonzero only when that count equals the
@@ -143,26 +169,7 @@ function force_constants(model::SLCEModel;
                          spins::Union{AbstractMatrix{<:Real},Nothing} = nothing,
                          order::Integer = 2)::ForceConstantSet
     order >= 1 || throw(ArgumentError("order must be ≥ 1; got $order"))
-    nat = n_atoms(model.basis.crystal)
-    if spins === nothing
-        # Omitting the spin state is legal exactly when no spin factor exists to
-        # evaluate. The predicate is `_basis_has_spin` (spec ∪ surviving SALCs) and
-        # NOT `is_soc_free`, which asks whether `L_S == 0` — true for most ordinary
-        # `soc = false` spin labels, so it would wave a spin-carrying model through
-        # and silently evaluate it at the all-zero state.
-        _basis_has_spin(model.basis) && throw(ArgumentError(
-            "`spins` is required: this model's basis carries spin content, so the " *
-            "force constants depend on the magnetic state. Pass the 3 × $nat unit " *
-            "directions to evaluate at."))
-        # Zeros, not a fabricated ferromagnet: nothing reads them, and a marker that
-        # is obviously not a spin configuration cannot be mistaken for one if it
-        # surfaces through `ForceConstantSet.spins`.
-        e = zeros(Float64, 3, nat)
-    else
-        size(spins) == (3, nat) || throw(DimensionMismatch(
-            "spins is $(size(spins)); expected (3, $nat) — one unit column per atom"))
-        e = Matrix{Float64}(spins)
-    end
+    e = _resolve_spins(model, spins, "the force constants")
     _warn_spin_blind(model.basis, Int(order))
     out = Dict{Tuple{Vector{Int},Vector{SVector{3,Int}}},Array{Float64}}()
     polycache = Dict{NTuple{3,Int},SolidHarmonics._Poly}()
@@ -195,7 +202,11 @@ end
 # Read off the BASIS, never off `jphi`: a coefficient that happens to have fitted to
 # zero is a property of one fit and `refit` moves it, whereas an empty channel is
 # permanent. Same reason `spin_multipole_terms` triggers on the spec.
-function _warn_spin_blind(basis::SLCEBasis, order::Int)
+#
+# The predicate is shared with `strain_derivatives` (`slce/strain.jl`), which hits the
+# identical trap one order lower; only the advice differs, so only the message is
+# written twice.
+function _spin_blind_at_order(basis::SLCEBasis, order::Int)::Bool
     any_spin = false
     disp_at_order = false
     for salc in basis.salc_basis.salcs
@@ -211,11 +222,15 @@ function _warn_spin_blind(basis::SLCEBasis, order::Int)
                 end
             end
             deg == order || continue
-            spinful && return nothing            # a spin-dressed term at this order
+            spinful && return false              # a spin-dressed term at this order
             disp_at_order = true
         end
     end
-    if any_spin && disp_at_order
+    return any_spin && disp_at_order
+end
+
+function _warn_spin_blind(basis::SLCEBasis, order::Int)
+    if _spin_blind_at_order(basis, order)
         @warn "force_constants: order-$order constants do not depend on `spins` — the " *
               "basis has spin content and displacement terms of degree $order, but no " *
               "term carries both, so Φ (and D(q)) is identical for every magnetic " *

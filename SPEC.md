@@ -437,6 +437,63 @@ capability consumed by both the introspection and the Sunny interop.
   **three zero eigenvalues of `D(0)` for an ASR model and none for an unconstrained
   one** (the physical payoff of gate (k)), spin dependence, order 3 ≡ third
   derivative, and the empty-result cases.
+- **Homogeneous-strain response — M5-2 slice 1** (`slce/strain.jl`):
+  `strain_derivatives(model; spins, order = 1, origin, symmetrize = true)` → the exact
+  `∂ⁿE_cell/∂ε_{α₁β₁}⋯` at the model's own reference `ε = 0`, a rank-`2n` array indexed
+  with the Cartesian pairs adjacent. The **fourth** consumer of
+  `SolidHarmonics.solid_harmonic_poly` (after the ASR builder, the force constants and
+  `effective_model`), and the second consumer of the affine path: a strain field is not
+  cell-periodic, so `predict_energy` cannot reach it. The mechanism is one chain rule
+  applied to the force-constant machinery —
+  `∂ⁿE/∂ε^n = Σ_{s₁…s_n} [∂ⁿE/∂u_{s₁α₁}⋯] d_{s₁β₁}⋯` over MEMBER SITES with
+  `d_s = R_s − origin` that site's own position, image shift included — so
+  `_accumulate_strain!` reuses `_fill_fcs_tensor!` verbatim and only the last step (contract
+  with positions, instead of storing under a lattice-dynamics key) is new. Because a term of
+  displacement degree `n` becomes a degree-`n` polynomial in `ε` exactly, the order-`n`
+  derivative draws from degree-`n` terms alone and the Taylor series is exact at FINITE
+  strain, which is what makes the gate sharp.
+  Measure = **Biot / Seth–Hill m = 1** (`F = I + ε`, design record §9e); `order = 1` is
+  `V σ` (measure-independent), `order = 2` the **clamped-ion** `V C` (not). Both depend on
+  `spins` — the trap where they cannot is warned about through `_spin_blind_at_order`,
+  the predicate now shared with `force_constants`' `_warn_spin_blind` (one predicate,
+  two messages, because the advice is opposite: `degree = 1` is what magnetoelasticity
+  NEEDS and what harmonic constants must not stop at). `_resolve_spins` is likewise
+  shared, so the spin-free entry rule stays one rule.
+  **The ASR is a hard precondition (§9d, gate (t)):** an origin shift adds the uniform
+  translation `ε·t`, changing the energy by `ε : (Σ_i ∇_i E)`, so without `A·β = 0` the
+  quantity is *undefined* rather than inaccurate — `strain_derivatives` **throws**, at
+  `_STRAIN_ASR_RTOL = 1e-12`, deliberately tighter than the 1e-10 used elsewhere because
+  the strain path weights the residual by `|R_i|`. `symmetrize = false` returns the raw
+  derivative with respect to a general affine map, whose discarded antisymmetric part is
+  measured content (`rotation_transfer_residual`, gate (r)), not noise.
+  **…and at order ≥ 2 it is not sufficient.** The ASR is an identity in the ATOM
+  variables, i.e. on cell-periodic fields; at `ε = 0` the affine field is zero, hence
+  periodic, so order 1 is origin-independent unconditionally, but one order out the
+  per-SITE identity would be needed and is not implied. The gap is gate (q)'s
+  **home-image gauge**, now with teeth on a physical output: content anchored at an
+  atom's home representative cannot cancel against partners the clusters reach at a
+  different image, leaving the per-cell energy with a piece linear in the cell's
+  position. Measured on ONE dimer chain in two descriptions — bonded partner at home ⇒
+  1.4e-13, bond crossing the cell edge ⇒ factor 8; a bcc-like cell ⇒ ~25. So order ≥ 2
+  **measures** it (recompute at a probe-shifted origin, `_STRAIN_ORIGIN_RTOL = 1e-8`,
+  refuse a disagreement naming the crystal DESCRIPTION as the fix; `check_origin = false`
+  for diagnosis only) instead of shipping a description-dependent elastic constant behind
+  a caveat.
+  Gates (`test/unit/test_strain.jl`): the Taylor identity
+  `E(0) + D¹:M + ½D²:M:M ≡ affine_energy(model, e, M)` at `t` up to `−3.0` (two
+  independent implementations — monomial coefficients vs. the production
+  `_eval_term_mixed` — agreeing to 1e-12 at 100%-scale affine maps, not asymptotically);
+  gate (t) origin invariance at three origins to `1e-11·‖D‖` **plus** the refusal on an
+  unconstrained model, paired with a demonstration that `affine_energy` itself moves with
+  the origin there; the home-image gauge at order 2, as the SAME chain in two
+  descriptions (one answers, one is refused by name, and the escape hatch shows the
+  refused number differs by > 10%); the degree filter (`degree = 2` only ⇒ `D¹ ≡ 0`, `degree = 1` only ⇒
+  `D² ≡ 0`, pure spin ⇒ both); pair/mixed-partial symmetry of `D²`; the magnetic-state
+  dependence and its silent-trap warning; and the error surface.
+  **What it is not, yet:** at `ε = 0` there is one strain derivative. On a volume grid
+  there are two that must agree — this intra-model incremental one and the grid finite
+  difference — and their agreement is `StrainedModels`' acceptance gate (M5-3), which
+  cannot run until a grid exists.
 - **Effective models at a displaced structure — M5 slice 1** (`slce/effective.jl`):
   `effective_model(model; u0, atol = 0.0)` → `EffectiveModel` — the same coefficient
   set re-expanded around `R + u0`, EXACTLY (design record §9d). Every displacement

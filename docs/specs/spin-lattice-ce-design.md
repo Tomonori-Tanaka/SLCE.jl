@@ -955,6 +955,19 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
   every `R_i` shifted by a random `t` and require agreement; currently ungated,
   and the precondition that makes it hold is exact ASR (§9d). Pair it with the
   hard-error on `asr_residual` at the tighter strain-path tolerance.
+  **DONE 2026-07-29** — `strain_derivatives` (`slce/strain.jl`), gated in
+  `test/unit/test_strain.jl`: three origins agree to `1e-11·‖D‖` at orders 1 and 2, the
+  hard-error fires at `_STRAIN_ASR_RTOL = 1e-12` and names `asr_residual`, and the same
+  testset shows `affine_energy` itself moving with the origin on the refused model — so
+  the throw is paired with a demonstration of what it prevents, not asserted alone.
+  Realized as an `origin` KEYWORD on the strain path rather than by shifting `R_i` in the
+  crystal: shifting the crystal would also move the fractional wrap and the neighbour
+  list, testing three things at once.
+  **The gate is one-sided above order 1, and that is the finding** (see M5-2 in §14):
+  the ASR buys origin independence only where the affine field is periodic, which is
+  `ε = 0` and therefore order 1 alone. At order ≥ 2 the home-image gauge reopens, so the
+  gate is not an assertion the deliverable can rely on but a MEASUREMENT the deliverable
+  performs on every call.
 - **(u) the B₁/B₂ output convention** against an independently HAND-DERIVED
   closed form (§7) — shear factor, summation range, trace subtraction, sign.
   Never against the evaluator's own output.
@@ -1062,6 +1075,58 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
     and make their agreement an acceptance gate; it is the best end-to-end
     check the K(ε) design admits, catching a wrong shear factor, a mislabelled
     η and basis truncation in one test.
+    **Slice 1 complete 2026-07-29** — `strain_derivatives(model; spins, order, origin,
+    symmetrize)` (`slce/strain.jl`), the exact `∂ⁿE_cell/∂εⁿ` all three named
+    deliverables ride on, plus gate (t). Three things the implementation settled that the
+    record did not anticipate.
+    (i) **The strain response is the force-constant machinery plus one chain rule, but it
+    cannot be built from `force_constants`' OUTPUT.** The lattice-dynamics key is anchored
+    on the home cell, and the affine field needs each member site's absolute position — so
+    the shared code is `_fill_fcs_tensor!` (the per-tuple tensor), not the public
+    deliverable. Reusing the output would have been silently wrong at order 1, where the
+    anchor is the only index.
+    (ii) **The exactness gate is available at FINITE strain, not asymptotically.** A term
+    of displacement degree `n` becomes a degree-`n` polynomial in `ε` exactly, so the
+    Taylor sum equals `affine_energy` at a 100%-scale affine map (measured to 1e-12 at
+    `t = −3.0` on a degree-{1,2} fixture). This is strictly stronger than the small-ε
+    finite difference the record implied, and it is what makes a wrong shear factor
+    visible: a small-ε check hides one inside the truncation error. The two sides are
+    independent implementations (monomial coefficients vs the production
+    `_eval_term_mixed`), which is the same fence the force constants use.
+    (iii) **The "one meaning vs two" framing needs the grid.** At `ε = 0` the intra-model
+    incremental derivative is the only one that exists; the grid finite difference has no
+    counterpart until `StrainedModels` (M5-3). Recorded in the docstring so the second
+    meaning arrives named rather than conflated.
+    **NEW FINDING — the ASR is necessary but NOT sufficient at order ≥ 2 (measured
+    2026-07-29).** §9d's origin-independence argument is stated for the ε-LINEAR content
+    and is exactly right there; it does not extend, and the record did not say so. The
+    ASR is the identity `Σ_a ∂E/∂u_a ≡ 0` in the ATOM variables, i.e. on cell-periodic
+    fields. At `ε = 0` the affine field is zero — periodic — so the order-1 response is
+    origin-independent unconditionally (measured EXACTLY equal, every fixture). One order
+    out the field is not periodic, and what is needed is the stronger per-SITE identity
+    `Σ_slots ∂E/∂u_slot ≡ 0`, which the atom-level constraint does not imply. **The gap is
+    gate (q)'s home-image gauge, and it is the second time it has bitten:** content
+    anchored at an atom's home representative cannot cancel against translation partners
+    the clusters reach at a different image, so the per-cell energy of a home-anchored
+    expansion acquires a piece linear in the cell's position. Measured on the SAME dimer
+    chain in two descriptions: home image = the bonded partner ⇒ origin-independent to
+    1.4e-13; the bond crossing the cell edge ⇒ off by a factor 8; a bcc-like two-atom cell
+    ⇒ factor ~25. `strain_derivatives` therefore MEASURES it at order ≥ 2 (recompute at a
+    probe-shifted origin, refuse a disagreement, `check_origin = false` for diagnosis
+    only) rather than shipping a description-dependent elastic constant with a caveat —
+    the exact failure §13 risk 2 warns about, where every gate is green and the published
+    number is wrong.
+    **Two consequences to carry into M5-3 and the M5-2 remainder.** (α) The clamped-ion
+    elastic tensor and every other `O(ε²)` deliverable is conditional on the crystal
+    DESCRIPTION, not only on the fit; `StrainedModels` must state (and ideally assert) the
+    home-image condition alongside its key-equality invariant, since a grid built from an
+    externally standardized cell can silently land on the wrong side of it. (β) The
+    ε-linear deliverables — B₁/B₂, `dJ/dε`, the internal-strain response, the reference
+    stress — are untouched, which is a second, independent reason (beyond §13 risk 2's
+    measure argument) that v0's clamped-ion tier is the ε-linear one.
+    Still open in M5-2: the three named deliverables themselves, and gate (u) — the
+    B₁/B₂ output convention against a hand-derived closed form, which is where §7's
+    pinned `E_me` form and the clamped-ion qualifier become numbers.
   - **M5-3 — `StrainedModels` + volume grid.** d_NN-scaled cutoffs (note BOTH
     cutoff surfaces scale: `BasisSpec.cutoff` and every `SectorRule.cutoff`),
     key-equality assertion, `disp_scale` frozen — assert the freeze now even

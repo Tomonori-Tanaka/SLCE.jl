@@ -6,6 +6,45 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the homogeneous-strain response, exactly
+
+`strain_derivatives(model; spins, order, origin, symmetrize)` returns the exact
+`∂ⁿE_cell/∂εⁿ` at the model's own reference geometry: `order = 1` is the reference
+stress times the cell volume, `order = 2` the **clamped-ion** elastic tensor times the
+volume, and both are functions of the magnetic state — which is what magnetoelasticity
+is. The strain measure is Biot (Seth–Hill `m = 1`, `F = I + ε`), so `u_i − u_j = ε·d_ij`
+is exact by definition rather than a linearization.
+
+It is exact for the same reason the force constants are: every displacement site factor
+is a homogeneous polynomial, so substituting the affine field turns a term of
+displacement degree `n` into a degree-`n` polynomial in `ε`. The order-`n` derivative
+therefore draws from degree-`n` terms alone, and the whole Taylor series holds at
+**finite** strain — the acceptance gate contracts it against `affine_energy` at a
+100%-scale affine map, where a missed factor cannot hide inside a truncation error.
+
+**The acoustic sum rule is enforced here, not merely recommended.** A strain displaces
+site `i` by `ε·(R_i − origin)`, so moving the origin changes the energy by
+`ε : (Σ_i ∇_i E)`: without `A·β = 0` there is no origin-independent strain response at
+all, and the answer is undefined rather than inaccurate. `strain_derivatives` throws, at
+a tolerance tighter than the 1e-10 quoted elsewhere, because the strain path weights the
+residual by `|R_i|`.
+
+**And at `order ≥ 2` the sum rule is not sufficient — a new finding.** The ASR is the
+identity `Σ_a ∂E/∂u_a ≡ 0` in the *atom* variables, i.e. on cell-periodic fields. At
+`ε = 0` the affine field is zero, hence periodic, so the ε-linear response is
+origin-independent unconditionally. One order out the field is not periodic, and the
+stronger per-*site* identity would be needed. The gap is the same home-**image gauge**
+the rotational diagnostic turned up, now affecting a physical output: the same dimer
+chain described with its bonded partner in the home cell is origin-independent to
+1e-13, and described with the bond crossing the cell edge is off by a factor of 8.
+`strain_derivatives` therefore recomputes `order ≥ 2` at a shifted origin and **refuses**
+a disagreement, naming the crystal description — not the fit — as the thing to change,
+rather than returning a description-dependent elastic constant behind a caveat.
+
+`force_constants` is unchanged numerically; it now shares its spin-resolution rule
+(`_resolve_spins`) and its spin-blindness predicate (`_spin_blind_at_order`) with the
+strain path, so the two cannot drift.
+
 ### Added — rotational invariance is now measurable (a diagnostic, not a constraint)
 
 `affine_energy(model, spins, M; origin, base)` evaluates the model under an **affine**

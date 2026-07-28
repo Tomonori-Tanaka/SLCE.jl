@@ -306,6 +306,37 @@ write_phonopy
 write_alamode
 ```
 
+## Homogeneous strain
+
+The same monomial coefficients, contracted with site positions instead of being
+differentiated: `strain_derivatives` returns the exact `∂ⁿE_cell/∂εⁿ` at the model's
+own reference. `order = 1` is the reference stress times the volume, `order = 2` the
+**clamped-ion** elastic tensor times the volume; both are functions of the magnetic
+state, which is what magnetoelasticity is.
+
+The strain measure is Biot (Seth–Hill `m = 1`): the deformation is *defined* as
+`F = I + ε` with `ε` symmetric, so `u_i − u_j = ε·d_ij` is exact rather than a
+linearization. `order = 1` is measure-independent across the Seth–Hill family;
+`order = 2` and beyond are not.
+
+!!! warning "The acoustic sum rule is a precondition here, not a caveat"
+    A homogeneous strain displaces site `i` by `ε·(R_i − origin)`, so shifting the
+    origin changes the energy by `ε : (Σ_i ∇_i E)`. Without the ASR the strain
+    response is *undefined* — the origin is unbounded — so `strain_derivatives`
+    throws rather than warns, at a tolerance tighter than the one
+    [`asr_residual`](@ref) is quoted against elsewhere.
+
+    At `order ≥ 2` the sum rule is necessary but **not sufficient**: it is an identity
+    on cell-periodic fields, and only at `ε = 0` is the affine field one. The residue
+    is the home-image gauge, which makes the clamped-ion elastic tensor a function of
+    the crystal *description* as well as of the fit. That order therefore re-measures
+    origin independence on every call and refuses a disagreement — see the
+    [introspection guide](guide/introspection.md#The-acoustic-sum-rule-is-required,-and-at-order-≥-2-it-is-not-enough).
+
+```@docs
+strain_derivatives
+```
+
 ## Effective models at a displaced structure
 
 The same fact the force constants ride on — every displacement site factor is a

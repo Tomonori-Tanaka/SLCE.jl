@@ -582,6 +582,41 @@ Easy to break silently — confirm before touching the algorithm.
   (`spin_multipole_terms` precedent — a coefficient fitted to zero is one fit's property,
   `refit` moves it), and its `maxlog = 1` is why the gate checks the SILENT cases
   first: a silence assertion after the warning has fired asserts nothing.
+- **Strain response ↔ the force-constant machinery ↔ the ASR**
+  (`slce/strain.jl`, `test/unit/test_strain.jl`): `strain_derivatives` is the FOURTH
+  consumer of `SolidHarmonics.solid_harmonic_poly` and the second consumer of the affine
+  path — a homogeneous strain is not cell-periodic, so `predict_energy` cannot reach it.
+  It is one chain rule on top of the force constants, not a second derivative engine:
+  `∂ⁿE/∂ε^n = Σ_{s₁…s_n} [∂ⁿE/∂u_{s₁α₁}⋯] d_{s₁β₁}⋯` over MEMBER SITES with `d_s` that
+  site's own position (image shift included), so `_accumulate_strain!` calls
+  `_fill_fcs_tensor!` verbatim and only the final contraction is new. **Do not reroute it
+  through `force_constants`' output**: the lattice-dynamics key is anchored on the home
+  cell, which throws away precisely the absolute positions the affine field needs.
+  Two rules are shared rather than restated — `_resolve_spins` (the spin-free entry
+  rule) and `_spin_blind_at_order` (the predicate; the two callers write their own
+  messages because the advice is opposite: `degree = 1` is what magnetoelasticity NEEDS
+  and what harmonic constants must not stop at). The acceptance gate is the Taylor
+  identity against `affine_energy` at FINITE strain — exact because a degree-`n` term is
+  a degree-`n` polynomial in `ε`, and the two paths are independent implementations
+  (monomial coefficients vs the production `_eval_term_mixed`). **The ASR is a
+  precondition, enforced as a THROW at `_STRAIN_ASR_RTOL = 1e-12`** (tighter than the
+  1e-10 elsewhere, because the strain path weights `Σ_i ∇_i E` by `|R_i|`): an origin
+  shift adds the uniform translation `ε·t`, so on a violating model the quantity is
+  undefined, not inaccurate. **But the ASR is sufficient only at order 1**: it is an
+  identity in the ATOM variables, i.e. on cell-periodic fields, and at `ε = 0` the affine
+  field is zero (periodic) — one order out it is not, and the per-SITE identity that would
+  be needed is not implied. The gap is the SAME home-image gauge the rotation diagnostic
+  found, now on a physical output (one dimer chain, two descriptions: 1.4e-13 vs a factor
+  8; bcc-like ~25). So `order ≥ 2` **measures** origin independence on every call
+  (`_STRAIN_ORIGIN_RTOL`, one probe shift — the dependence is affine in the shift, so one
+  generic probe suffices) and refuses a disagreement, naming the crystal DESCRIPTION as
+  the fix. Never soften that to a warning and never make `check_origin = false` a default:
+  the failure is O(1), silent, and produces a publishable-looking elastic constant.
+  `symmetrize = false` is the general-affine-map derivative;
+  the antisymmetric part it keeps is `rotation_transfer_residual`'s content
+  (`𝓡_U E = −𝓡_S E`), never noise to discard silently. Measure = Biot / Seth–Hill
+  `m = 1` (design record §9e) — `order = 1` is measure-independent, `order = 2` is not,
+  so any second-order output must record the measure AND the spin state.
 - **Re-expansion ↔ the same displacement polynomial** (`slce/effective.jl`,
   `test/unit/test_effective.jl`): `effective_model(model; u0)` is the THIRD consumer of
   `SolidHarmonics.solid_harmonic_poly`, after the ASR builder and the force constants —

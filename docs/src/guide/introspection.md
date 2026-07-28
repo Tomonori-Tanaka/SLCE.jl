@@ -240,3 +240,95 @@ D_other = dynamical_matrix(force_constants(joint; spins = randcfg()), [0.0, 0.0,
 println("max |ΔD(0)| between two magnetic states: ",
         round(maximum(abs, D_other .- D0); sigdigits = 4))
 ```
+
+## Homogeneous strain
+
+Force constants answer "what does it cost to move one atom?". The other lattice
+question is "what does it cost to deform the cell?", and that one cannot go through
+[`predict_energy`](@ref) at all: a strain moves the atom at `R + L` by `ε·(R + L)`,
+which grows with the lattice vector, so the field is not cell-periodic. It goes through
+the affine path instead — the same machinery
+[rotational invariance](fitting.md#Rotational-invariance-(measured,-not-imposed)) is
+measured with.
+
+[`strain_derivatives`](@ref) returns the exact derivatives at the model's own reference:
+
+```@example introspect
+D1 = strain_derivatives(constrained; spins = spins, order = 1)
+println("∂E/∂ε  (= V·σ)  = ", round.(D1; sigdigits = 3))
+```
+
+`D1` is exactly zero, and not by luck. A displacement site factor is a homogeneous
+polynomial of degree `2k + l`, so substituting the affine field turns a term of total
+displacement degree `n` into a degree-`n` polynomial in `ε` — the order-`n` strain
+derivative collects terms of degree `n` and nothing else. The basis on this page declares
+`disp = (degree = 2,)` only, so it has no ε-linear content and its reference is
+stress-free in the displacement channel by construction. The ε-linear magnetoelastic
+constants live in the `degree = 1` (relative-displacement) sectors — the same ones that
+feed the forces — never in single-site `degree = 2` monomials, which enter the strain
+expansion only at `O(ε²)`.
+
+The strain measure is **Biot** (Seth–Hill `m = 1`): the deformation is *defined* as
+`F = I + ε` with `ε` symmetric, which makes the substitution `u_i − u_j = ε·d_ij` exact
+rather than a linearization. `order = 1` is the same number in every member of the
+Seth–Hill family; `order = 2` and beyond are not, so record the measure — and the spin
+state — with any elastic constant you quote.
+
+### The acoustic sum rule is required, and at `order ≥ 2` it is not enough
+
+A strain displaces site `i` by `ε·(R_i − origin)`. Moving the origin adds the uniform
+translation `ε·t` to every displacement, changing the energy by `ε : (Σ_i ∇_i E)` — so
+the strain response is origin-independent exactly when `Σ_i ∇_i E = 0`, which is the
+acoustic sum rule. On a model that does not satisfy it there is no answer to give: the
+origin is unbounded, so the number would be whatever coordinate system you happened to
+write the crystal in. [`strain_derivatives`](@ref) therefore *throws* on `joint`, the
+unconstrained fit from earlier on this page:
+
+```@example introspect
+try
+    strain_derivatives(joint; spins = spins)
+catch err
+    println(join(first(split(err.msg, ". "), 2), ". "), ".")
+end
+```
+
+The tolerance it enforces is tighter than the one you would use to judge
+[`asr_residual`](@ref) elsewhere, because the strain path weights the residual by the
+site positions `|R_i|` before it reaches the answer.
+
+At `order = 2` the sum rule stops being sufficient, and this is worth understanding
+before quoting an elastic constant. The ASR is the identity `Σ_a ∂E/∂u_a ≡ 0` in the
+**atom** variables — an identity on *cell-periodic* fields. At `ε = 0` the affine field
+is zero, hence periodic, hence covered; one order further out it is not, and what would
+be needed is the stronger per-**site** statement, which the constraint does not imply.
+The gap is the home-**image gauge**: a term's content is anchored at whichever image the
+cluster list calls "home", while its translation partners sit on the images the clusters
+actually reach. When those differ, the cancellation is split across cells and the
+per-cell energy picks up a piece linear in the cell's position.
+
+The crystal on this page is exactly that case — its two atoms sit at `±1/6`, so each
+atom's bonded partner is a *far* image of the one in the home cell — and
+`strain_derivatives` refuses rather than returning a description-dependent number:
+
+```@example introspect
+try
+    strain_derivatives(constrained; spins = spins, order = 2)
+catch err
+    println(first(split(err.msg, ". "), 1)[1], ".")
+end
+```
+
+It is not a small correction. The escape hatch exists to make that measurable, never to
+be used for a result:
+
+```@example introspect
+raw = strain_derivatives(constrained; spins = spins, order = 2, check_origin = false)
+alt = strain_derivatives(constrained; spins = spins, order = 2,
+                         origin = [7.0, -3.0, 2.5], check_origin = false)
+println("‖ΔD²‖ / ‖D²‖ between two origins: ", round(norm(alt - raw) / norm(raw);
+                                                    sigdigits = 3))
+```
+
+The fix is the crystal **description**, not the fit: place the atoms so that each one's
+home representative is the image its clusters use. The same chain written with the
+bonded partner in the home cell answers, and its check passes.

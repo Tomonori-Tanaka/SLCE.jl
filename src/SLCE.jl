@@ -86,6 +86,11 @@ include("slce/affine.jl")
 # spin configuration, and their reciprocal-space form.
 include("slce/forceconstants.jl")
 
+# --- homogeneous-strain response: the SAME monomial coefficients, contracted with site
+# positions instead of being differentiated. Rides on the affine path above, because a
+# strain field is not cell-periodic.
+include("slce/strain.jl")
+
 # Re-expansion around a displaced reference (§9d): the same homogeneous-polynomial
 # fact the force constants ride on, used to MOVE the expansion point rather than to
 # differentiate at it.
@@ -147,6 +152,8 @@ export SpinMultipoleTerm, spin_multipole_terms, bilinear_terms
 export DecoratedTerm, decorated_terms, restrict
 # lattice dynamics from the displacement channel (spin-configuration dependent)
 export ForceConstantSet, force_constants, dynamical_matrix
+# homogeneous-strain response (clamped ion, Biot measure); ASR is a hard precondition
+export strain_derivatives
 # the same coefficient set re-expanded around a displaced structure (a relaxed cell, a
 # condensed soft mode) — exact, and deliberately NOT an SLCEModel
 export EffectiveModel, EffectiveTerm, effective_model
