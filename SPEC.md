@@ -777,6 +777,30 @@ capability consumed by both the introspection and the Sunny interop.
 
 ## Not yet implemented (v0 follow-ups)
 - The v0 slice is feature-complete; no estimator/observable/IO follow-ups outstanding.
+- **Joint (spin + lattice) training data — the gate on every M4/M5 physics
+  validation.** All production data today is pure spin (`l044` = Nd₂Fe₁₄B,
+  `lmax = [4,4,2,…]`, `soc = false`, 3-body), so the displacement channel and every
+  diagnostic that reads it (`force_constants`, `dynamical_matrix`,
+  `rotational_residual`, `rotation_transfer_residual`) has only fixture-scale
+  evidence. What is needed is a **mixed** dataset — `u = 0` spin-only configurations
+  (pure-spin terms), `ê`-fixed displaced ones (clamped-ion force constants), and
+  configurations where **both** are displaced (the cross terms, i.e. the
+  magnetic-state dependence of the force constants — the flagship deliverable, and
+  the only part no existing dataset touches). Four constraints on how it is
+  generated, each already measured rather than assumed:
+  1. **Relaxed reference (`F ≈ 0`).** At a stressed reference the rotational
+     residual depends on the home-cell image choice (measured 1349×); at `F = 0` it
+     does not. Same fact as the `ε_sym`/vanishing-stress escape.
+  2. **COM-free displacement sampling.** Recovery from forces + torques alone is
+     `~1e-15` under the ASR with COM-free sampling and lands on a different model
+     without it (design record amendment 9).
+  3. **Forces are mandatory.** Torque is blind to every spin-independent direction,
+     so force constants are *not* identifiable from torques alone.
+  4. **`torque_qualified` provenance** on any datum whose torques are used.
+  Open decisions: the system (bcc Fe is cheapest, Nd₂Fe₁₄B is the target at 68
+  atoms), how the displacement patterns are generated (`suggest_displacements`, the
+  ALAMODE `MODE = suggest` equivalent, is also unimplemented), and how they are
+  crossed with the spin configurations.
 
 ## Oracle environment (`test/oracle/`)
 
