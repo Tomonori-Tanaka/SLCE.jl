@@ -445,8 +445,11 @@ end
                              asr = false)
         @test cvu.pooled_rmse_energy < 1e-8       # in-span either way; both run
         # GCV n excludes the zero-weight energy block at w_T = 1 (regression for
-        # the _gcv_neff fix, which also applies to pure-spin fits): reproduce
-        # gcv(f) from the assembled problem with the corrected n by hand
+        # the _gcv_neff fix, which also applies to pure-spin fits). This is a
+        # WIRING check, not an independent oracle: the expected value reuses the
+        # implementation's own `_penalty_diagonal`/`_gcv_score`, and only `neff`
+        # is formed independently — what it pins is that `gcv(f)` routes the
+        # corrected n_eff, nothing about the GCV formula itself.
         fw1 = fit(SLCEFit, ds, Ridge(1e-9); torque_weight = 1.0, asr = false)
         Xw, yw, _, _, _ = _assemble_problem(ds, 1.0, 0.0)
         neff = size(Xw, 1) - length(ds.y_E)

@@ -486,7 +486,11 @@ end
             Sector(spin = [1, 1], disp = (degree = 1:2,), sites = 2,
                    cutoff = 1.5)]))
         pure = [s for s in salcs(mixed) if all(is_pure_spin, s.key.decors)]
-        @test n_salcs(dense) == 44               # the standard-cell column count
+        # FIXTURE-SHAPE PIN (change detector, captured by running the builder;
+        # an independent derivation would run the CountingOracle with the trivial
+        # group — not done here, the correctness content is the key/member
+        # equality below): the standard-cell column count.
+        @test n_salcs(dense) == 44
         @test !isempty(pure)
         @test length(pure) < n_salcs(mixed)
         @test [s.key for s in pure] == [s.key for s in salcs(dense)]

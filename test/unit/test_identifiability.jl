@@ -57,7 +57,12 @@ end
     rep = build_asr(basis)
     q = size(rep.Z, 2)
     npure = count(s -> !any(has_disp, s.key.decors), salcs(basis))
-    @test (m, rep.rank, q, npure) == (198, 135, 63, 9)     # pinned fixture shape
+    @test q == m - rep.rank              # rank–nullity of the ASR null space
+    # FIXTURE-SHAPE PIN (change detector, not a correctness claim): captured by
+    # running the builder on this fixture. The recovery/deficiency claims below
+    # depend on this rank structure, so a change here means the FIXTURE moved —
+    # recapture deliberately after confirming the claims still hold.
+    @test (m, rep.rank, npure) == (198, 135, 9)
 
     rng = MersenneTwister(0xB0)
     beta_true = rep.Z * (rep.Z' * randn(rng, m))           # ASR-feasible truth
@@ -158,7 +163,13 @@ end
         qL = size(repL.Z, 2)
         spin_free = findall(s -> !any(has_spin, s.key.decors), salcs(bL))
         dfree = _feasible_within(repL.Z, spin_free)
-        @test (mL, repL.rank, qL, length(spin_free), dfree) == (219, 150, 69, 21, 6)
+        @test qL == mL - repL.rank       # rank–nullity of the ASR null space
+        # FIXTURE-SHAPE PIN (change detector, not a correctness claim): captured
+        # by running the builder. `dfree` is the calibration input of the
+        # deficiency identity below — the identity itself is checked between two
+        # different computations, but a change HERE means the fixture moved;
+        # recapture deliberately.
+        @test (mL, repL.rank, length(spin_free), dfree) == (219, 150, 21, 6)
 
         betaL = repL.Z * (repL.Z' * randn(rng, mL))
         modelL = SLCEModel(bL, 0.1, betaL)

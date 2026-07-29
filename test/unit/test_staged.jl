@@ -185,8 +185,13 @@ _st_cfg(rng, nat) = reduce(hcat, [_st_unit(rng) for _ = 1:nat])
         chan(j) = (any(has_spin, ks[j].decors), any(has_disp, ks[j].decors))
         rowcols = [findall(!=(0.0), @view rep.A[r, :]) for r in axes(rep.A, 1)]
         @test all(cs -> length(unique(chan.(cs))) == 1, rowcols)
-        @test (count(cs -> length(unique(is_soc_free.(ks[cs]))) > 1, rowcols),
-               size(rep.A, 1)) == (54, 180)              # pinned fixture numbers
+        # the correctness tooth: the staging axis genuinely straddles ASR rows on
+        # this fixture (otherwise the affine machinery would be untested here)
+        n_straddle = count(cs -> length(unique(is_soc_free.(ks[cs]))) > 1, rowcols)
+        @test n_straddle > 0
+        # FIXTURE-SHAPE PIN (change detector, captured by running the builder —
+        # not a correctness claim; recapture deliberately if the fixture moves):
+        @test (n_straddle, size(rep.A, 1)) == (54, 180)
     end
 
     @testset "affine path: freezing an ASR-violating model" begin
