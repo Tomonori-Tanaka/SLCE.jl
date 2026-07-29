@@ -100,9 +100,18 @@ end
             @test intra ≈ gridd rtol = 1e-5
             worst = max(worst, abs(intra - gridd) / abs(intra))
         end
-        # ...and the residual really is the coefficient interpolation, not a bug: halve the
-        # span and it falls, because the same polynomial degree now covers a quarter of the
-        # curvature
+        # ...and the residual is ROUNDOFF, not interpolation: this family is closed
+        # under re-expansion, so each grid point's coefficients are polynomial in `s`
+        # of the displacement content's own degree — which the 5-node interpolant
+        # reproduces exactly. The two paths therefore agree to the derivative
+        # identity's cancellation floor (measured worst ≈ 6e-13 on macOS aarch64,
+        # ≈ 3e-13 on ubuntu x64), and a genuine interpolation or convention bug is
+        # orders of magnitude above the 1e-10 bound. The former `wt < worst`
+        # halved-span comparison ordered two roundoff noises against each other —
+        # for a polynomially exact family there is no interpolation residual for a
+        # tighter span to reduce — and flipped on ubuntu's BLAS; the exactness
+        # statement is the non-flaky form of the same claim, asserted on both spans.
+        @test worst < 1e-10
         tight = _sm_grid(rng, truth, [0.99, 0.995, 1.0, 1.005, 1.01])
         wt = 0.0
         for s in (0.9925, 1.0, 1.0075)
@@ -111,7 +120,7 @@ end
             g = grid_strain_derivative(tight, s; spins = e)
             wt = max(wt, abs(intra - g) / abs(intra))
         end
-        @test wt < worst
+        @test wt < 1e-10
     end
 
     @testset "η is measured from the reference the derivative is taken at" begin
