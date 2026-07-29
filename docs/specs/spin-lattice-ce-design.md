@@ -963,7 +963,9 @@ survive. Treat any future disagreement with published force constants as evidenc
 about the convention, not about the fit.
 
 MC gates: (l) ΔE ≡ total-energy diff for spin/disp/strain moves (the strain
-case also pins the j0(ε)-vs-elastic-term single-source rule, §8); serial ≡
+case also pins the j0(ε)-vs-elastic-term single-source rule, §8) — strain half
+DONE 2026-07-29 (`test_strainschedule.jl`: from-scratch totals at both scales +
+the reconstruction identity); serial ≡
 parallel bitwise; checkpoint resume bitwise; `set_coefficients!` round-trip
 byte-identical; the (4π)^{n_spin_slots/2} pin asserts an **independently
 hand-derived value** (never the evaluator's own output) on a HAND-BUILT
@@ -1358,6 +1360,29 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
     `test/unit/test_introspect.jl` by DEMONSTRATING the hazard (two models on one basis,
     equal-length lists, different maps) next to the fix (structurally identical lists,
     differing only in `coef`).
+    **DONE 2026-07-29 — the whole milestone** (SLCEMonteCarlo `4411981` schedule/view,
+    `f2427b9` energy contract, `d038b86` move, `b6972ed` drivers/GPU sync, `ad185ac`
+    checkpoint v4; record `SLCEMonteCarlo/docs/specs/strain-move.md`). §8's corrected
+    weight landed as specified: the volume power is `D/3 + 1` / `D/3 + 2/3` per
+    proposal arm branching on ONE symbol (the (β) trap is excluded by closed-form
+    gates plus a white-box accept-decision replay — the statistical marginal cannot
+    resolve 1/3 of a power at test cost), and (γ)'s measured-exponent toy runs at
+    `u ≡ 0`, where the marginal is the bare Jacobian `p(V) ∝ V^{D/3}` and the
+    pinned/flat fixture pair isolates the COM bookkeeping — with one correction to
+    this record's fixture sketch: on the (2,1,1) toy supercell the flat pair model
+    splits into TWO components (in-cell pairs are beyond cutoff), so the fixtures
+    differ by the full `count(comp_free)` = 6, not 3. The ASR hard-error landed at
+    `StrainSchedule` conversion (per-node 1×1×1 builds; flatness is linear in the
+    coefficients, so nodes certify the family), licensing
+    `recheck_translation = false` per proposal. Checkpoint v4 pins the model
+    fingerprint AT THE REFERENCE scale (it mixes coefficient values; a strained
+    chain's move with its volume) with a separate grid fingerprint —
+    `_fingerprint`'s mixing untouched, as SLCEDynamics requires. v0 scope refusals
+    as decided: PT throws by name, GPU ships `sync_coefficients!` (`sent_w`-only,
+    bitwise-gated) with its A100 per-move cost still to be measured, hydrostatic
+    only, chain starts at `s = 1`. Fixed-cell byte-neutrality is pinned against a
+    pre-wiring trajectory. Deferred, recorded in the MC record: the §8(ζ)
+    mechanical-equilibrium observable, PT+strain, warm-starting a strained chain.
   - **M5-5 — finite-T. SCOPE CORRECTED 2026-07-29: this was never a request to
     implement a self-consistent solver.** §9d cites Masuki–Nomoto–Arita–Tadano as
     the source of the MECHANISM — the re-expansion `u → u₀ + δu` is an exact
