@@ -631,7 +631,9 @@ slots; packed-integer cleverness; per-species row layouts.
   in place, so per-lane strain is a data race before it is a physics question; and
   `_attempt_swap!` (`pt.jl:113`) is the NVT rule, while NPT needs
   `(β_a − β_b)[(E_b + P·V_b) − (E_a + P·V_a)]` plus the strain in the payload.
-  PT + strain therefore **throws** in v0 and becomes its own slice. GPU is the
+  PT + strain therefore **throws** in v0 and becomes its own slice (which landed
+  2026-07-29 — per-lane coefficient clones + the generalized swap weight; see the
+  M5-4 DONE entry below and MC record S10). GPU is the
   opposite case: `_GPUTables.sent_w` is copied once at construction and there is no
   re-upload hook, so the device silently keeps pre-swap coefficients — the fix is
   small (a `sent_w`-only `copyto!`) and shipping it with a host≡device gate is
@@ -1431,8 +1433,24 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
     P = 0.01 eV/Å³; the identity constrains the j0 and virial halves (each ≫
     its error bar if broken) while the coefficient drift (~1σ) and the volume
     power (~1.3σ per unit of N_mob) stay pinned by the FD gate and the (γ)
-    marginal toy respectively. Still deferred:
-    PT+strain, strained warm starts, the A100 `sync_coefficients!` cost.
+    marginal toy respectively.
+    **PT+strain LANDED 2026-07-29** (MC record S10, MC commit `3e8e912`): the two
+    v0 refusal obstacles resolved structurally — per-lane coefficient clones
+    (`_coefficient_clone`: structural arrays shared, exactly the three fields
+    `set_coefficients!` writes copied, O(model) cost) remove the shared-`H` data
+    race, and the exchange weight generalizes to
+    `(β_a−β_b)·[ΔE + n_cells·Δj0 + P·ΔV]` (sum of differences) with the lane's
+    Hamiltonian reference swapped together with the payload, the `V^{N_mob}`
+    measure factor cancelling exactly (β-independent per bundle). Checkpoint
+    schema v5 (v4's PT lane strains were never live — an old reader would
+    silently continue a strained-PT file as fixed-cell). The swap rule is pinned
+    by a one-ulp bracket gate, NOT by the statistical rung-marginal gate (the
+    NVT mutation moved it ≤ 0.6σ at test cost — the S2 scoping again). Noted
+    for downstream reading: on ANY strained run `:energy`/`:specific_heat` are
+    configurational-only (neither `C_V` nor the NPT `C_P`; the β-conjugate
+    `W = E + n_cells·j0(s) + P·V(s)` fluctuates through `j0` and `P·V`) — a
+    strain-aware `W` observable is deferred (MC record S8). Still deferred:
+    strained warm starts, the A100 `sync_coefficients!` cost.
   - **M5-5 — finite-T. SCOPE CORRECTED 2026-07-29: this was never a request to
     implement a self-consistent solver.** §9d cites Masuki–Nomoto–Arita–Tadano as
     the source of the MECHANISM — the re-expansion `u → u₀ + δu` is an exact
