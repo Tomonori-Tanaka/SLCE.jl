@@ -548,6 +548,38 @@ slots; packed-integer cleverness; per-species row layouts.
   > i.e. the volume power is **`D/3`** (`y = V`), **`D/3 + 1`** (`y = ln V`),
   > **`D/3 + 2/3`** (`y = s`).
 
+  **RE-CORRECTED 2026-07-29 (Opus review of the landed implementation, verified
+  independently): the correction above fixed the proposal-variable bookkeeping
+  and broke the target measure.** The flat COM directions are gauge directions
+  whose RANGE is the cell (one period ∝ `s` per direction), so quotienting them
+  out — which is all `_recenter!` does — hides their measure factor without
+  removing it. In scaled coordinates the configurational measure is
+  `d^{3N}r = V^{N_mob}·d^{3N}x` unconditionally: the ideal-gas COM factor, and
+  Frenkel–Smit's `N·ln(V′/V)` volume move with `N` ALL mobile atoms. The
+  physical volume power is therefore **`N_mob`, independent of `comp_free`**:
+
+  > `ln A = ln|dV/dy|_{y′} − ln|dV/dy|_y + 3·N_mob·ln(s′/s) − β[ΔE_int + n_c·Δj0 + P·ΔV]`,
+  > i.e. the `ln(s′/s)` coefficient is **`3·N_mob + 3`** (`y = ln V`),
+  > **`3·N_mob + 2`** (`y = s`).
+
+  Exactly solvable check: 1D, two atoms on a ring of length `L`, one spring with
+  affine equilibrium length — `Z(L) = ∫dr₁dr₂ e^{−βE(r₂−r₁;L)} = L·const`, the
+  COM contributing the `L` the D-convention dropped. `D` survives only as the
+  dimension of the SAMPLED subspace (diagnostics), and (γ)'s "the two exact
+  answers differ by exactly `3·n_disp_comps` in `D`" becomes the OPPOSITE gate:
+  a pinned and a flat fixture at equal `N_mob` must land on the SAME marginal
+  `p(V) ∝ V^{N_mob}`, and the exponent's system-dependence is shown by varying
+  `N_mob` instead. (ζ)'s identity likewise reads
+  `P = N_mob·kT/⟨V⟩ + ⟨−∂E_total/∂V⟩`. The omission was
+  `n_comps·kT/⟨V⟩` in the sampled pressure — ≈3e-4 GPa on a production 8³ cell
+  at 300 K, percent-level on test fixtures, and invisible to any gate that
+  measures the implemented rather than the physical marginal, which is why it
+  survived the panel: every consistency check the panel specified was the
+  sampler's own identity. (θ)'s "an accepted strain move must `_reset_escape!`"
+  is also superseded — the affine map is exactly known, so the detector's length
+  statistics are RESCALED (covariant), never reset: a reset on every accepted
+  move disarms the block ladder permanently at the default cadence.
+
   (α) `_recenter!` is per **(Cartesian direction, displacement component)** and
   `comp_free` is `3 × n_disp_comps` (`hamiltonian.jl:388`, whose own comment says
   "the flat space is 3 × n_disp_comps, not 3"). Each removed direction removes
@@ -1362,18 +1394,21 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
     differing only in `coef`).
     **DONE 2026-07-29 — the whole milestone** (SLCEMonteCarlo `4411981` schedule/view,
     `f2427b9` energy contract, `d038b86` move, `b6972ed` drivers/GPU sync, `ad185ac`
-    checkpoint v4; record `SLCEMonteCarlo/docs/specs/strain-move.md`). §8's corrected
-    weight landed as specified: the volume power is `D/3 + 1` / `D/3 + 2/3` per
-    proposal arm branching on ONE symbol (the (β) trap is excluded by closed-form
-    gates plus a white-box accept-decision replay — the statistical marginal cannot
-    resolve 1/3 of a power at test cost), and (γ)'s measured-exponent toy runs at
-    `u ≡ 0`, where the marginal is the bare Jacobian `p(V) ∝ V^{D/3}` and the
-    pinned/flat fixture pair isolates the COM bookkeeping — with one correction to
-    this record's fixture sketch: on the (2,1,1) toy supercell the flat pair model
-    splits into TWO components (in-cell pairs are beyond cutoff), so the fixtures
-    differ by the full `count(comp_free)` = 6, not 3. The ASR hard-error landed at
-    `StrainSchedule` conversion (per-node 1×1×1 builds; flatness is linear in the
-    coefficients, so nodes certify the family), licensing
+    checkpoint v4; record `SLCEMonteCarlo/docs/specs/strain-move.md`). The weight
+    landed with §8's proposal-variable bookkeeping and, after the same-day review
+    RE-CORRECTION above, the volume power `V^{N_mob}` (`ln(s′/s)` coefficient
+    `3·N_mob + 3` / `3·N_mob + 2` per arm, branching on ONE symbol — the (β) trap
+    is excluded by closed-form gates plus a white-box accept-decision replay, since
+    the statistical marginal cannot resolve 1/3 of a power at test cost). (γ)'s
+    measured-exponent toy runs at `u ≡ 0`, where the marginal is the bare Jacobian
+    `p(V) ∝ V^{N_mob}`: the pinned/flat (2,1,1) fixtures share `N_mob = 4` with
+    `count(comp_free)` differing by 6 (the flat pair model splits into TWO
+    components — in-cell pairs are beyond cutoff), so both landing on `V⁴` is the
+    mutation fence against the rejected D-convention, and a third chain at
+    `N_mob = 2` varies the exponent. The ASR hard-error landed at `StrainSchedule`
+    conversion — per-node builds at H's OWN dims (the component partition depends
+    on the supercell), gated on `any(comp_free)`, compared one-sidedly; flatness
+    is linear in the coefficients, so nodes certify the family — licensing
     `recheck_translation = false` per proposal. Checkpoint v4 pins the model
     fingerprint AT THE REFERENCE scale (it mixes coefficient values; a strained
     chain's move with its volume) with a separate grid fingerprint —
