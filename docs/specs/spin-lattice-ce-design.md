@@ -1418,6 +1418,21 @@ Strain gates (M5, added 2026-07-27 with the §9e pin):
     only, chain starts at `s = 1`. Fixed-cell byte-neutrality is pinned against a
     pre-wiring trajectory. Deferred, recorded in the MC record: the §8(ζ)
     mechanical-equilibrium observable, PT+strain, warm-starting a strained chain.
+    **(ζ) LANDED 2026-07-29** (MC record S9): `energy_volume_derivative` — exact,
+    not `grid_strain_derivative` (which is `u = 0`, coefficient-drift only; it
+    survives as the cross-implementation gate) — via the schedule's
+    differentiated Horner passes plus Euler's theorem on the per-template
+    displacement degree `Σ(2k + l)`, so the virial needs no displacement
+    gradient; packaged as `pressure_diagnostics` (`:pressure` evaluable,
+    `N_mob·kT·⟨1/V⟩ − ⟨dE/dV⟩`, per-point `kT` via the `Evaluable` contract).
+    The statistical gate needed a bounded-below fixture (an Einstein well —
+    random ASR'd coefficients are an indefinite quadratic form and the first
+    draft escaped, exactly as (θ)/U8 predict): measured 0.01110 ± 0.00074 vs
+    P = 0.01 eV/Å³; the identity constrains the j0 and virial halves (each ≫
+    its error bar if broken) while the coefficient drift (~1σ) and the volume
+    power (~1.3σ per unit of N_mob) stay pinned by the FD gate and the (γ)
+    marginal toy respectively. Still deferred:
+    PT+strain, strained warm starts, the A100 `sync_coefficients!` cost.
   - **M5-5 — finite-T. SCOPE CORRECTED 2026-07-29: this was never a request to
     implement a self-consistent solver.** §9d cites Masuki–Nomoto–Arita–Tadano as
     the source of the MECHANISM — the re-expansion `u → u₀ + δu` is an exact
