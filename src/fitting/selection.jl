@@ -698,7 +698,13 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
     # that carries no reparameterization), so `asr = false` selects a deliberately
     # unconstrained joint model here just as it fits one there.
     rep = _resolve_asr_rep(dataset, asr)
-    rep === nothing ||
+    # What the path cannot honour is a CONSTRAINT (rows of `A`), not a reparameterization
+    # as such. A freeze-only one — the unresolvable-column exclusion, which every fit
+    # carries whatever `asr` says — is a pure column selection on columns whose design
+    # entries are identically zero, so the cached β-space Gram is already the right one
+    # and the path only has to hold those entries at exact zero (done below). Gating on
+    # `rep === nothing` instead would refuse every Wigner-Seitz-tied crystal outright.
+    rep === nothing || size(rep.A, 1) == 0 ||
         throw(ArgumentError("select_fit under an ASR reparameterization is not " *
                             "implemented yet: the λ path solves on a cached " *
                             "unconstrained Gram and its alive rule is β-indexed, " *
@@ -706,6 +712,11 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
                             "constrained solve never chose. Pass asr = false to " *
                             "select a deliberately unconstrained model, or use " *
                             "fit/cross_validate, which are constrained"))
+    # Columns no fit on this cell can determine. The design is blind to them, so pinning
+    # them costs no residual — but leaving the estimator's ~1e-18 there would be charged
+    # Monte-Carlo cost by the alive rule, which tests `!= 0.0` exactly.
+    frozen_cols = rep === nothing ? Int[] :
+                  setdiff(1:n_salcs(dataset.basis), rep.free)
     w = Float64(torque_weight)
     wF = Float64(force_weight)
     (0.0 <= w <= 1.0) || throw(ArgumentError("torque_weight must be in [0, 1]; got $w"))
@@ -755,6 +766,7 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
             _solve_gar(XtX, Xty, lams[i], est.column_groups, est.group_weights,
                        est.group_sizes, est.epsilon, est.max_iter, est.tol;
                        beta0 = prev)
+        isempty(frozen_cols) || (b[frozen_cols] .= 0.0)
         betas[i] = b
         prev = b
     end

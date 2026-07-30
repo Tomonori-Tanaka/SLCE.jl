@@ -64,17 +64,24 @@ the orbit sum runs over them with whatever signs the invariant carries. Any cont
 A tie is *necessary* for this to happen — with a unique minimum image every member has its
 own atom content and nothing can cancel — but which content dies depends on how the group
 relates the tied members, not on the tie alone, so the reliable statement is the measured
-one. [`unresolvable_columns`](@ref) reports it exactly for a given basis. Measured examples,
-all under the crystal's own space group:
+one. [`unresolvable_columns`](@ref) reports it exactly for a given basis. Measured examples —
+the counts depend on the group, so each row names the cell and the symmetry it was built with:
 
 | basis | tie | columns | identically zero |
 |-------|----:|--------:|-----------------:|
-| bcc cross pair, harmonic (``\Lambda`` degree 2) | 8 | 2 | 1 (the ``L_f = 2`` one) |
+| bcc cross pair, harmonic (degree 2) | 8 | 2 | 1 (the ``L_f = 2`` one) |
 | bcc cross pair, degree 3 | 8 | 8 | 8 |
 | bcc cross pair, pure spin (`soc`, ``l \le 2``) | 8 | 7 | 4 |
-| pair at half a lattice vector, spin ``\times`` degree-1 displacement | 2 | 4 | 4 (all odd ``L_f``) |
-| the same pair, harmonic | 2 | 6 | 0 (all even ``L_f``) |
-| hcp pair, harmonic | 2 | 4 | 1 |
+| bcc in a cell doubled along ``z`` only, harmonic | 4 | 10 | 6 |
+| bcc as ``2\times2\times2``, harmonic | 1 | 14 | 0 |
+
+The bcc rows are the two-atom cubic cell under ``m\bar 3m``, the doubled one under
+``4/mmm``; all five are the fixtures `test/unit/test_resolvability.jl` gates, so they are
+reproducible verbatim. Two further contrasts, measured on the Fe–O–Fe chain of the
+[joint guide](../guide/joint.md) (Fe at ``z = 0, c/2`` and O at ``c/4, 3c/4``, so both
+like-atom pairs sit at exactly ``c/2``; space group from Spglib): its spin ``\times``
+degree-1 channel loses **all 4** columns, every one of them odd ``L_f``, while the harmonic
+channel of the *same* pairs loses **none** of its 6, every one of them even ``L_f``.
 
 The pattern in the two-fold rows is the one to expect from bond reversal
 ``\hat{\boldsymbol r} \to -\hat{\boldsymbol r}``, which an invariant of bond rank ``L_f``
@@ -86,11 +93,22 @@ stabilizer of one member, and whether the transported invariants then cancel is 
 the whole group, so a larger tie can remove even-``L_f`` content too (the eight-fold rows
 above) and a smaller group can leave odd-``L_f`` content standing.
 
-Such a coefficient is **unidentifiable, not absent**. The same basis function is in general
-nonzero under [`affine_energy`](@ref) — a uniform strain displaces the tied images by
-different amounts, so the cancellation is incomplete and what survives is the *relative*,
-bond-stretch content (``\mathrm{d}J/\mathrm{d}r``, i.e. exchange magnetostriction) — and
-nonzero in a Monte-Carlo supercell. A fit on this cell simply cannot determine it.
+Such a coefficient is **unidentifiable, not absent**, and the reason is the supercell. Tiling
+this cell maps the tied images onto *distinct* atoms of the larger cell, so nothing cancels
+there and the same coefficient multiplies a function that is nonzero throughout a Monte-Carlo
+run. That argument holds for every frozen column, whatever channel it sits in — which is why
+the columns are kept in the basis rather than dropped.
+
+A uniform strain *sometimes* reveals it too, and it is worth knowing when it does not. A
+strain field is not cell-periodic, so it displaces the tied images by different amounts and
+the cancellation can be incomplete: measured, [`affine_energy`](@ref) is nonzero for 6 of the
+8 frozen columns of the bcc degree-3 channel and 4 of 10 on a spin ``\times`` degree-1 one.
+But it is exactly zero for the bcc harmonic row above, and it is *structurally* zero for
+every **pure-spin** column — such a SALC has no displacement slot for a strain to act on, so
+`affine_energy` reduces to [`predict_energy`](@ref), which is the annihilated orbit sum. Where
+the strain response does survive it is the response to the relative bond-vector change
+``\boldsymbol M\cdot\boldsymbol d``, whose transverse part is a *rotation* of the bond
+rather than a stretch, so do not read it as a bond-length derivative.
 
 The remedy is a reference cell in which the pair's minimum image is **unique**: break the tie
 in *every* direction whose separation component equals half the cell length. Doubling one

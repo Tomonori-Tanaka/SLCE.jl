@@ -313,9 +313,10 @@ facts about the basis, kept in separate fields so neither is mistaken for the ot
   * **the unresolvable-column freeze** — the columns
     [`unresolvable_columns`](@ref) names are excluded from `free`, hence held at
     exactly `0`. They are identically zero on every configuration this reference cell
-    can express, so any value a fit returns for them is an estimator artifact that a
-    Monte-Carlo supercell or a `q ≠ 0` dynamical matrix would amplify into physics the
-    data never constrained. This part is applied whatever `translation` says.
+    can express, so any value a fit returns for them is an estimator artifact — and one
+    a Monte-Carlo supercell (where the tie is resolved, so the function is nonzero) or a
+    `q ≠ 0` dynamical matrix would amplify into physics the data never constrained. This
+    part is applied whatever `translation` says, and on pure-spin bases too.
 
 Returns `nothing` only when there is nothing to encode: a basis with no displacement
 columns and no unresolvable ones (the structural fast path, bitwise identical to an
@@ -323,7 +324,12 @@ unconstrained fit). Called once at `SLCEDataset` construction and stored on
 `dataset.asr` (the `force_cols` discipline).
 
 `rank` counts the constraints on the *free* columns, so a basis with no unresolvable
-columns reparameterizes exactly as it did before the freeze existed.
+columns reparameterizes exactly as it did before the freeze existed. When *every*
+displacement column is frozen there is nothing left for the translation constraint to
+act on: `free` comes back empty, `Z` has no columns, and neither the
+no-invariant-content warning nor the broken-expansion refusal fires (both compare
+`rank` against a free displacement count that is then zero). The fit degenerates
+cleanly to `jphi ≡ 0` with the analytic intercept.
 
 `warn = false` silences the two diagnostics about the *basis* (no
 translation-invariant displacement content at all; individual structurally zeroed
@@ -344,16 +350,32 @@ function build_asr(basis::SLCEBasis; translation::Bool = true,
                    warn::Bool = true)::Union{Nothing,ASRReparam}
     p = n_salcs(basis)
     hasdisp = any(s -> any(has_disp, s.key.decors), salcs(basis))
-    frozen = unresolvable_columns(basis)
+    # An AllImages self-image basis cannot be classified at all. Proceeding with
+    # NOTHING frozen is the honest reading of that (unknown, not none) and it is what
+    # keeps the documented escape hatch open: such a joint dataset already tells the
+    # user that fits must pass `asr = false`, and refusing here would leave no route at
+    # all. Said once, because it withdraws a guarantee.
+    frozen = try
+        unresolvable_columns(basis)
+    catch err
+        err isa UnclassifiableBasis || rethrow()
+        warn && @warn "cannot tell which columns this reference cell resolves — " *
+                      "$(err.reason). Nothing is frozen, so a fit may return values " *
+                      "for columns no data can determine" maxlog = 1
+        Int[]
+    end
     (isempty(frozen) && !(translation && hasdisp)) && return nothing
     free = isempty(frozen) ? collect(1:p) : setdiff(1:p, frozen)
     isempty(frozen) || !warn ||
         @warn "this reference cell cannot resolve $(length(frozen)) of its $p " *
               "columns: they are identically zero on every configuration it can " *
               "express, so the fit holds them at exactly zero. They are " *
-              "UNIDENTIFIABLE, not physically zero — the same basis functions are " *
-              "nonzero under a uniform strain and in a Monte-Carlo supercell, where " *
-              "a fitted value would become physics the data never constrained. The " *
+              "UNIDENTIFIABLE, not physically zero: tiling this cell maps the tied " *
+              "images onto DISTINCT atoms, so nothing cancels in a Monte-Carlo " *
+              "supercell and a fitted value would become physics the data never " *
+              "constrained there. (A uniform strain reveals some of them as well, but " *
+              "never a pure-spin one — it has no displacement slot for a strain to " *
+              "act on.) The " *
               "cause is a Wigner-Seitz boundary tie; to determine these " *
               "coefficients, describe the crystal with a cell in which the offending " *
               "pair's minimum image is unique (`unresolvable_columns` for the " *
@@ -407,12 +429,17 @@ function build_asr(basis::SLCEBasis; translation::Bool = true,
                   "spin invariant: for a spin-free displacement channel that means " *
                   "further pair orbits (widen the cutoff), for a spin-dressed one a " *
                   "term dressing the same spin factor differently — e.g. a displaced " *
-                  "ligand. A PAIR channel whose exchange parity (the parity of its spin " *
-                  "factor times (-1)^Lf) comes out EVEN can only couple to u_a + u_b: no " *
-                  "extra pair orbit and no wider cutoff changes that parity, so its " *
-                  "partner has to come from another sector — a displaced third atom. " *
-                  "Either way the coefficient is excluded by the sum rule, not by crystal " *
-                  "symmetry: the basis function itself is generally nonzero" columns = dead maxlog = 1
+                  "ligand. WHEN a symmetry operation exchanges the bond's two ends and " *
+                  "both ends carry the same spin rank, the parity is decidable in " *
+                  "advance: translation invariance needs the coupling odd under that " *
+                  "exchange (it can only reach u_a - u_b), the exchange parity is the " *
+                  "spin factor's times (-1)^Lf, and an EVEN product therefore has no " *
+                  "partner among pair orbits at all — it needs a displaced third atom. " *
+                  "On a bond whose ends NO operation exchanges (two different species, " *
+                  "say) that argument does not apply and the partner can be the same " *
+                  "channel with the displacement on the other end. Either way the " *
+                  "coefficient is excluded by the sum rule, not by crystal symmetry: the " *
+                  "basis function itself is generally nonzero" columns = dead maxlog = 1
     end
     return rep
 end
@@ -429,14 +456,25 @@ models) gate on this value instead of a stored flag. A hand-built violating
 model is legal; it simply reports a large residual.
 """
 function asr_residual(model::SLCEModel)::Float64
-    rep = build_asr(model.basis; warn = false)   # re-derivation: construction already spoke
-    rep === nothing && return 0.0
-    return _asr_residual(rep, model.jphi)
+    basis = model.basis
+    # The ASR matrix alone, not a whole reparameterization: this measures translation
+    # invariance, which the unresolvable-column freeze has nothing to do with. Building
+    # the reparameterization here would also make a public diagnostic pay for the
+    # classification (measured 40 ms / 70 MiB on a pure-spin basis of 334 columns, where
+    # it used to be `nothing`) and inherit its refusals.
+    any(s -> any(has_disp, s.key.decors), salcs(basis)) || return 0.0
+    A = _asr_matrix(basis)
+    isempty(A) && return 0.0
+    return _asr_residual(A ./ [norm(@view A[r, :]) for r in axes(A, 1)], model.jphi)
 end
 
-function _asr_residual(rep::ASRReparam, beta::Vector{Float64})::Float64
-    isempty(rep.A) && return 0.0
-    denom = norm(rep.A) * norm(beta)
+_asr_residual(rep::ASRReparam, beta::Vector{Float64}) = _asr_residual(rep.A, beta)
+
+# One definition of the residual, two callers (a model's basis, and a fit's stored
+# reparameterization).
+function _asr_residual(A::AbstractMatrix{Float64}, beta::Vector{Float64})::Float64
+    isempty(A) && return 0.0
+    denom = norm(A) * norm(beta)
     denom == 0.0 && return 0.0
-    return norm(rep.A * beta) / denom
+    return norm(A * beta) / denom
 end

@@ -6,6 +6,66 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — the freeze reached only some of the paths that needed it
+
+Two parallel reviews of the freeze found four ways past it and one wrong justification. All
+five were reproduced before fixing and are now gated.
+
+**A staged fit re-freed frozen columns, and the value reached a deliverable.**
+`sector_columns` resolves selectors from `SALCKey` content alone, so `_fit_stage` handed
+back a column whose design entries are identically zero and `_stage_reparam` gave it a free
+null-space direction — an unbounded solve. Measured on a two-stage bcc fit: `jphi` came back
+with `3.7e14`, `asr_residual` still reported `0.0` (the column is in the ASR's null space, so
+it violates nothing), and `force_constants` carried `max |Φ| = 3.0e14`. The stage's free set
+is now intersected with the basis-level one, and a mask that names a frozen column says so.
+
+**The pure-spin path never froze at all, and the two `asr` settings disagreed.** The
+pure-spin `SLCEDataset` constructors hard-coded `asr = nothing` — correct while `build_asr`
+always returned `nothing` for pure spin, wrong now that a pure-spin basis can carry
+unresolvable columns (measured: 4 of 7 on a bcc `soc` pair basis). The polarity was
+inverted: `asr = true` left ~1e-18 in those coefficients and reported `dof = 8`, while
+`asr = false` — which rebuilds the freeze — gave exact zeros and `dof = 4`. ~1e-18 is not
+zero for `select_support`'s alive rule or SLCEMonteCarlo's `t.coef != 0.0` prune, so those
+columns would have bought site programs and become supercell physics.
+
+**`asr = false` was mistaken for a staged fit.** `_resolve_asr_rep` builds the freeze-only
+reparameterization, and `_is_staged` inferred staging from `reparam !== dataset.asr` — object
+identity — so `select_support` refused an ordinary ablation fit with a message about staging
+that was false. `SLCEFit` now records `staged` instead of inferring it.
+
+**Classification broke the AllImages escape hatch.** `unresolvable_columns` ran before
+`build_asr`'s early exits, so its repeated-atom refusal fired on two paths that used to
+return immediately: `asr_residual` threw on a legal pure-spin `AllImages` model (was `0.0`),
+and an `AllImages` joint dataset became unfittable by any route — `asr = true` and
+`asr = false` both threw, the former advising the latter. The refusal is now a dedicated
+`UnclassifiableBasis`, caught in `build_asr` (nothing frozen, said once — the honest
+"unknown", not "none"), and `asr_residual` builds only the ASR matrix, which also takes the
+classification off a public diagnostic's path (measured 40 ms / 70 MiB on a pure-spin basis
+of 334 columns, previously free). `select_fit` likewise gates on constraint *rows* rather
+than `rep === nothing`, so it no longer refuses every Wigner–Seitz-tied crystal; it pins the
+frozen entries exactly, which costs no residual because the design is blind to them.
+
+**The stated reason for keeping the columns was wrong for most of them.** "The same basis
+functions are nonzero under a uniform strain" is false for the majority of frozen columns and
+*structurally* false for every pure-spin one — such a SALC has no displacement slot for a
+strain to act on, so `affine_energy` reduces to `predict_energy`, the annihilated orbit sum.
+Measured with 200 draws each: strain-visible for 0 of 1 frozen columns on bcc harmonic
+(the row the chapter led with), 0 of 4 pure-spin, 6 of 8 at degree 3, 4 of 10 on
+spin × degree-1. The argument that holds unconditionally is the **supercell** one — tiling
+maps the tied images onto distinct atoms — and all four sites now lead with it. The
+`dJ/dr` / exchange-magnetostriction reading is dropped: where the strain response survives it
+is the response to the relative bond-vector change `M·d`, whose transverse part rotates the
+bond rather than stretching it. The exchange-parity account of ASR-dead pair channels is
+qualified with its precondition (an operation must exchange the bond's ends, and both ends
+must carry the same spin rank); on a heteroatomic bond the partner can be the same channel
+with the displacement on the other end.
+
+Known and not fixed here: `_asr_matrix` prunes cancellation residue relative to its own
+global maximum, so an `A` that is *entirely* residue cannot be detected — row normalization
+then promotes noise to unit-norm constraints, and `asr_residual` returns `0.299` for a
+hand-built model on a bcc spin × displacement basis where `max |A| = 3.6e-15`. Pre-existing,
+newly reachable, and the fix is the same gross-scale comparison the classifier uses.
+
 ### Added — the columns a reference cell cannot resolve are classified and frozen
 
 `unresolvable_columns(basis)` names the design columns that are identically zero on every

@@ -152,10 +152,12 @@ function _resolve_asr_rep(dataset::SLCEDataset, asr::Bool)::Union{Nothing,ASRRep
     # `asr = false` drops the translation CONSTRAINT, not the unresolvable-column
     # freeze: those columns are identically zero on this cell whatever the fit
     # imposes, so leaving them free would hand an ablation study estimator artifacts
-    # that a supercell run would read as physics. Rebuilt here rather than stored,
-    # because this is the opt-out path.
-    rep = asr ? dataset.asr :
-          build_asr(dataset.basis; translation = false, warn = false)
+    # that a supercell run would read as physics. DERIVED from the stored
+    # reparameterization's free set rather than reclassified — the classification is the
+    # expensive part (measured 2.1 s / 4.8 GiB on a 2634-column basis) and it already
+    # ran once at dataset construction, so an ablation `cross_validate` must not pay it
+    # per fold.
+    rep = asr ? dataset.asr : _freeze_only_rep(dataset)
     if asr && rep === nothing && _basis_has_disp(dataset.basis)
         throw(ArgumentError("asr = true but this displacement-decorated dataset " *
                             "carries no ASR reparameterization (AllImages " *
@@ -164,6 +166,17 @@ function _resolve_asr_rep(dataset::SLCEDataset, asr::Bool)::Union{Nothing,ASRRep
                             "unconstrained deliberately"))
     end
     return rep
+end
+
+# The freeze without the constraint: the stored reparameterization's `free` set, as a
+# plain selection matrix. `nothing` when nothing is frozen, so an `asr = false` fit on a
+# fully resolvable basis is byte-identical to an unconstrained one.
+function _freeze_only_rep(dataset::SLCEDataset)::Union{Nothing,ASRReparam}
+    rep = dataset.asr
+    rep === nothing && return nothing
+    p = n_salcs(dataset.basis)
+    length(rep.free) == p && return nothing
+    return _stage_reparam(dataset.basis, rep.free, zeros(p), nothing)
 end
 
 # Relative cut for a design column that carries no information. Matches the ASR
@@ -319,7 +332,8 @@ function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator
               " alone. Pass force_weight > 0 to use the force channel." maxlog = 1
     end
     rep = _resolve_asr_rep(dataset, asr)
-    if frozen !== nothing || sector_mask !== :all
+    staged = frozen !== nothing || sector_mask !== :all
+    if staged
         rep = _fit_stage(dataset, rep, frozen, sector_mask, estimator)
     end
     X, y, xbar, ybar, groups = _assemble_problem(dataset, w, wF, rep)
@@ -335,7 +349,7 @@ function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator
     # type — a `Bool` flag would leave `Union{Nothing,ASRReparam}` for JET.)
     resid = rep === nothing || size(rep.A, 1) == 0 ? 0.0 : _asr_residual(rep, jphi)
     return SLCEFit(dataset, j0, jphi, estimator, residuals, w, wF,
-                   rep !== nothing && size(rep.A, 1) > 0, resid, rep)
+                   rep !== nothing && size(rep.A, 1) > 0, resid, rep, staged)
 end
 
 # Is this fit STAGED (`frozen` / `sector_mask`), as opposed to merely ASR-constrained?
@@ -350,17 +364,35 @@ end
 # came to tell unstaged callers their fit was staged. The three states a consumer must
 # distinguish are: unconstrained (`reparam === nothing`, incl. a deliberate
 # `asr = false` on a joint basis), plain ASR (`reparam === dataset.asr`), and staged.
-_is_staged(f::SLCEFit)::Bool = f.reparam !== nothing && f.reparam !== f.dataset.asr
+_is_staged(f::SLCEFit)::Bool = f.staged
 
 # Resolve the staging request into the reparameterization the solve runs under.
 function _fit_stage(dataset::SLCEDataset, rep::Union{Nothing,ASRReparam},
                     frozen::Union{Nothing,SLCEModel}, sector_mask,
                     estimator::AbstractEstimator)::ASRReparam
     basis = dataset.basis
-    free = sector_columns(basis, sector_mask)
-    isempty(free) &&
+    asked = sector_columns(basis, sector_mask)
+    isempty(asked) &&
         throw(ArgumentError("sector_mask = $(repr(sector_mask)) selects no column " *
                             "of this basis — the stage would fit nothing"))
+    # A stage cannot undo the unresolvable-column freeze: it is a property of the BASIS,
+    # while `sector_columns` resolves selectors from key content alone. Handing such a
+    # column back would put a free direction on a design column that is identically
+    # zero, where the solve is unbounded — measured before this intersection: a two-stage
+    # fit returned 3.7e14 in `jphi`, `asr_residual` still reported 0.0 (the column is in
+    # the ASR's null space, so it violates nothing), and `force_constants` carried
+    # max |Φ| = 3.0e14 into the deliverable.
+    free = rep === nothing ? asked : intersect(asked, rep.free)
+    if length(free) < length(asked)
+        blocked = setdiff(asked, free)
+        @warn "staged fit: $(length(blocked)) selected column(s) are unresolvable on " *
+              "this reference cell, so the stage leaves them frozen — no data can " *
+              "determine them (`unresolvable_columns`)" columns = first(blocked, 10)
+    end
+    isempty(free) &&
+        throw(ArgumentError("sector_mask = $(repr(sector_mask)) selects only columns " *
+                            "this reference cell cannot resolve — the stage would fit " *
+                            "nothing"))
     beta_f = frozen === nothing ? zeros(Float64, n_salcs(basis)) :
              _frozen_coefficients(basis, frozen)
     had_frozen = any(!iszero, beta_f)
@@ -515,7 +547,7 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
     residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
     resid = rep === nothing || size(rep.A, 1) == 0 ? 0.0 : _asr_residual(rep, jphi)
     return SLCEFit(dataset, j0, jphi, estimator, residuals, w, wF,
-                   rep !== nothing && size(rep.A, 1) > 0, resid, rep)
+                   rep !== nothing && size(rep.A, 1) > 0, resid, rep, _is_staged(f))
 end
 
 # A `FixedCoefficients` carries a fixed, full-design coefficient vector. `refit` and

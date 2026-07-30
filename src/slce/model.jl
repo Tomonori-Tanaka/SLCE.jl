@@ -861,8 +861,13 @@ function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::Abstra
     _validate_configs(basis, cfgs; atol = atol)
     X = _design_energy(basis, cfgs)
     empty_T = Matrix{Float64}(undef, 0, size(X, 2))
+    # `build_asr` even here: a pure-spin basis has no ASR to impose, but it can still
+    # carry columns this cell cannot resolve (measured: 4 of 7 on a bcc `soc` pair
+    # basis), and those must be frozen exactly as on the joint path. It returns
+    # `nothing` when there is nothing to freeze, so the pure-spin fast path is
+    # unchanged wherever it was already correct.
     return SLCEDataset(basis, cfgs, X, collect(Float64, energies), empty_T, Float64[],
-                      Int[], provenance)
+                      Int[], provenance; asr = build_asr(basis))
 end
 
 SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::AbstractVector,
@@ -895,7 +900,7 @@ function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::Abstra
     y_T = _flatten_torques(torques, tcfgs)
     tc = repeat(sel; inner = 3 * n_atoms(basis.crystal))
     return SLCEDataset(basis, cfgs, X_E, collect(Float64, energies), X_T, y_T, tc,
-                      provenance)
+                      provenance; asr = build_asr(basis))
 end
 """
     SLCEModel
@@ -968,4 +973,11 @@ struct SLCEFit
     # `effective_dof`, `identifiability`, `dof` — must read this field rather than
     # `dataset.asr`, or a staged fit is silently re-assembled as an unstaged one.
     reparam::Union{Nothing,ASRReparam}
+    # Whether this fit was STAGED (`frozen` / `sector_mask`). Recorded, not inferred:
+    # `reparam !== dataset.asr` used to stand in for it, and that object-identity test
+    # silently reports "staged" for any fit whose reparameterization was rebuilt rather
+    # than taken from the dataset — which is what the `asr = false` path does whenever
+    # the basis has unresolvable columns to freeze. `select_support` then refuses an
+    # ordinary ablation fit with a message about staging that is simply false.
+    staged::Bool
 end

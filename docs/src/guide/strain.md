@@ -240,11 +240,18 @@ end
     of the bond, and a term's exchange parity is the parity of its spin factor times
     ``(-1)^{L_f}``. With `L_S = 1` (spin-antisymmetric) and odd ``L_f`` the product comes out
     **even**, so this channel can only couple to ``u_a + u_b`` and no translation-invariant
-    model can carry it. Widening the cutoff does not help: every additional *pair* orbit
-    repeats the same parity — describing the same chain with a doubled cell just contributes
-    a second dead column of its own. What does supply a partner is a term dressing the same
-    spin pair factor with the displacement on a **third** atom (a displaced ligand,
-    `sites = 2:3`).
+    model can carry it. Widening the cutoff does not help *here*: every additional pair
+    orbit of this chain repeats the same parity — describing it with a doubled cell just
+    contributes a second dead column of its own. What does supply a partner is a term
+    dressing the same spin pair factor with the displacement on a **third** atom (a
+    displaced ligand, `sites = 2:3`).
+
+    The parity argument needs its precondition, which this fixture happens to satisfy: a
+    symmetry operation must *exchange the bond's two ends*, and both ends must carry the
+    same spin rank. On a bond whose ends no operation exchanges — two different species,
+    say — the argument does not apply, and the balancing partner can be the same channel
+    with the displacement on the other end (measured: on an Fe–Co pair the even-parity
+    columns are ASR-alive).
 
     Note what the warning does *not* say. The basis function itself is not zero — it takes
     values of order 0.3 on these configurations — so the coefficient is excluded by the sum

@@ -485,6 +485,26 @@ Easy to break silently — confirm before touching the algorithm.
   `_ASR_DEAD_ROW` (`‖Z[j, :]‖ < 1e-12`, absolute because `Z` is orthonormal), with four
   readers: `build_asr`'s basis-level warning, `refit`'s movable-column and
   split-coupled-set rules, and `group_costs`' structural discount.
+  **The freeze must reach EVERY path that builds a reparameterization**, and two reviews
+  found four that it did not: the pure-spin `SLCEDataset` constructors (they hard-coded
+  `asr = nothing`, so a pure-spin cell's frozen columns were fitted freely and came back at
+  ~1e-18 — not the exact zero the alive rule and the MC prune test), `_fit_stage`
+  (`sector_columns` knows only key content, so a mask re-freed a frozen column and the
+  unbounded solve put 3.7e14 into `jphi` and 3.0e14 into `force_constants` while
+  `asr_residual` still read 0.0), `_is_staged` (object identity against `dataset.asr`, so
+  the freeze-only rep the `asr = false` path builds read as "staged" — `SLCEFit.staged` is
+  now RECORDED, never inferred), and `select_fit` (gated on `rep === nothing`, which would
+  refuse every WS-tied crystal — it gates on constraint ROWS now). Classification must also
+  stay off the paths that never needed it: it ran before `build_asr`'s early exits and its
+  AllImages repeated-atom refusal broke `asr_residual` on a legal pure-spin model and made
+  an AllImages joint dataset unfittable by any route, so that refusal is a dedicated
+  `UnclassifiableBasis` (caught in `build_asr` → nothing frozen, said once) and
+  `asr_residual` builds only `_asr_matrix`.
+  **Why the columns are kept is the SUPERCELL, not the strain.** Tiling maps the tied images
+  onto distinct atoms, which holds for every frozen column; `affine_energy` reaches only some
+  (measured: 0 of 1 on bcc harmonic, 0 of 4 pure-spin, 6 of 8 at degree 3, 4 of 10 on
+  spin × degree-1) and *structurally* none of the pure-spin ones — no displacement slot for a
+  strain to act on. Never restore the `dJ/dr` reading.
   **Two different reasons produce an all-zero `Z` row and they must not be conflated.**
   A *frozen* column (`unresolvable_columns`, `basis/resolvability.jl`) is identically zero
   on this cell — no fit can determine it, the remedy is a different reference cell, and

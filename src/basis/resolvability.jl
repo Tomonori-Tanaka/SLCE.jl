@@ -17,14 +17,22 @@
 # corner tie removes `Lf = 2` as well. Hence this file measures rather than
 # reasons.
 #
-# Such a column is UNIDENTIFIABLE, not absent. The same basis function is in
-# general nonzero under `affine_energy` — a uniform strain displaces the tied
-# images by different amounts, so the cancellation is incomplete and the relative,
-# bond-stretch content survives — and nonzero in a Monte-Carlo supercell. So the
-# column is kept (the basis describes the infinite crystal) and pinned to exactly
-# zero for any fit on this cell, which is what `build_asr`'s reparameterization
-# does with it; the remedy for someone who needs the coefficient is a reference
-# cell in which the pair's minimum image is unique.
+# Such a column is UNIDENTIFIABLE, not absent, and the SUPERCELL is the reason:
+# tiling this cell maps the tied images onto distinct atoms, so nothing cancels
+# there and the same coefficient multiplies a nonzero function throughout a
+# Monte-Carlo run. That holds for every frozen column, which is why they are kept
+# (the basis describes the infinite crystal) and merely pinned to exactly zero for
+# any fit on this cell — `build_asr`'s reparameterization does the pinning, and the
+# remedy for someone who needs the coefficient is a reference cell in which the
+# pair's minimum image is unique.
+#
+# A uniform strain reveals SOME of them, and it matters which not: measured,
+# `affine_energy` is nonzero for 6 of the 8 frozen columns of a bcc degree-3
+# channel and 4 of 10 on a spin × degree-1 one, exactly zero for the bcc harmonic
+# one, and STRUCTURALLY zero for every pure-spin column — no displacement slot for
+# a strain to act on, so `affine_energy` reduces to `predict_energy`, which is the
+# annihilated orbit sum. Never quote the strain response as the reason a column is
+# kept; the supercell argument is the one that holds unconditionally.
 #
 # The test is STRUCTURAL, not statistical: expand every SALC into the one common
 # monomial/symbol basis (spin factors are opaque symbols `(atom, l, m)`,
@@ -38,6 +46,25 @@
 # it asks "did this column cancel?", not "is this column small?", which a global
 # threshold cannot distinguish for a basis mixing spin and high-degree
 # displacement channels.
+
+"""
+    UnclassifiableBasis <: Exception
+
+Raised when a basis cannot be expanded into the common monomial/symbol basis at all,
+so no statement about which of its columns a cell can resolve is available: a member
+whose cluster reuses one atom (an [`AllImages`](@ref) self-image) would need a Gaunt
+expansion of the same-site factor product, which this expansion does not implement.
+
+Callers that must keep working on such a basis catch it and proceed with *nothing
+frozen* — the honest "unknown", not "none". An `AllImages` joint basis is already an
+explicit opt-out (`SLCEDataset` says fits must pass `asr = false`), and it would be a
+regression for the classification to remove a route that used to work.
+"""
+struct UnclassifiableBasis <: Exception
+    reason::String
+end
+Base.showerror(io::IO, e::UnclassifiableBasis) =
+    print(io, "UnclassifiableBasis: ", e.reason)
 
 # Row identity: the spin symbol multiset and the per-atom displacement monomial
 # exponents. This is `_ASRRowKey` (fitting/asr.jl) without the generator axis —
@@ -65,6 +92,15 @@ roundoff) exactly when SALC `j` is identically zero on cell-periodic
 configurations; `gross[j]` is the scale that zero must be judged against.
 """
 function _signature_matrix(basis::SLCEBasis)
+    # The ratio test is per-column scale-invariant (a SALC key fixes every slot's
+    # `2k + l`, so the evaluator's scale is constant along a column), but the entries are
+    # meant to be comparable with `_asr_matrix`'s, and that comparison would silently
+    # shift under a per-degree rescaling. Same guard, same reason (design record §6
+    # amendment 3).
+    basis.spec.disp_scale == 1.0 ||
+        throw(ArgumentError("the resolvability expansion predates disp_scale ≠ 1 " *
+                            "support — its monomial expansion must be rescaled per " *
+                            "degree when that guard lifts"))
     ss = salcs(basis)
     p = length(ss)
     polycache = Dict{NTuple{3,Int},SolidHarmonics._Poly}()
@@ -77,10 +113,10 @@ function _signature_matrix(basis::SLCEBasis)
         scale = (4π)^(count(has_spin, s.decors) / 2)
         for mem in s.members
             allunique(mem.atoms) ||
-                throw(ArgumentError("resolvability: member with repeated atoms (an " *
-                                    "AllImages self-image cluster) — same-site factor " *
-                                    "products need a Gaunt expansion this expansion " *
-                                    "does not implement"))
+                throw(UnclassifiableBasis("member with repeated atoms (an AllImages " *
+                                          "self-image cluster): same-site factor " *
+                                          "products need a Gaunt expansion this " *
+                                          "monomial expansion does not implement"))
             for t in mem.terms
                 _sig_accumulate_term!(rows, gross, j, scale, t, mem.atoms, polycache)
             end
@@ -163,8 +199,10 @@ end
 The design columns that are identically zero on every cell-periodic configuration
 this reference cell can express, in ascending order. Their coefficients are
 **unidentifiable from any amount of training data on this cell** — not physically
-zero: the same basis functions are in general nonzero under [`affine_energy`](@ref)
-and in a Monte-Carlo supercell.
+zero: tiling this cell maps the tied images onto *distinct* atoms, so the same basis
+functions are nonzero throughout a Monte-Carlo supercell run. (A uniform strain
+reveals some of them as well, but not all, and never a pure-spin one — that has no
+displacement slot for a strain to act on.)
 
 The cause is a Wigner–Seitz boundary tie (see the [Periodic
 resolvability](@ref "Periodic resolvability") chapter): the pair's minimum image is
@@ -175,8 +213,8 @@ coefficient, describe the crystal with a cell in which that pair's minimum image
 half the cell length.
 
 [`fit`](@ref) pins these coefficients at exactly zero and says so; the columns
-themselves are kept, because the basis describes the infinite crystal and both
-[`strain_derivatives`](@ref) and a Monte-Carlo supercell consume them.
+themselves are kept, because the basis describes the infinite crystal and a
+Monte-Carlo supercell consumes them.
 
 The classification is exact and deterministic — a symbolic expansion into a common
 monomial basis, not a numerical probe of the evaluator.

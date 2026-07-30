@@ -33,7 +33,8 @@ using Test
 using SLCE
 using SLCE: salcs, SALC, SALCScratch, evaluate_salc, _signature_matrix,
     _assemble_spacegroup, _superset_cutoff, build_neighbor_list, build_clusters,
-    build_salc_basis, build_asr, _asr_matrix, _asr_nullspace
+    build_salc_basis, build_asr, _asr_matrix, _asr_nullspace, _is_staged,
+    crystal_fingerprint
 using LinearAlgebra
 using Random
 using StaticArrays
@@ -237,6 +238,84 @@ end
         @test rep.rank == rank0
         @test rep.Z == Z0                       # bitwise
         @test rep.A == An
+    end
+
+    # The three blind spots a review found: every one of these passed before the fixes
+    # and each names a path that reached a frozen column with the freeze switched off.
+    @testset "the freeze survives every fit path" begin
+        bcc = _bcc()
+        # (a) a PURE-SPIN basis. `build_asr` used to return `nothing` for one
+        # unconditionally, and the pure-spin `SLCEDataset` constructors hard-coded
+        # `asr = nothing`, so a pure-spin cell's frozen columns were fitted freely — and
+        # came back at ~1e-18, which is NOT the exact zero `select_support`'s alive rule
+        # and SLCEMonteCarlo's term prune both test for.
+        bs = _basis_with_ops(bcc, BasisSpec(bcc; lmax = 2, pmax = 0, soc = true,
+                                            sectors = [Sector(spin = (sites = 1:2,),
+                                                              cutoff = 2.7)]),
+                             _cubic_ops())
+        sfrozen = unresolvable_columns(bs)
+        @test !isempty(sfrozen)
+        rng = MersenneTwister(5)
+        st = SLCEModel(bs, 0.0, 0.1 .* randn(rng, n_salcs(bs)))
+        cfgs = [reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:2]) for _ = 1:150]
+        dss = SLCEDataset(bs, cfgs, [predict_energy(st, e) for e in cfgs])
+        @test dss.asr !== nothing
+        @test dss.asr.free == setdiff(1:n_salcs(bs), sfrozen)
+        # `asr = true` and `asr = false` must agree: the freeze is a property of the
+        # basis, not of the constraint. Before the fix they disagreed in both directions
+        # — exact zeros only under `asr = false`, and `dof` 8 versus 4.
+        for flag in (true, false)
+            f = fit(SLCEFit, dss, OLS(); asr = flag)
+            for j in sfrozen
+                @test coef(f)[j] === 0.0
+            end
+            @test dof(f) == length(dss.asr.free) + 1     # + the analytic intercept
+        end
+
+        # (b) a STAGED fit. `sector_columns` resolves selectors from key content alone,
+        # so a mask naming a frozen column used to hand it a free null-space direction on
+        # an identically-zero design column — an unbounded solve, measured at 3.7e14 in
+        # `jphi` with `asr_residual` still reporting 0.0 and the junk reaching
+        # `force_constants`.
+        jspec = BasisSpec(bcc; lmax = 1, pmax = 2, sectors = [
+            Sector(spin = [1, 1], sites = 2, cutoff = 2.7),
+            Sector(disp = (degree = 2,), sites = 2, cutoff = 2.7)])
+        bj = _basis_with_ops(bcc, jspec, _cubic_ops())
+        jfrozen = unresolvable_columns(bj)
+        @test !isempty(jfrozen)
+        rng2 = MersenneTwister(4)
+        tj = SLCEModel(bj, 0.0, 0.1 .* randn(rng2, n_salcs(bj)))
+        fp = crystal_fingerprint(bcc)
+        data = [begin
+                    e = reduce(hcat, [normalize(randn(rng2, 3)) for _ = 1:2])
+                    u = 0.05 .* randn(rng2, 3, 2)
+                    TrainingDatum(; energy = predict_energy(tj, e, u), directions = e,
+                                  magmoms = ones(2), displacements = u,
+                                  forces = predict_force(tj, e, u),
+                                  provenance = DatumProvenance(;
+                                      reference_id = "r", reference_fingerprint = fp))
+                end for _ = 1:120]
+        dsj = SLCEDataset(bj, data; use_torque = false)
+        f1 = fit(SLCEFit, dsj, OLS(); sector_mask = :spin, force_weight = 0.0)
+        f2 = fit(SLCEFit, dsj, OLS(); sector_mask = :lattice, frozen = SLCEModel(f1),
+                 force_weight = 0.5)
+        for j in jfrozen
+            @test coef(f2)[j] === 0.0
+            @test norm(@view f2.reparam.Z[j, :]) == 0.0
+        end
+        # an explicit mask that names a frozen column says so rather than fitting it
+        @test_logs((:warn, r"unresolvable on this reference cell"), match_mode = :any,
+                   fit(SLCEFit, dsj, OLS(); sector_mask = collect(1:n_salcs(bj)),
+                       force_weight = 0.5))
+
+        # (c) `asr = false` must not be mistaken for a STAGED fit. The freeze-only
+        # reparameterization is a fresh object, so the old `reparam !== dataset.asr`
+        # identity test read "staged" and `select_support` refused an ordinary ablation
+        # fit with a message about staging that was simply false.
+        fabl = fit(SLCEFit, dss, OLS(); asr = false)
+        @test !_is_staged(fabl)
+        @test _is_staged(f2)
+        @test select_support(fabl; npoints = 3) isa SupportPath
     end
 
     @testset "the classification is structural, not sampled" begin
