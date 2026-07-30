@@ -190,6 +190,10 @@ with `scale == (4π)^(body/2)` — the two rules agree exactly there.
 """
 function decorated_terms(model::SLCEModel;
                          keep_zero::Bool = false)::Vector{DecoratedTerm}
+    # The Monte-Carlo hand-off is where a frozen channel stops being a bookkeeping
+    # nicety: a supercell resolves the tie, so the coefficient this cell could not
+    # determine multiplies a nonzero function throughout the run.
+    _warn_unresolvable(model, "decorated_terms")
     salcs = model.basis.salc_basis.salcs
     out = DecoratedTerm[]
     @inbounds for k in eachindex(model.jphi)

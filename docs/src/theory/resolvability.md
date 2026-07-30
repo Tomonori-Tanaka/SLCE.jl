@@ -93,6 +93,16 @@ stabilizer of one member, and whether the transported invariants then cancel is 
 the whole group, so a larger tie can remove even-``L_f`` content too (the eight-fold rows
 above) and a smaller group can leave odd-``L_f`` content standing.
 
+It also has a precondition that is easy to miss: bond reversal has to map a member to
+*itself*, which needs the two ends to carry the same decoration. A **two-fold** tie is
+therefore no guarantee either. Measured on the stripe-AFM ``P4/mmm`` fixture of
+`test/unit/test_forceconstants.jl` — a ``6\times6\times3`` cell whose like-atom pairs sit at
+exactly half a cell edge, so every tie is two-fold — the spin ``\times`` degree-1 channel
+carries a spin factor on one end and spin ``\times`` displacement on the other, so reversal
+does not preserve the term at all, and **all 7** of its columns are identically zero, with
+``L_f = 1, 1, 2, 1, 2, 3, 3`` — even ranks included. The same cell's lattice-only degree-2
+channel and its spin ``\times`` degree-2 channel lose **none**.
+
 Such a coefficient is **unidentifiable, not absent**, and the reason is the supercell. Tiling
 this cell maps the tied images onto *distinct* atoms of the larger cell, so nothing cancels
 there and the same coefficient multiplies a function that is nonzero throughout a Monte-Carlo
@@ -115,6 +125,29 @@ in *every* direction whose separation component equals half the cell length. Dou
 axis is not automatically enough — describing bcc with a cell doubled along ``z`` only
 reduces the corner tie from eight images to four, and the dead channels stay dead, whereas a
 ``2\times2\times2`` cell puts the cross pair strictly inside the WS cell and resolves it.
+
+### What the read-outs do about it
+
+The fit is where a frozen column is invisible; the read-outs are where it matters, because
+[`force_constants`](@ref), [`strain_derivatives`](@ref),
+[`exchange_strain_derivatives`](@ref), [`magnon_phonon_vertices`](@ref) and
+[`decorated_terms`](@ref) differentiate the individual cluster *members*, and there the tie
+does not cancel. So each of them says so once, in whichever of the two directions applies:
+
+- **the coefficient is zero** (what a fit on this cell returns) — the deliverable carries no
+  contribution from that channel, and, per the supercell argument above, that is not zero
+  physics. In particular a Monte-Carlo run on a supercell built from such a model is missing
+  a coupling the supercell itself could express.
+- **the coefficient is nonzero** — a hand-built or externally fixed value, which no data on
+  this cell can have determined, reaching ``\Phi`` and every ``\boldsymbol q \neq
+  \boldsymbol 0`` of [`dynamical_matrix`](@ref). Legal, and worth naming.
+
+One consequence deserves stating on its own: **the tie is invisible at** ``\boldsymbol q =
+\boldsymbol 0``. The ``\Gamma`` sum ``\sum_{\boldsymbol R}\Phi(\boldsymbol R)`` is the Hessian
+of exactly the energy this cell can express, so two models differing only in a frozen
+coefficient have identical ``\boldsymbol D(\boldsymbol 0)`` — acoustic modes and all — and
+differ off ``\Gamma``. A model can therefore pass every ``\Gamma``-point check and still carry
+a dispersion the training data never constrained.
 
 ## Which interactions the enumeration can represent
 

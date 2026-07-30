@@ -141,6 +141,20 @@ whose displacement degrees sum to exactly `order` contribute; a model truncated 
     cell-periodic, so both ends of such a pair move together — and it is not a cutoff
     question. See the `Periodic resolvability` chapter of the manual.
 
+!!! warning "A frozen channel is missing from the result, and the result says so"
+    The other way a reference cell limits this read-out. A Wigner–Seitz boundary tie can
+    make a whole SALC identically zero on every configuration the cell can express
+    ([`unresolvable_columns`](@ref)), so a fit holds its coefficient at exactly zero —
+    while these constants *would* carry it, because they differentiate the individual
+    cluster members, where the tie does not cancel. `force_constants` therefore says so
+    once: with a zero coefficient the result is **missing that channel** (which is not
+    zero physics — the same functions are nonzero in a supercell), and with a nonzero
+    one (hand-built, or fixed from elsewhere) the value reaches `Φ` and every `q ≠ 0` of
+    [`dynamical_matrix`](@ref) although no data on this cell could have determined it.
+    Either way it is invisible at `q = 0`, because `Σ_R Φ(R)` is the Hessian of exactly
+    the energy this cell can express. The remedy is a cell in which the offending pair's
+    minimum image is unique, not a wider cutoff.
+
 `spins` may be omitted only for a model whose basis carries **no spin content at
 all** — a lattice-only expansion, where there is nothing for a spin state to feed
 and inventing one would be noise. Omitting it against a spin-carrying basis is an
@@ -182,6 +196,7 @@ function force_constants(model::SLCEModel;
     order >= 1 || throw(ArgumentError("order must be ≥ 1; got $order"))
     e = _resolve_spins(model, spins, "the force constants")
     _warn_spin_blind(model.basis, Int(order))
+    _warn_unresolvable(model, "force_constants")
     out = Dict{Tuple{Vector{Int},Vector{SVector{3,Int}}},Array{Float64}}()
     polycache = Dict{NTuple{3,Int},SolidHarmonics._Poly}()
     salcs = model.basis.salc_basis.salcs
@@ -249,6 +264,58 @@ function _warn_spin_blind(basis::SLCEBasis, order::Int)
               "to the forces; harmonic constants need `degree = $order` under a " *
               "spin-carrying sector." maxlog = 1
     end
+    return nothing
+end
+
+# The freeze is silent in the fit and LOUD here, which is the wrong way round unless
+# somebody says it: a column this reference cell cannot resolve
+# ([`unresolvable_columns`](@ref)) is identically zero in the energy of every
+# configuration the cell can express — so a fit holds it at exactly zero — but these
+# readouts differentiate the individual cluster MEMBERS, where the tie does not cancel.
+# Both directions therefore matter and are reported separately:
+#
+#   * coefficient zero — the deliverable is missing that channel, and the value is not
+#     physically zero (it is nonzero in a supercell). Advice is a different reference
+#     cell, never a wider cutoff (the WS corner is representable).
+#   * coefficient nonzero — a hand-built or externally fixed value, which no data on
+#     this cell can have determined, and which DOES reach Φ and every `q ≠ 0` of `D(q)`.
+#     Legal, unvalidated, and worth naming: it is the one way a plausible-looking
+#     dispersion can come out of a channel the training data never saw.
+#
+# Shared by every readout that reads the monomials rather than the cell-periodic
+# function (`force_constants`, `strain_derivatives`, `exchange_strain_derivatives`,
+# `magnon_phonon_vertices`, `decorated_terms` — the Monte-Carlo hand-off, where the
+# supercell resolves the tie and the missing channel becomes real physics;
+# `magnetoelastic_constants` inherits it through `strain_derivatives`). Cheap on an untied
+# basis: the classifier short-circuits on a structural pre-check.
+function _warn_unresolvable(model::SLCEModel, what::AbstractString)
+    frozen = try
+        unresolvable_columns(model.basis)
+    catch err
+        err isa UnclassifiableBasis || rethrow()
+        return nothing            # said once by `build_asr`; not this path's business
+    end
+    isempty(frozen) && return nothing
+    supplied = [j for j in frozen if model.jphi[j] != 0.0]
+    absent = [j for j in frozen if model.jphi[j] == 0.0]
+    isempty(absent) ||
+        @warn "$what: this reference cell cannot resolve $(length(absent)) of its " *
+              "$(n_salcs(model.basis)) channels, so their coefficients are held at " *
+              "exactly zero and $what carries NO contribution from them. They are not " *
+              "physically zero — the cause is a Wigner-Seitz boundary tie, the same " *
+              "basis functions are nonzero in a supercell, and the remedy is a cell in " *
+              "which the offending pair's minimum image is unique (NOT a wider cutoff). " *
+              "`unresolvable_columns` lists them; the Periodic resolvability chapter " *
+              "has the argument" columns = first(absent, 10) maxlog = 1
+    isempty(supplied) ||
+        @warn "$what: the model carries a NONZERO coefficient on $(length(supplied)) " *
+              "column(s) this reference cell cannot resolve, and $what does see them: " *
+              "these readouts differentiate the individual cluster members, where the " *
+              "tie does not cancel, so the value reaches Φ and every q ≠ 0 of D(q) even " *
+              "though it is identically zero in the energy of any configuration this " *
+              "cell can express. No data on this cell can have determined it. Legal — a " *
+              "hand-built or externally fixed coefficient — but nothing here validates " *
+              "it" columns = first(supplied, 10) maxlog = 1
     return nothing
 end
 

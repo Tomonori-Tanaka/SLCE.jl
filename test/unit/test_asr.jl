@@ -250,6 +250,31 @@ end
                                                   zeros(3), 1)
     end
 
+    @testset "_prune_residue!: an entry is judged against its own gross mass" begin
+        # Hand-written expansions, no fixture: the rule is that an entry survives iff
+        # what it deposited survived, NOT iff what it deposited is large.
+        #   row 1 — a genuine constraint (nothing cancelled)
+        #   row 2 — pure cancellation: unit gross mass, 1e-16 left
+        #   row 3 — genuine, but 13 orders below row 1. Nothing in the package says a
+        #           monomial coefficient cannot be this small, and a cut against the
+        #           matrix's own maximum deletes it (the old rule's cut sat at 2e-12).
+        A = [2.0 -2.0; 1.0e-16 3.0e-16; 1.0e-13 -1.0e-13]
+        G = [2.0 2.0; 1.0 3.0; 1.0e-13 1.0e-13]
+        P = SLCE._prune_residue!(copy(A), G)
+        @test size(P) == (2, 2)
+        @test P[1, :] == A[1, :]
+        @test P[2, :] == A[3, :]
+        # The case the old per-row/global cut could not see AT ALL: when EVERY entry
+        # is cancellation residue the matrix maximum is itself residue, so every row
+        # looks full-strength relative to it and row normalization hands `_asr_nullspace`
+        # a set of BLAS-rounding-determined unit constraints. A tied cell produces
+        # exactly this (gated on real bases in test_resolvability.jl).
+        @test isempty(SLCE._prune_residue!(copy(A[2:2, :]), G[2:2, :]))
+        # A uniformly scaled expansion is not emptied: the ratio is scale-free.
+        @test SLCE._prune_residue!(1e-30 .* copy(A), 1e-30 .* G) ≈ 1e-30 .* P
+        @test_throws DimensionMismatch SLCE._prune_residue!(zeros(2, 2), zeros(1, 2))
+    end
+
     # --- fit-level gates -----------------------------------------------------
     beta_true = rep.Z * (rep.Z' * randn(rng, m))       # feasible ground truth
     model = SLCEModel(basis, 0.2, beta_true)

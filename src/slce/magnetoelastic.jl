@@ -346,6 +346,9 @@ function exchange_strain_derivatives(
         throw(DimensionMismatch("origin has length $(length(origin)); expected 3"))
     all(isfinite, origin) || throw(ArgumentError("origin has non-finite entries"))
     _require_asr(model, "exchange_strain_derivatives")
+    # Its own path, not `strain_derivatives`', so the freeze diagnostic has to be here
+    # too (`magnetoelastic_constants` inherits it through `strain_derivatives`).
+    _warn_unresolvable(model, "exchange_strain_derivatives")
     o = SVector{3,Float64}(origin[1], origin[2], origin[3])
     out = _ex_derivatives(model, o)
     check_origin && _check_exchange_origin(model, out, o)

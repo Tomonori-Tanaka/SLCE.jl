@@ -157,6 +157,25 @@ key, equal to the transpose.
     `write_phonopy` / `write_alamode` export whatever this list holds, without a warning
     of their own.
 
+!!! warning "The second limit: a channel the cell cannot resolve is frozen, not absent"
+    The pair above is missing from the *enumeration*. A different thing can happen to a
+    pair that **is** enumerated: when its minimum image is not unique, several members of
+    one orbit join the same two reference-cell atoms, and the content odd under permuting
+    them cancels in the orbit sum. That SALC is then identically zero on every
+    configuration this cell can express — [`unresolvable_columns`](@ref) lists such
+    columns and [`fit`](@ref) holds them at exactly zero, because no amount of data on
+    this cell can determine them.
+
+    These constants, however, differentiate the individual cluster members, where nothing
+    cancels. So the freeze shows up here as a **missing channel** (nonzero in a
+    supercell, absent from `Φ`), and a coefficient supplied from outside the fit shows up
+    as `Φ` entries — and `q ≠ 0` phonons — that the training data never constrained.
+    `force_constants` warns once in either case. The tie is invisible at `q = 0`: `Σ_R
+    Φ(R)` is the Hessian of exactly the energy the cell *can* express, which is why a
+    model can pass every Γ-point check and still carry an unconstrained dispersion.
+    Remedy, again, a different cell — see
+    [Periodic resolvability](../theory/resolvability.md).
+
 !!! note "The result carries the magnetic space group, without one being declared"
     This is the joint expansion's headline claim on the lattice side. The SALCs are
     projected with the paramagnetic grey group ``G \\times \\{1, T\\}``; fixing `spins`

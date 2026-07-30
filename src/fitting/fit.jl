@@ -179,9 +179,11 @@ function _freeze_only_rep(dataset::SLCEDataset)::Union{Nothing,ASRReparam}
     return _stage_reparam(dataset.basis, rep.free, zeros(p), nothing)
 end
 
-# Relative cut for a design column that carries no information. Matches the ASR
-# builder's residue/dead-row convention (`fitting/asr.jl`) — every zero decision in
-# this package is relative, and an exact `iszero` test has measured false negatives:
+# Relative cut for a design column that carries no information. Relative like every
+# zero decision in this package — the ASR builder's cuts are too, though against a
+# per-entry gross accumulation rather than a maximum, because it asks a different
+# question ("did this cancel?" rather than "does this column carry anything?";
+# `fitting/asr.jl`). An exact `iszero` test has measured false negatives:
 # a column that is a multiple of `Σ_a u_a` evaluates to ~1e-19 (not 0) on
 # center-of-mass-free samples, and the energy block's centering leaves a
 # structurally constant column at ~1e-17 rather than exactly 0.

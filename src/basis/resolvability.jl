@@ -77,10 +77,19 @@ Base.hash(k::_FuncRowKey, h::UInt) = hash(k.disps, hash(k.spins, h))
 Base.:(==)(a::_FuncRowKey, b::_FuncRowKey) = a.spins == b.spins && a.disps == b.disps
 Base.isless(a::_FuncRowKey, b::_FuncRowKey) = (a.spins, a.disps) < (b.spins, b.disps)
 
-# Relative cut on (assembled norm) / (gross accumulated norm). Cancellation to
-# roundoff lands at ~1e-16 of the gross norm; a column that merely has few terms
-# still has a ratio of order 1. The three orders of margin are deliberate.
-const _RESOLVE_RTOL = 1e-10
+# Relative cut on (assembled value) / (gross accumulated mass). Cancellation to
+# roundoff lands at ~N·eps of the gross mass; a column that merely has few terms
+# still has a ratio of order 1. The margin is deliberate: it must cover the term
+# count of a large orbit sum (N ~ 1e4 already reaches 1e-12) and stay far below any
+# genuine ratio.
+#
+# ONE definition, two readers, because it answers one question — "did this cancel?",
+# never "is this small?" — at two granularities: `unresolvable_columns` below judges
+# a whole COLUMN of the undifferentiated expansion, `_prune_residue!`
+# (`fitting/asr.jl`) judges each ENTRY of the differentiated one. A cut taken
+# against the matrix's own maximum instead cannot see the case where EVERYTHING
+# cancels, which is exactly the case a Wigner–Seitz-tied cell produces.
+const _CANCELLATION_RTOL = 1e-10
 
 """
     _signature_matrix(basis::SLCEBasis) -> (S, gross)
@@ -217,12 +226,56 @@ themselves are kept, because the basis describes the infinite crystal and a
 Monte-Carlo supercell consumes them.
 
 The classification is exact and deterministic — a symbolic expansion into a common
-monomial basis, not a numerical probe of the evaluator.
+monomial basis, not a numerical probe of the evaluator. A cheap structural pre-check
+(does any orbit put two members on the same reference-cell atoms?) rules the whole
+phenomenon out before that expansion runs, so a cell with unique minimum images pays
+nothing for asking.
 """
 function unresolvable_columns(basis::SLCEBasis)::Vector{Int}
+    # The refusal first, so it does not depend on whether the fast path fires.
+    for s in salcs(basis), mem in s.members
+        allunique(mem.atoms) ||
+            throw(UnclassifiableBasis("member with repeated atoms (an AllImages " *
+                                      "self-image cluster): same-site factor " *
+                                      "products need a Gaunt expansion this " *
+                                      "monomial expansion does not implement"))
+    end
+    _has_boundary_tie(basis) || return Int[]
+    return _unresolvable_expanded(basis)
+end
+
+# A TIE IS NECESSARY, and cheap to rule out. Two members can only cancel each other if
+# they deposit on the same row, and a row is keyed by its per-ATOM content — so members
+# whose atom multisets differ never meet. What is left is a member cancelling on its own,
+# which cannot happen: a member's contribution is the invariant projected on the
+# stabilizer of that one instance, and it is nonzero by construction (the same
+# single-member values gate (A) in `test/unit/test_resolvability.jl` uses as its scale).
+#
+# So an untied basis — every cell with unique minimum images, which is most of them —
+# skips the expansion entirely. That matters because the diagnostics at the physical
+# readouts (`_warn_unresolvable`, `slce/forceconstants.jl`) call this on every deliverable,
+# and the expansion is not free (measured 40 ms / 70 MiB on 334 columns). The equivalence
+# is gated: gate (A) compares BOTH this function and the unconditional
+# `_unresolvable_expanded` against the evaluator's verdict, on tied and untied fixtures.
+function _has_boundary_tie(basis::SLCEBasis)::Bool
+    seen = Set{Vector{Int}}()
+    for s in salcs(basis)
+        length(s.members) > 1 || continue
+        empty!(seen)
+        for mem in s.members
+            key = sort(mem.atoms)
+            key in seen && return true
+            push!(seen, key)
+        end
+    end
+    return false
+end
+
+# The classification proper, without the fast path: the expansion's own verdict.
+function _unresolvable_expanded(basis::SLCEBasis)::Vector{Int}
     S, gross = _signature_matrix(basis)
     p = n_salcs(basis)
     isempty(S) && return [j for j = 1:p if gross[j] > 0.0]
     return [j for j = 1:p
-            if gross[j] > 0.0 && norm(@view S[:, j]) <= _RESOLVE_RTOL * gross[j]]
+            if gross[j] > 0.0 && norm(@view S[:, j]) <= _CANCELLATION_RTOL * gross[j]]
 end

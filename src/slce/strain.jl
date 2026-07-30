@@ -221,6 +221,7 @@ function strain_derivatives(model::SLCEModel;
     _require_asr(model, "strain_derivatives")
     n = Int(order)
     _warn_strain_spin_blind(model.basis, n)
+    _warn_unresolvable(model, "strain_derivatives")
     out = zeros(Float64, ntuple(_ -> 3, 2n))
     tbuf = zeros(Float64, ntuple(_ -> 3, n))
     polycache = Dict{NTuple{3,Int},SolidHarmonics._Poly}()

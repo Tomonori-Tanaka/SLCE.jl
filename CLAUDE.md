@@ -518,6 +518,24 @@ Easy to break silently — confirm before touching the algorithm.
   column against its own gross accumulation (a global cut is blind to the all-columns-cancel
   case, which is exactly the bcc harmonic one). Its group-resolved
   form is `group_freedom` (`s_g = ‖Z[g, :]‖_F²`, `Σ_g s_g ≡ q`, gauge-invariant).
+  **`_CANCELLATION_RTOL` (`basis/resolvability.jl`) is one constant with two readers, and
+  the reading is "did this cancel?", never "is this small?"**: `unresolvable_columns` judges
+  a COLUMN of the undifferentiated expansion, `_prune_residue!` (`asr.jl`) judges each ENTRY
+  of the differentiated one against the gross mass `_asr_expansion` reports beside it. The
+  differentiated expansion cancels wherever the undifferentiated one does, so a tied cell can
+  produce an `A` that is residue end to end — and a cut against `A`'s own maximum (per row or
+  global) cannot see it: every row then looks full-strength, the row normalization promotes
+  BLAS rounding to unit constraints, and `asr_residual` read 0.36 on a bcc spin × displacement
+  basis whose every column is identically zero (`max|A| = 3.6e-15` against a gross 82), i.e.
+  the public verifier the force-constant / dynamical-matrix / strain paths gate on refused a
+  legal model over noise. The prune is why `build_asr`'s broken-expansion refusal reads
+  `visited` (any positive gross) rather than the rank alone: "deposited nothing" is a broken
+  expansion, "deposited and cancelled" is a basis carrying difference content only, and after
+  the prune the second one reaches `rank == 0` and must NOT be refused. Gates: the pure
+  function on hand-written `(A, G)` in `test_asr.jl`, and in `test_resolvability.jl` gate (E)
+  — `rep.rank` against the rank of the production gradient kernel's translation image over the
+  FREE columns (over ALL columns that same count reads 8 and 5 on the two all-frozen fixtures,
+  which is the identical blindness one layer out).
   **The ASR's granularity is NOT the group** (measured 2026-07-28, five fixtures,
   `G` 2→20): no displacement-touched group has a feasible subspace alone, the true
   atoms are matroid circuits of 2–3 columns that cross groups, and component closure
@@ -631,6 +649,29 @@ Easy to break silently — confirm before touching the algorithm.
   FRACTIONAL reciprocal coordinates (the package's `reciprocal` carries no 2π, so the
   phase is written `exp(2πi q·R)` with an integer `R`) and lays rows out atom-major /
   Cartesian-minor like every other derivative block.
+  **The unresolvable-column freeze is silent in the fit and LOUD here**, and that is what
+  `_warn_unresolvable` (this file, beside `_warn_spin_blind`) exists to say — one
+  definition, five readers: `force_constants`, `strain_derivatives`,
+  `exchange_strain_derivatives` (its own path — `magnetoelastic_constants` inherits it
+  through `strain_derivatives`), `magnon_phonon_vertices`, and `decorated_terms` (the MC
+  hand-off, where the supercell resolves the tie and the missing channel becomes real
+  physics). These readouts
+  differentiate the individual cluster MEMBERS, where a Wigner–Seitz tie does not cancel,
+  so a frozen column shows up as a missing channel when its coefficient is zero and as
+  unconstrained `Φ`/`q ≠ 0` content when a caller supplies one (legal — hand-built and
+  externally fixed models are). **The tie is invisible at `q = 0`**: `Σ_R Φ(R)` is the
+  Hessian of exactly the energy the cell can express, so a model passes every Γ-point gate
+  (including the acceptance gate above) and still carries an unconstrained dispersion —
+  measured on the z-doubled bcc fixture, `D(0)` equal to 1e-12 and `D(0.3, 0.1, 0.25)`
+  different, from a single frozen coefficient. Gate (F) in `test_resolvability.jl`; the
+  advice is a different reference CELL, never a wider cutoff. Both messages carry
+  `maxlog = 1`, and the call sites are affordable only because `unresolvable_columns`
+  short-circuits on a structural pre-check (`_has_boundary_tie`): a tie is NECESSARY
+  (rows are keyed by per-atom content, so members with different atom multisets never meet,
+  and a lone member's contribution is nonzero by construction), so an untied cell never
+  pays the expansion. That equivalence is what gate (A) checks by running BOTH
+  `unresolvable_columns` and the unconditional `_unresolvable_expanded` against the
+  evaluator — break the necessity claim and the freeze silently stops working.
   **The magnetic symmetry of the result is a consequence of the projection, not an
   input, and it is the package's headline physics claim** — say it wherever force
   constants are described. Force constants are time-reversal EVEN, so an antiunitary

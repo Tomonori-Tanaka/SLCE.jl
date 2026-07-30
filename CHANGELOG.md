@@ -6,6 +6,72 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the physical readouts name a channel the reference cell cannot resolve
+
+The freeze is silent in the fit (the coefficient is held at exactly zero, which is the
+honest value) and **loud in the readouts**, because they differentiate the individual
+cluster members, where the boundary tie does not cancel. Until now nothing said so.
+
+`_warn_unresolvable` reports both directions, once each, from `force_constants`,
+`strain_derivatives`, `exchange_strain_derivatives`, `magnon_phonon_vertices` and
+`decorated_terms` — the last being the Monte-Carlo hand-off, where the supercell resolves
+the tie and the missing channel becomes real physics (`magnetoelastic_constants` inherits
+the diagnostic through `strain_derivatives`):
+
+* **coefficient zero** — the deliverable carries no contribution from that channel, and
+  that is not zero physics. The remedy is a cell in which the offending pair's minimum
+  image is unique, never a wider cutoff.
+* **coefficient nonzero** (hand-built, or fixed from elsewhere) — the value reaches `Φ`
+  and every `q ≠ 0` of `D(q)` although no data on this cell could have determined it.
+  Legal, and now named.
+
+The sharp part, gated in `test_resolvability.jl` (F): the two models — one with the frozen
+coefficient at zero, one with it at 0.3 — are indistinguishable in the energy of every
+cell-periodic configuration and have `D(0)` equal to 1e-12, while `D(q)` at `q = (0.3,
+0.1, 0.25)` differs. `Σ_R Φ(R)` is the Hessian of exactly the energy the cell can express,
+so a model can pass every Γ-point check and still carry an unconstrained dispersion.
+
+`unresolvable_columns` gained a structural short-circuit so those call sites are affordable:
+a tie is a *necessary* condition (rows are keyed by per-atom content, so members with
+different atom multisets can never cancel each other, and a lone member's contribution is
+nonzero by construction), and ruling it out costs one pass over the members instead of the
+whole monomial expansion. Gate (A) now checks the fast path and the unconditional
+expansion against the same evaluator verdict, on tied and untied fixtures.
+
+### Fixed — cancellation residue could become a full-strength ASR constraint
+
+The residue cut in the ASR builder was taken against `A`'s own maximum (per row, then
+global). That works while *some* entry is real, and fails completely when none is: on a
+Wigner–Seitz-tied cell the differentiated expansion cancels wherever the undifferentiated one
+does, so `A` can be residue from end to end — and then the maximum is residue too, every row
+looks full-strength relative to it, and `_asr_nullspace`'s row normalization promotes BLAS
+rounding to unit-norm constraints.
+
+Measured on the two all-frozen fixtures: a bcc `degree = 3` basis (`max|A| = 8.9e-16` against
+a gross accumulation of 18.5) and a bcc spin × `degree = 1` one (`3.6e-15` against `82.1`).
+Both kept 24 and 7 "constraints"; `asr_residual` returned **0.238** and **0.360** for
+hand-built models on bases whose every column is identically zero on that cell — so the public
+verifier that `force_constants`, `dynamical_matrix` and `strain_derivatives` all gate on was
+refusing legal models over rounding noise. It now returns `0.0`, and `_asr_matrix` returns no
+rows at all.
+
+The fix is the classifier's rule, applied one granularity down: `_asr_expansion` reports the
+gross mass `G[r, j] = Σ|contributions|` beside each accumulated entry, and `_prune_residue!`
+zeroes an entry iff `|A[r, j]| ≤ _CANCELLATION_RTOL · G[r, j]` — *"did this entry cancel?"*,
+never *"is this entry small?"*. One constant, `_CANCELLATION_RTOL`, now serves both readers.
+
+One consequence needed handling: after the prune, an all-cancelling expansion reaches
+`rank == 0`, which `build_asr` refused as a broken symbolic expansion. Depositing nothing and
+depositing-then-cancelling are different statements — the second is a basis whose free columns
+carry difference content only, where rank 0 is the right answer — so the refusal now reads
+whether the expansion deposited anything at all, not the rank.
+
+Gated in two places: `_prune_residue!` on hand-written `(A, G)` pairs (`test_asr.jl`), and
+gate (E) in `test_resolvability.jl`, which counts real constraints through the *production*
+gradient kernel's translation image and compares it to `rep.rank` over the free columns. That
+gate carries its own illustration of the same hazard: over *all* columns, the standard relative
+singular-value cut reports 8 and 5 constraints on those two identically-zero bases.
+
 ### Fixed — the freeze reached only some of the paths that needed it
 
 Two parallel reviews of the freeze found four ways past it and one wrong justification. All

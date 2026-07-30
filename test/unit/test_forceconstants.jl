@@ -8,7 +8,7 @@
 using Test
 using SLCE
 using SLCE: build_asr, salcs, _assemble_spacegroup, build_neighbor_list,
-            build_clusters, build_salc_basis, _superset_cutoff, has_spin
+            build_clusters, build_salc_basis, _superset_cutoff, has_spin, has_disp
 using LinearAlgebra
 using Random
 using StaticArrays
@@ -425,7 +425,22 @@ end
             Sector(spin = [1, 1], disp = (degree = 1,), sites = 2, cutoff = 3.1)]))
         mb = SLCEModel(blind, 0.0, randn(MersenneTwister(13), n_salcs(blind)))
         @test any(s -> any(has_spin, s.decors), salcs(blind))   # spin content exists
-        @test_logs (:warn, r"do not depend on `spins`") force_constants(mb; spins = eafm)
+        # Two warnings, and the second one is a property of this fixture worth knowing:
+        # its like-atom pairs sit at exactly half a cell edge, so every tie is two-fold,
+        # and ALL 7 of its spin × degree-1 columns (6:12 of 12, `Lf` = 1,1,2,1,2,3,3 —
+        # even ranks included, because the two ends carry different decorations and bond
+        # reversal does not preserve the term) are identically zero on this cell. `mb`'s
+        # hand-built coefficients are nonzero there, so `force_constants`, which
+        # differentiates the members, sees values no data on this cell could determine.
+        # The logs are listed rather than matched loosely: each is a separate true
+        # statement about this model.
+        @test unresolvable_columns(blind) ==
+              [j for j in eachindex(salcs(blind))
+               if any(has_spin, salcs(blind)[j].decors) &&
+                  any(has_disp, salcs(blind)[j].decors)]
+        @test_logs((:warn, r"do not depend on `spins`"),
+                   (:warn, r"NONZERO coefficient"),
+                   force_constants(mb; spins = eafm))
         # and it is not crying wolf: the constants ARE spin-independent here
         @test _gamma_matrix(mb, eafm, 4) == _gamma_matrix(mb, ones(3, 4) ./ √3, 4)
     end

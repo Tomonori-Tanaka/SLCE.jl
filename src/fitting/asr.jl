@@ -40,8 +40,24 @@ The ASR constraint matrix `A` (rows = common monomials of `Σ_a ∂E/∂u_a`, co
 under every rigid translation `u_a → u_a + t`. Pure-spin columns are identically
 zero. Rows are sorted by their monomial key for determinism and NOT yet
 normalized — [`_asr_nullspace`](@ref) row-normalizes before the rank decision.
+
+Cancellation residue is pruned to exact zeros by [`_prune_residue!`](@ref); a caller
+that must distinguish "the expansion deposited nothing" from "everything it deposited
+cancelled" reads [`_asr_expansion`](@ref) directly.
 """
-function _asr_matrix(basis::SLCEBasis)::Matrix{Float64}
+_asr_matrix(basis::SLCEBasis)::Matrix{Float64} = _prune_residue!(_asr_expansion(basis)...)
+
+"""
+    _asr_expansion(basis::SLCEBasis) -> (A, G)
+
+The ASR expansion before the residue cut: `A[r, j]` as accumulated, and the GROSS
+mass `G[r, j] = Σ |contributions|` that landed in it. `G[r, j] > 0` says the
+expansion visited that entry at all; `|A[r, j]| / G[r, j]` says whether what it
+deposited survived. Both halves are needed — the pruner judges each entry against its
+own gross mass, and [`build_asr`](@ref)'s broken-expansion refusal must not fire on a
+basis whose entries were all visited and all cancelled.
+"""
+function _asr_expansion(basis::SLCEBasis)
     basis.spec.disp_scale == 1.0 ||
         throw(ArgumentError("the ASR builder predates disp_scale ≠ 1 support — " *
                             "its monomial expansion must be rescaled per degree " *
@@ -50,7 +66,8 @@ function _asr_matrix(basis::SLCEBasis)::Matrix{Float64}
     p = length(ss)
     polycache = Dict{NTuple{3,Int},SolidHarmonics._Poly}()
     diffcache = Dict{NTuple{4,Int},SolidHarmonics._Poly}()
-    rows = Dict{_ASRRowKey,Dict{Int,Float64}}()
+    # per entry: (net accumulated value, gross accumulated |value|)
+    rows = Dict{_ASRRowKey,Dict{Int,Tuple{Float64,Float64}}}()
     for (j, s) in enumerate(ss)
         any(has_disp, s.key.decors) || continue
         # The evaluator's column scale, carried so `A` lives in the same design
@@ -78,33 +95,51 @@ function _asr_matrix(basis::SLCEBasis)::Matrix{Float64}
     end
     keyorder = sort!(collect(keys(rows)))
     A = zeros(Float64, length(keyorder), p)
+    G = zeros(Float64, length(keyorder), p)
     for (r, key) in enumerate(keyorder)
-        for (j, v) in rows[key]
+        for (j, (v, g)) in rows[key]
             A[r, j] = v
+            G[r, j] = g
         end
     end
-    isempty(A) && return A
-    # Cancellation residue must become EXACT zeros, not stay as ~1e-16 relative
-    # entries: `refit` subselects columns, and a row whose real columns were all
-    # dropped would otherwise get its residue entry blown up to a full-strength,
-    # BLAS-rounding-determined constraint by the row normalization (review
-    # blocker). Prune per row, then drop rows that are pure residue — both cuts
-    # RELATIVE (per-row / global max), so a uniformly scaled A is not silently
-    # emptied.
-    gmax = maximum(abs, A)
-    keep = Int[]
-    for r in axes(A, 1)
-        rmax = maximum(abs, @view A[r, :])
-        for j in axes(A, 2)
-            abs(A[r, j]) <= 1e-12 * rmax && (A[r, j] = 0.0)
-        end
-        rmax > 1e-12 * gmax && push!(keep, r)
+    return A, G
+end
+
+"""
+    _prune_residue!(A, G) -> Matrix{Float64}
+
+Snap cancellation residue in `A` to EXACT zeros and drop the rows left empty, judging
+each entry against its own gross accumulation `G[r, j]` (see
+[`_asr_expansion`](@ref)).
+
+Exact zeros are the contract, not a cosmetic: `refit` subselects columns, and a row
+whose real columns were all dropped would otherwise have its residue entry blown up to
+a full-strength, BLAS-rounding-determined constraint by [`_asr_nullspace`](@ref)'s row
+normalization.
+
+The scale must be the entry's own gross mass — "did this entry cancel?", never "is this
+entry small?". A cut taken against the matrix's own maximum (per row or global) is blind
+to the case where EVERY entry cancels, which is exactly what a Wigner–Seitz-tied cell
+produces: measured on a bcc spin × displacement basis whose `max|A|` is 3.6e-15, the old
+global cut kept all of it and [`asr_residual`](@ref) reported **0.299** for a
+hand-built model, i.e. a physical consumer's gate refusing a legal model over rounding
+noise. Same constant, same reading as `unresolvable_columns`
+(`_CANCELLATION_RTOL`, `basis/resolvability.jl`).
+"""
+function _prune_residue!(A::Matrix{Float64}, G::Matrix{Float64})::Matrix{Float64}
+    size(A) == size(G) ||
+        throw(DimensionMismatch("ASR expansion: value and gross matrices differ in " *
+                                "size ($(size(A)) vs $(size(G)))"))
+    @inbounds for j in axes(A, 2), r in axes(A, 1)
+        abs(A[r, j]) <= _CANCELLATION_RTOL * G[r, j] && (A[r, j] = 0.0)
     end
+    keep = [r for r in axes(A, 1) if any(!=(0.0), @view A[r, :])]
     return A[keep, :]
 end
 
 # One SALC term's contribution to the translation-generator monomial expansion.
-function _asr_accumulate_term!(rows::Dict{_ASRRowKey,Dict{Int,Float64}}, j::Int,
+function _asr_accumulate_term!(rows::Dict{_ASRRowKey,Dict{Int,Tuple{Float64,Float64}}},
+                               j::Int,
                                scale::Float64, t::SALCTerm, atoms::Vector{Int},
                                polycache::Dict{NTuple{3,Int},SolidHarmonics._Poly},
                                diffcache::Dict{NTuple{4,Int},SolidHarmonics._Poly})
@@ -148,8 +183,8 @@ function _asr_accumulate_term!(rows::Dict{_ASRRowKey,Dict{Int,Float64}}, j::Int,
 end
 
 # Accumulate w · dp(slot n) · Π_{o ≠ n} poly_o over all monomial combinations.
-function _asr_expand_product!(rows::Dict{_ASRRowKey,Dict{Int,Float64}}, j::Int,
-                              w::Float64, axis::Int,
+function _asr_expand_product!(rows::Dict{_ASRRowKey,Dict{Int,Tuple{Float64,Float64}}},
+                              j::Int, w::Float64, axis::Int,
                               spins::Vector{NTuple{3,Int}},
                               dslots::Vector{Tuple{Int,SolidHarmonics._Poly}},
                               n::Int, dp::SolidHarmonics._Poly)
@@ -159,8 +194,9 @@ function _asr_expand_product!(rows::Dict{_ASRRowKey,Dict{Int,Float64}}, j::Int,
     function rec(o::Int, coeff::Float64, acc::Vector{NTuple{4,Int}})
         if o > length(others)
             key = _ASRRowKey(axis, spins, sort(acc; by = first))
-            row = get!(() -> Dict{Int,Float64}(), rows, key)
-            row[j] = get(row, j, 0.0) + coeff
+            row = get!(() -> Dict{Int,Tuple{Float64,Float64}}(), rows, key)
+            (net, gross) = get(row, j, (0.0, 0.0))
+            row[j] = (net + coeff, gross + abs(coeff))
             return nothing
         end
         (atom_o, poly_o) = others[o]
@@ -331,6 +367,12 @@ no-invariant-content warning nor the broken-expansion refusal fires (both compar
 `rank` against a free displacement count that is then zero). The fit degenerates
 cleanly to `jphi ≡ 0` with the analytic intercept.
 
+`rank == 0` beside free displacement columns is likewise legal, and only when the
+expansion *deposited* monomials that then cancelled: the free columns carry difference
+content only, so the sum rule constrains nothing and `Z` is the identity on them. What
+is refused is an expansion that deposited nothing at all — that means the symbolic
+machinery is broken, not that the basis is invariant.
+
 `warn = false` silences the two diagnostics about the *basis* (no
 translation-invariant displacement content at all; individual structurally zeroed
 columns). Pass it from any caller that is **re-deriving** the constraint rather than
@@ -386,7 +428,13 @@ function build_asr(basis::SLCEBasis; translation::Bool = true,
     # matrix of the free columns — orthonormal, so every estimator's γ-space contract
     # still holds verbatim.
     (translation && hasdisp) || return _stage_reparam(basis, free, zeros(p), nothing)
-    A = _asr_matrix(basis)
+    A_gross, G = _asr_expansion(basis)
+    # Whether the expansion deposited anything AT ALL, read before the residue cut:
+    # it is the only thing that separates a broken expansion from one whose every
+    # deposit cancelled (a basis carrying only difference invariants — nothing left
+    # for the sum rule to constrain, which is legal).
+    visited = any(>(0.0), G)
+    A = _prune_residue!(A_gross, G)
     m = size(A, 1)
     # store the row-normalized form (the residual gate's conditioning);
     # `_asr_nullspace` normalizes internally (idempotent on this input)
@@ -394,14 +442,17 @@ function build_asr(basis::SLCEBasis; translation::Bool = true,
     rep = _stage_reparam(basis, free, zeros(p), An)
     Z, rank = rep.Z, rep.rank
     ndisp = length(intersect(_disp_active_cols(basis), free))
-    # rank 0 on a displacement-active basis is physically impossible (any single
-    # displacement factor has a nonzero translation derivative) — it means the
-    # expansion silently produced nothing, and every downstream diagnostic would
-    # report success while the ASR is a no-op. Refuse.
-    rank == 0 && ndisp > 0 &&
-        throw(ArgumentError("ASR builder produced no constraints on a " *
+    # An expansion that deposited NOTHING on a displacement-active basis is broken:
+    # a displacement factor has a nonzero translation derivative term by term, so the
+    # monomial walk must visit something, and every downstream diagnostic would report
+    # success while the ASR is a silent no-op. Refuse. Depositing and then cancelling is
+    # a different statement — the free columns are already translation-invariant (only
+    # difference content survives the projection) — and it must NOT be refused: rank 0 is
+    # then the right answer and `Z = I` on those columns is the right reparameterization.
+    rank == 0 && ndisp > 0 && !visited &&
+        throw(ArgumentError("ASR builder deposited no monomial at all on a " *
                             "displacement-active basis — the symbolic expansion " *
-                            "is broken (or A was scaled below the residue cut)"))
+                            "is broken"))
     # A truncation may admit NO translation-invariant displacement content at all
     # (e.g. pair (1,1) splits without their on-site degree-2 partners under
     # pmax = 1): then ASR constrains every displacement coefficient to zero.

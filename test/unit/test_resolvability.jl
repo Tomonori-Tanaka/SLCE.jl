@@ -28,13 +28,18 @@
 #       ε-linear response, exactly linear in ε.
 #   (D) THE REMEDY — a cell in which the pair's minimum image is unique resolves the
 #       channel, and breaking the tie in only one direction does not.
+#   (E) THE ASR SIDE — the differentiated expansion cancels where the undifferentiated
+#       one does, so an all-residue constraint matrix must impose NOTHING. Counted
+#       against the production gradient kernel (`accumulate_grad!`), and read back
+#       through the public `asr_residual`, which physical consumers gate on.
 
 using Test
 using SLCE
 using SLCE: salcs, SALC, SALCScratch, evaluate_salc, _signature_matrix,
     _assemble_spacegroup, _superset_cutoff, build_neighbor_list, build_clusters,
-    build_salc_basis, build_asr, _asr_matrix, _asr_nullspace, _is_staged,
-    crystal_fingerprint
+    build_salc_basis, build_asr, _asr_matrix, _asr_expansion, _asr_nullspace,
+    _is_staged, accumulate_grad!, has_disp, crystal_fingerprint,
+    _unresolvable_expanded, _has_boundary_tie
 using LinearAlgebra
 using Random
 using StaticArrays
@@ -101,6 +106,32 @@ function _evaluator_view(b; nprobe = 240, seed = 2024)
     return V, ratio
 end
 
+# Gate (E) source: the translation image Σ_a ∂Φ_j/∂u_a through the PRODUCTION
+# gradient kernel (`accumulate_grad!`'s `Gu` column sum), sampled at random (e, u).
+# It shares no code with the symbolic ASR builder, so its rank is the
+# algorithm-independent count of real constraints.
+function _res_translation_image(b; nprobe = 24, seed = 7)
+    ss = salcs(b)
+    nat = n_atoms(b.crystal)
+    rng = MersenneTwister(seed)
+    B = zeros(3 * nprobe, length(ss))
+    Ge = zeros(3, nat)
+    Gu = zeros(3, nat)
+    for t = 1:nprobe
+        e = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:nat])
+        u = 0.05 .* randn(rng, 3, nat)
+        for j in eachindex(ss)
+            fill!(Ge, 0.0)
+            fill!(Gu, 0.0)
+            accumulate_grad!(Ge, Gu, ss[j], e, u, 1.0)
+            B[(3 * (t - 1) + 1):(3 * t), j] .= vec(sum(Gu; dims = 2))
+        end
+    end
+    return B
+end
+_res_rank(B) = (s = svdvals(B); (isempty(s) || s[1] == 0.0) ? 0 :
+                count(>(maximum(size(B)) * eps() * s[1]), s))
+
 _bcc() = Crystal(Lattice(Matrix(3.0 * I(3))), [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
 _harmonic(cr; degree = 2, cutoff = 2.7) =
     BasisSpec(cr; lmax = 0, pmax = degree,
@@ -142,6 +173,13 @@ end
             _, ratio = _evaluator_view(b)
             num = [j for j in eachindex(ratio) if ratio[j] <= 1e-10]
             @test unresolvable_columns(b) == num
+            # Both routes through the classifier must agree with it: the public one,
+            # which short-circuits on the cheap "is any orbit tied at all?" pre-check,
+            # and the expansion it guards. A tie is NECESSARY, so the short-circuit is
+            # exact — and this is where that claim is checked, on tied AND untied
+            # fixtures (the untied one is the case the pre-check answers alone).
+            @test _unresolvable_expanded(b) == num
+            @test _has_boundary_tie(b) || isempty(num)
             # A cancelled column is at roundoff and a surviving one is nowhere near
             # the cut: the criterion is well posed here, not threshold-tuned.
             for j in eachindex(ratio)
@@ -200,6 +238,90 @@ end
         @test !isempty(unresolvable_columns(byname["bcc harmonic"]))
         @test !isempty(unresolvable_columns(byname["bcc doubled along z only"]))
         @test isempty(unresolvable_columns(byname["bcc as 2x2x2"]))
+    end
+
+    @testset "(E) cancellation residue never becomes a constraint" begin
+        # The differentiated expansion cancels wherever the undifferentiated one does,
+        # so a tied cell can hand `build_asr` a constraint matrix that is residue from
+        # end to end. Judged against its own maximum that matrix looks full-strength,
+        # and the row normalization then promotes BLAS rounding to unit constraints.
+        # Judged per entry against its own gross accumulation it is what it is: nothing.
+        for (name, b) in fixtures
+            any(s -> any(has_disp, s.key.decors), salcs(b)) || continue
+            rep = build_asr(b; warn = false)
+            # The number of real constraints, counted through the production gradient
+            # kernel. Only over the FREE columns: a frozen column's kernel value is
+            # roundoff, and a rank count cut relative to the matrix's own maximum reads
+            # those as real (measured on the two all-frozen fixtures below: rank 8 and
+            # 5 over all columns, on bases whose every column is identically zero).
+            # That is the same blindness, one layer out.
+            B = _res_translation_image(b)
+            @test rep.rank == _res_rank(B[:, rep.free])
+        end
+        byname = Dict(fixtures)
+        for name in ("bcc degree 3", "bcc spin x disp")
+            b = byname[name]
+            @test unresolvable_columns(b) == collect(1:n_salcs(b))
+            A0, G = _asr_expansion(b)
+            @test !isempty(A0)                             # the expansion DID deposit
+            @test maximum(abs, A0) <= 1e-12 * maximum(G)   # and every deposit cancelled
+            @test isempty(_asr_matrix(b))                  # so there is no constraint
+            @test build_asr(b; warn = false).rank == 0
+            # Every column is identically zero on this cell, so a hand-built model's
+            # energy is too, and it is trivially translation invariant. The public
+            # verifier must agree: under the cut against `A`'s own maximum it read
+            # 0.24 (degree 3) and 0.36 (spin × disp) instead, and the physical
+            # consumers — force constants, dynamical matrix, strain — gate on it.
+            rng = MersenneTwister(11)
+            nat = n_atoms(b.crystal)
+            m = SLCEModel(b, 0.0, randn(rng, n_salcs(b)))
+            e = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:nat])
+            u = 0.05 .* randn(rng, 3, nat)
+            @test abs(predict_energy(m, e, u)) < 1e-14
+            @test abs(predict_energy(m, e, u .+ [0.013, -0.007, 0.021]) -
+                      predict_energy(m, e, u)) < 1e-14
+            @test asr_residual(m) == 0.0
+        end
+    end
+
+    @testset "(F) the physical readouts name the frozen channel" begin
+        # The freeze is silent in the fit and LOUD in the readouts: they differentiate
+        # the individual cluster members, where the tie does not cancel. This fixture
+        # has both kinds of column (6 frozen, 4 free), so a model can be built the way
+        # a fit on this cell would return one.
+        b = Dict(fixtures)["bcc doubled along z only"]
+        frozen = unresolvable_columns(b)
+        free = setdiff(1:n_salcs(b), frozen)
+        @test !isempty(frozen) && !isempty(free)
+        rng = MersenneTwister(3)
+        beta = zeros(n_salcs(b))
+        beta[free] .= 0.05 .* randn(rng, length(free))
+        fitted = SLCEModel(b, 0.0, beta)
+        # (i) held at zero: the deliverable is MISSING those channels, and they are not
+        # physically zero. Every readout that reads the monomials says so.
+        @test_logs (:warn, r"cannot resolve") match_mode = :any force_constants(fitted)
+        @test_logs (:warn, r"cannot resolve") match_mode = :any decorated_terms(fitted)
+        # (ii) a value supplied from outside the fit — legal, and unvalidated.
+        beta2 = copy(beta)
+        beta2[frozen[1]] = 0.3
+        supplied = SLCEModel(b, 0.0, beta2)
+        @test_logs (:warn, r"NONZERO coefficient") match_mode = :any force_constants(supplied)
+        # ...and the physics that warning claims, measured through two paths that share
+        # no code: the ENERGY on cell-periodic configurations cannot tell the two models
+        # apart (that is what "unidentifiable" means), while the force constants can —
+        # and precisely at q ≠ 0, since Σ_R Φ(R) is the Hessian of that same energy.
+        nat = n_atoms(b.crystal)
+        for _ = 1:5
+            e = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:nat])
+            u = 0.03 .* randn(rng, 3, nat)
+            @test abs(predict_energy(supplied, e, u) - predict_energy(fitted, e, u)) < 1e-12
+        end
+        D0a = dynamical_matrix(force_constants(fitted; order = 2), [0.0, 0.0, 0.0])
+        D0b = dynamical_matrix(force_constants(supplied; order = 2), [0.0, 0.0, 0.0])
+        Dqa = dynamical_matrix(force_constants(fitted; order = 2), [0.3, 0.1, 0.25])
+        Dqb = dynamical_matrix(force_constants(supplied; order = 2), [0.3, 0.1, 0.25])
+        @test norm(D0b - D0a) <= 1e-12 * max(norm(D0a), 1.0)
+        @test norm(Dqb - Dqa) > 1e-3 * max(norm(Dqa), 1.0)
     end
 
     @testset "the freeze is wired into the reparameterization" begin

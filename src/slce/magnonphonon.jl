@@ -109,6 +109,7 @@ function magnon_phonon_vertices(model::SLCEModel;
         "magnon_phonon_vertices needs a model with spin content: this basis has none, so " *
         "every derivative with respect to a spin direction is zero. Use " *
         "`force_constants` for the lattice-only response."))
+    _warn_unresolvable(model, "magnon_phonon_vertices")
     out = Dict{Tuple{Int,Int,SVector{3,Int}},Matrix{Float64}}()
     polycache = Dict{NTuple{3,Int},SolidHarmonics._Poly}()
     salcs = model.basis.salc_basis.salcs
