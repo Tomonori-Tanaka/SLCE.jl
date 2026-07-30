@@ -130,6 +130,17 @@ A pure-spin model has no displacement content and yields an empty set. Only term
 whose displacement degrees sum to exactly `order` contribute; a model truncated below
 `order` therefore returns fewer (or no) constants rather than an error.
 
+!!! note "No same-atom off-site block, at any cutoff"
+    Clusters are enumerated between **distinct atoms of the reference cell**, so an atom
+    paired with its own periodic image is never admitted and
+    `Φ[(a,0),(a,R≠0)]` is absent from the result by construction — as is the
+    `q`-dependence it would give [`dynamical_matrix`](@ref). A same-sublattice force
+    constant exists only when the two atoms are separate atoms of the cell the basis was
+    built on; a one-atom cell carries no pair content at all (`build_asr` warns, and
+    `D(q) ≡ 0`). This costs the *fit* nothing — a datum's displacement field is
+    cell-periodic, so both ends of such a pair move together — and it is not a cutoff
+    question. See the `Periodic resolvability` chapter of the manual.
+
 `spins` may be omitted only for a model whose basis carries **no spin content at
 all** — a lattice-only expansion, where there is nothing for a spin state to feed
 and inventing one would be noise. Omitting it against a spin-carrying basis is an

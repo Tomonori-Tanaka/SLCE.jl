@@ -53,9 +53,48 @@ nl = SLCE.build_neighbor_list(cr, Inf, MinimumImage())   # public-unexported: qu
 length([p for p in nl.pairs if (p.i, p.j) == (1, 2)])     # 8 equidistant corner images
 ```
 
-Self-pairs (``i = i + R``) are dropped: both ends share ``\hat{\boldsymbol e}_i``, so the
-term is a constant (``L_f = 0``) or a one-body alias (``L_f > 0``), never an independent
-pair. Likewise an ``N``-body cluster must use distinct atoms.
+## Which interactions the enumeration can represent
+
+The admissibility rule is a statement about **pairs of atoms**, not a bound on `cutoff`.
+Spelled out positively, a pair interaction is representable exactly when
+
+1. the two ends are **distinct atoms of the reference cell** — different columns of
+   `crystal.frac_positions`, whatever their species; and
+2. their separation is the **minimum-image** one, within the radial cutoff for that
+   species pair (`cutoff = Inf` keeps the whole WS cell).
+
+Condition 2 is *not* a sphere of radius ``L/2``. In a cubic cell an atom at the origin and
+one at the body centre sit at ``\sqrt3\,L/2 \approx 0.866\,L`` — the WS corner — and are
+perfectly representable; the pair is admitted at its own minimum-image distance without
+any cutoff cap. Nothing here needs `cutoff` to be small.
+
+What condition 1 excludes is an atom paired with **its own periodic image**,
+``(a, \boldsymbol 0)``–``(a, \boldsymbol R)``, at any distance and under any cutoff, and
+likewise an ``N``-body cluster reusing one atom. The consequence differs by channel:
+
+- **Spin channel** — nothing is lost. Both ends carry the same
+  ``\hat{\boldsymbol e}_a``, so the term is a constant (``L_f = 0``) or a one-body alias
+  (``L_f > 0``), never an independent pair.
+- **Displacement channel** — nothing is lost *for the fit* either, for the same reason
+  one step removed: a [`TrainingDatum`](@ref) stores one displacement per reference-cell
+  atom, i.e. a cell-periodic field, so ``\boldsymbol u_{a,\boldsymbol 0} =
+  \boldsymbol u_{a,\boldsymbol R}`` and a self-pair's energy contribution is a function
+  of ``\boldsymbol u_a`` alone — the design-matrix columns are again dependent.
+- **Lattice-dynamics readouts** — here it *is* visible, because
+  [`force_constants`](@ref) speaks a wider language than the fit does. Its keys are
+  ``\Phi[(a,\boldsymbol 0),(b,\boldsymbol R)]``, and no same-atom off-site block is ever
+  emitted: ``\Phi_{aa}(\boldsymbol R \neq \boldsymbol 0)`` is absent by construction, so
+  the ``\boldsymbol q``-dependence such a block would carry is absent from
+  [`dynamical_matrix`](@ref) too.
+
+So the rule for the lattice channel is: **to resolve force constants between atoms of one
+sublattice, describe the crystal with a reference cell in which those atoms are distinct
+atoms.** A one-atom cell has no pair content at all, and says so — `build_asr` warns that
+the basis admits no translation-invariant displacement content, every displacement
+coefficient is constrained to zero, and ``D(\boldsymbol q) \equiv 0``. Describing the same
+crystal with a two-atom cell turns the same bonds into distinct-atom pairs and the content
+appears. This is the same requirement as the aliasing rule that a force-constant fit wants
+a reference cell at least three periods wide along each fitted direction.
 
 ## The third edge: compact clusters at `N ≥ 3`
 

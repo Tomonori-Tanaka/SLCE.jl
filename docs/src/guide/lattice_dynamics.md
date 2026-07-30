@@ -69,6 +69,25 @@ Indices follow the lattice-dynamics convention `Φ[(a,0),(b,R)] = ∂²E/∂uₐ
 anchored so the first index is in the home cell. The reverse ordering is a separate
 key, equal to the transpose.
 
+!!! warning "Which pairs a reference cell can carry: `a ≠ b`, always"
+    The cluster enumeration admits a pair only between **two distinct atoms of the
+    reference cell** (at their minimum-image separation — which reaches the
+    Wigner–Seitz corner, so a cutoff cap is not what limits it). An atom paired with
+    its own periodic image is never admitted, so **`Φ[(a,0),(a,R≠0)]` is absent from
+    this list by construction**, and the ``q``-dependence it would carry is absent from
+    `D(q)`. For the fit that costs nothing — a datum's displacement field is
+    cell-periodic, so both ends of such a pair move together and the columns are
+    dependent anyway — but for the read-out it means a same-sublattice force constant
+    exists only if the two atoms are separate atoms *of the cell you built the basis on*.
+    A one-atom cell therefore carries no pair content at all; `build_asr` warns that
+    there is no translation-invariant displacement content, and `D(q) ≡ 0`. Describe the
+    crystal with a large enough cell (the same reason a force-constant fit wants ≥ 3
+    periods along each fitted direction) and the same bonds appear as ordinary
+    distinct-atom pairs. Full statement in
+    [Periodic resolvability](../theory/resolvability.md#Which-interactions-the-enumeration-can-represent);
+    `write_phonopy` / `write_alamode` export whatever this list holds, without a warning
+    of their own.
+
 !!! note "The result carries the magnetic space group, without one being declared"
     This is the joint expansion's headline claim on the lattice side. The SALCs are
     projected with the paramagnetic grey group ``G \\times \\{1, T\\}``; fixing `spins`

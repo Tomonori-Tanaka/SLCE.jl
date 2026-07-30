@@ -65,10 +65,18 @@ minimum-image displacement(s)** — the representative inside the Wigner–Seitz
 of the (super)lattice — with ties on the WS boundary (the `L/2` faces, edges, and
 `(L/2, L/2, L/2)`-type corners) kept as distinct members. This is the only set a
 finite supercell can resolve: a *farther* periodic image of the same atom carries
-the *same spin*, so the interaction with it is not independent from the
+the *same spin* (and, since a training datum's displacement field is cell-periodic,
+the *same displacement*), so the interaction with it is not independent from the
 minimum-image one (the design-matrix columns would be collinear). The radial cutoff
 trims the minimum-image set and may be `Inf` to keep the whole WS cell (every
 resolvable pair). This is the default for SLCE fitting.
+
+Cluster ends must be **distinct atoms of the reference cell**: an atom paired with its
+own image is dropped at any distance, which is why `force_constants` never reports a
+`Φ[(a,0),(a,R≠0)]` block. See the
+[Periodic resolvability](https://tomonori-tanaka.github.io/SLCE.jl/dev/theory/resolvability/)
+chapter for the per-channel consequences and for what to do instead (describe the crystal
+with a cell in which those atoms are separate atoms).
 """
 struct MinimumImage <: AbstractImageSelection end
 

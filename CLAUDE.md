@@ -54,10 +54,29 @@ Easy to break silently — confirm before touching the algorithm.
   plain PBC can only resolve interactions whose displacement lies in the **Wigner–Seitz
   cell** of the (super)lattice — a polyhedron reaching the body-diagonal corner
   `(L/2,L/2,L/2)` at `√3·L/2`, **not** a sphere of radius `L/2`. A farther periodic image
-  of an atom carries the *same spin*, so its interaction is collinear with (an alias of)
+  of an atom carries the *same spin* — and, since a datum's displacement field is
+  cell-periodic (`3 × n_atoms` of the REFERENCE cell), the same displacement — so its
+  interaction is collinear with (an alias of)
   the minimum-image one and is not independently fittable. The default `MinimumImage`
   selection enumerates exactly this set (boundary ties kept; `i==j` self-pairs and
-  reused-atom clusters dropped); `cutoff = Inf` is the whole WS cell. `AllImages`
+  reused-atom clusters dropped); `cutoff = Inf` is the whole WS cell.
+  **The `i==j` drop is invisible in the fit and visible in the READOUTS**, so state the
+  condition positively wherever force constants are documented: a pair is representable
+  iff its ends are distinct atoms *of the reference cell*, at their minimum-image
+  separation within cutoff — which reaches the WS corner, so a cutoff cap is not the
+  limit (origin ↔ body centre of a cubic cell, `0.866 L`, is representable). What is
+  excluded is an atom with its own image at ANY distance, hence
+  `Φ[(a,0),(a,R≠0)]` is never emitted by `force_constants` and the `q`-dependence it
+  would carry is missing from `dynamical_matrix` — `write_phonopy`/`write_alamode` then
+  export that silently. Measured 2026-07-30: a 1-atom cell yields body orders `[1]` only,
+  `build_asr` warns "no translation-invariant displacement content", every displacement
+  coefficient is constrained to zero and `D(q) ≡ 0` (so the failure is LOUD, not a
+  plausible-looking dispersion); the same crystal as a 2-atom cell gives `q = 15` free
+  dims, off-site `Φ`, and `‖D(q)−D(0)‖ = 3.4`. Advice is therefore "describe the crystal
+  with a cell in which those atoms are separate atoms", never "raise the cutoff". Prose
+  lives in `docs/src/theory/resolvability.md` §"Which interactions the enumeration can
+  represent", the warning box in `docs/src/guide/lattice_dynamics.md`, and the
+  `MinimumImage` / `force_constants` docstrings — all four move together. `AllImages`
   (every image, `R`-distinguished) is **only** for the future generalized-Bloch /
   spin-spiral path where `e^{iq·R}` resolves the images. For `cutoff < min_d dᵢ / 2` the
   two coincide. Do **not** "fix" a `> L/2` cutoff by folding aliases into a shorter shell
