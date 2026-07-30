@@ -169,6 +169,55 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
         @test_throws ArgumentError cross_validate(dsNoF, OLS(); force_weight = 0.3)
     end
 
+    # THE FOLD DEAL MUST REACH EVERY WEIGHTED CHANNEL, and for the force channel it used
+    # not to. `_grouped_folds` spreads a class over the folds by dealing consecutive
+    # indices, so a CHANNEL is spread only if its classes are visited consecutively. Under
+    # `2·torque + force` the torque channel is `{3, 2}` (adjacent, safe by accident) and
+    # the force channel is `{3, 1}` — which descending order splits around class 2. The
+    # oracle here is the deal itself plus the per-fold score bookkeeping, both independent
+    # of the ordering logic: every fold must hold rows of every positively weighted
+    # channel, or the `score` column silently mixes two objectives.
+    @testset "both ragged channels reach every fold" begin
+        # a deliberately two-ragged dataset: both / torque-only / force-only / plain
+        mixed = vcat([mkdatum() for _ = 1:3], [mkdatum(withF = false) for _ = 1:2],
+                     [mkdatum(withT = false) for _ = 1:2],
+                     [mkdatum(withT = false, withF = false) for _ = 1:8])
+        dsM = SLCEDataset(basis, mixed)
+        ntq = length(unique(dsM.torque_config))
+        nfr = length(unique(dsM.force_config))
+        nc = length(dsM.y_E)
+        @test 2 <= ntq < nc && 2 <= nfr < nc      # the fixture is ragged in BOTH channels
+        strata = [2 * (i in unique(dsM.torque_config)) + (i in unique(dsM.force_config))
+                  for i = 1:nc]
+        @test any(==(1), strata) && any(==(2), strata)   # ... which is what triggers it
+        @test SLCE._channel_class_order(strata) == [2, 3, 1, 0]
+
+        for (w, wF) in ((0.0, 0.3), (0.3, 0.3), (0.3, 0.0))
+            cv = cross_validate(dsM, OLS(); torque_weight = w, force_weight = wF,
+                                nfolds = 5, seed = 1, asr = false)
+            # a NaN entry means that fold's holdout had no rows of the channel, so its
+            # `score` omitted the term while other folds included it
+            w > 0 && @test !any(isnan, cv.rmse_torque)
+            wF > 0 && @test !any(isnan, cv.rmse_force)
+            @test all(isfinite, cv.score)
+        end
+
+        # and the dealer itself: with the cap `nf ≤ min(ntq, nfr)` both presence sets span
+        # every fold. Descending order does not — that is the regression.
+        st6 = [3, 2, 1, 0, 0, 0]
+        for seed = 1:4
+            good = SLCE._grouped_folds(collect(1:6), 2, seed; strata = st6, nstrata = 4,
+                                       class_order = [2, 3, 1, 0])
+            bad = SLCE._grouped_folds(collect(1:6), 2, seed; strata = st6, nstrata = 4)
+            @test length(unique(good[[1, 3]])) == 2      # force-bearing units: both folds
+            @test length(unique(good[[1, 2]])) == 2      # torque-bearing units: both folds
+            @test length(unique(bad[[1, 3]])) == 1       # the bug, pinned
+        end
+        @test_throws ArgumentError SLCE._grouped_folds(collect(1:6), 2, 1;
+                                                      strata = st6, nstrata = 4,
+                                                      class_order = [2, 3, 1])
+    end
+
     @testset "gate (j), model level: predict_force ≡ −FD(predict_energy)" begin
         e = _jd_cfg(rng, nat)
         u = 0.25 * randn(rng, 3, nat)

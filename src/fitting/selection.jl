@@ -503,7 +503,9 @@ end
 # what keeps every recorded seed reproducing its folds.
 function _grouped_folds(units::AbstractVector, nf::Int, seed::Int;
                         strata::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                        nstrata::Int = 2)::Vector{Int}
+                        nstrata::Int = 2,
+                        class_order::Union{Nothing,AbstractVector{<:Integer}} =
+                            nothing)::Vector{Int}
     uniq = unique(units)
     order = sortperm([hash((seed, u)) for u in uniq])
     foldof = Dict{eltype(uniq),Int}()
@@ -525,15 +527,31 @@ function _grouped_folds(units::AbstractVector, nf::Int, seed::Int;
         all(s -> 0 <= s < nstrata, strata) || throw(ArgumentError(
             "strata labels must lie in 0:$(nstrata - 1); got extremes " *
             "$(minimum(strata)) and $(maximum(strata))"))
-        # DESCENDING class order, and one running counter across classes — both are
-        # load-bearing. Descending keeps the Bool case (`true = 1` dealt first) exactly
+        # DESCENDING class order by default, and one running counter across classes — both
+        # are load-bearing. Descending keeps the Bool case (`true = 1` dealt first) exactly
         # as it was, so every existing seed reproduces its folds; the shared counter is
         # what makes the per-fold count of EACH class differ by at most one, which is
         # the whole point of stratifying. Callers encode several presence bits as one
         # integer with the scarcest channel in the high bit (`cross_validate`:
         # `2·torque + force`), so the most constrained class is dealt first.
+        #
+        # **What a shared counter guarantees, and what it does not.** A CHANNEL's units are
+        # spread over the folds only if its classes are visited CONSECUTIVELY: consecutive
+        # `dealt` values land in consecutive folds mod `nf`. With `2·torque + force` the
+        # torque channel is `{3, 2}` — adjacent under descending, hence safe by accident —
+        # while the force channel is `{3, 1}`, which descending order SPLITS around class 2.
+        # Measured: 1 both / 1 torque-only / 1 force-only / 3 plain put both force-bearing
+        # configs in fold 1 for every seed at `nf = 2` and `nf = 3`, so one training split
+        # had no force rows at all and `fit` refused it with "the dataset has no force
+        # data" — about a dataset that has it. `class_order` is how a caller with two
+        # ragged channels asks for an order in which BOTH are consecutive (`[2, 3, 1, 0]`);
+        # the default stays descending so no currently-working deal moves.
+        classes = class_order === nothing ? collect((nstrata - 1):-1:0) :
+                  collect(class_order)
+        sort(classes) == collect(0:(nstrata - 1)) || throw(ArgumentError(
+            "class_order must be a permutation of 0:$(nstrata - 1); got $class_order"))
         dealt = 0
-        for pass = (nstrata - 1):-1:0
+        for pass in classes
             @inbounds for rank in eachindex(order)
                 u = order[rank]
                 strata[u] == pass || continue
@@ -543,6 +561,17 @@ function _grouped_folds(units::AbstractVector, nf::Int, seed::Int;
         end
     end
     return [foldof[u] for u in units]
+end
+
+# Which order `_grouped_folds` must visit the `2·torque + force` classes in so that BOTH
+# channels' presence sets are consecutive. Only the genuinely two-ragged case — classes 1
+# AND 2 both occupied — needs `[2, 3, 1, 0]`; every other occupancy pattern has each
+# channel's classes already adjacent under descending order, so `nothing` keeps its deal
+# bit-identical and no recorded seed moves. Returns `nothing` for an unstratified deal too.
+function _channel_class_order(strata::Union{Nothing,AbstractVector{<:Integer}})
+    strata === nothing && return nothing
+    (any(==(1), strata) && any(==(2), strata)) || return nothing
+    return [2, 3, 1, 0]
 end
 
 # The default relative alive floor: a group counts as alive at a given λ when one of
@@ -744,8 +773,15 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
     length(est.column_groups) == n_salcs(dataset.basis) || throw(DimensionMismatch(
         "estimator column_groups length $(length(est.column_groups)) ≠ basis column " *
         "count $(n_salcs(dataset.basis))"))
+    # The same discount `select_support` applies: a group whose columns the constraint makes
+    # structurally infeasible buys no Monte-Carlo entries, so charging for it over-reports
+    # the cost — measured at 94.7 % of `Σc_g` on a tied fixture — and `_select_pareto` breaks
+    # near-ties on cost, so the over-report can move the selected λ. `rep` is in hand here
+    # (it is the reparameterization this path already refuses to run under when it has
+    # constraint rows), so there is no reason for the two entry points to price differently.
     cg = costs === nothing ?
-         Float64.(group_costs(dataset.basis, est.column_groups)) : Float64.(costs)
+         Float64.(group_costs(dataset.basis, est.column_groups; asr = rep)) :
+         Float64.(costs)
     length(cg) == G ||
         throw(ArgumentError("costs length $(length(cg)) ≠ number of groups $G"))
 
@@ -837,8 +873,12 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
         # Units here are ROW labels; the fold assignment is per distinct unit, so build
         # the per-unit strata and deal over the distinct units.
         nc_u = length(dataset)
+        # Raggedness is read off the STORED per-row config index, never re-derived from a
+        # uniform `3 · n_atoms` block: on the joint path torque rows exist only for
+        # spin-referenced atoms, so that arithmetic calls a fully torque-covered dataset
+        # ragged. (The force line beside it was always written this way.)
         ragged_tq = w > 0 && has_torque(dataset) &&
-            length(dataset.torque_config) < 3 * n_atoms(dataset.basis.crystal) * nc_u
+            length(unique(dataset.torque_config)) < nc_u
         ragged_fr = wF > 0 && has_force(dataset) &&
             length(unique(dataset.force_config)) < nc_u
         strata = nothing
@@ -848,9 +888,24 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
             frp = falses(nc_u)
             ragged_fr && (frp[unique(dataset.force_config)] .= true)
             strata = [2 * tqp[i] + frp[i] for i = 1:nc_u]
+            # Same cap as `cross_validate`: a fold whose HOLDOUT swallows a weighted
+            # channel entirely leaves that channel out of the training Gram, and here it
+            # would do so silently (this path downdates a pre-assembled design instead of
+            # calling `fit`, so nothing refuses).
+            for (ragged, present, name, weight) in ((ragged_tq, tqp, "torque_weight", w),
+                                                    (ragged_fr, frp, "force_weight", wF))
+                ragged || continue
+                np = count(present)
+                np >= 2 || throw(ArgumentError(
+                    "$name = $weight > 0 needs ≥ 2 configurations bearing that channel " *
+                    "for cross-validated selection (every training split must keep its " *
+                    "rows); got $np"))
+                nf = min(nf, np)
+            end
         end
         ufolds = _grouped_folds(collect(1:nc_u), nf, seed;
-                                strata = strata, nstrata = 4)
+                                strata = strata, nstrata = 4,
+                                class_order = _channel_class_order(strata))
         folds = [ufolds[u] for u in units]
         sse = zeros(Float64, nl)
         for k = 1:nf
@@ -1362,7 +1417,8 @@ function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
 
     strata = hastq || (wF > 0 && hasfr) ?
              [2 * tqpresent[i] + frpresent[i] for i = 1:nc] : nothing
-    folds = _grouped_folds(collect(1:nc), nf, seed; strata = strata, nstrata = 4)
+    folds = _grouped_folds(collect(1:nc), nf, seed; strata = strata, nstrata = 4,
+                           class_order = _channel_class_order(strata))
     n_holdout = Vector{Int}(undef, nf)
     score = Vector{Float64}(undef, nf)
     rmseE = Vector{Float64}(undef, nf)

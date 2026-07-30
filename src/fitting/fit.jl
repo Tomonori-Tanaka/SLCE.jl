@@ -113,8 +113,19 @@ function _assemble_problem(dataset::SLCEDataset, wT::Float64, wF::Float64 = 0.0,
         X = reduce(vcat, blocksX)
         y = reduce(vcat, blocksy)
     else
-        X = X_E .- xbar'
-        y = y_E .- ybar
+        # THE SAME 1/√n_E, so the objective is CONTINUOUS at wT = wF = 0. This branch used
+        # to return the centered design unscaled, i.e. it minimized the energy SSE while
+        # every other weight setting minimizes the energy MSE — which is what `fit`'s
+        # docstring says the objective is. Nothing changes for OLS (scale-invariant), but
+        # for every penalized estimator the Gram jumped by `n_E` across the boundary, so
+        # `lambda` silently meant something `n_E` times different: measured on 60
+        # configurations, `Ridge(lambda = 1.0)` gave `rmse_energy` 0.0038 at `wT = 0` and
+        # 0.086 at `wT = 1e-12` — an infinitesimal weight was not an infinitesimal change.
+        # `AdaptiveRidge`/`GroupAdaptiveRidge`'s `epsilon` floor and every λ a selection
+        # path records read the same scale, so they move with it.
+        se = sqrt(1 / length(y_E))
+        X = (X_E .- xbar') .* se
+        y = (y_E .- ybar) .* se
         groups = nothing                            # each row is its own configuration
     end
     return X, y, xbar, ybar, groups
@@ -224,7 +235,13 @@ function _warn_unidentified(basis::SLCEBasis, X::AbstractMatrix,
     # selection matrix of `rep.free` (`_stage_reparam`, both its `A === nothing` path and
     # its zero-row one) — so γ direction `k` IS `jphi` column `rep.free[k]`, and reporting
     # the γ index instead would hand the caller a number that indexes nothing they hold.
-    gamma = rep !== nothing && size(rep.A, 1) > 0
+    # The question is whether `Z` is a pure column SELECTION, which is decided by the rank
+    # and not by the row count: `build_asr` reaches `rank == 0` legitimately on a basis
+    # carrying difference content only (asr.jl's `visited` branch), and `_asr_nullspace`
+    # then returns the selection matrix of `free` even though `A` has rows. Testing
+    # `size(A, 1) > 0` there labels honest β indices as γ, withholds the applicable advice,
+    # and — when `free ⊊ 1:p` — prints positions that still need the `free` remap.
+    gamma = rep !== nothing && size(rep.A, 1) > 0 && rep.rank > 0
     cols = rep === nothing || gamma ? dead : rep.free[dead]
     # A column identically zero on this cell is not reachable here: `build_asr`
     # classifies those structurally (`unresolvable_columns`) and excludes them from
@@ -389,9 +406,13 @@ function _fit_stage(dataset::SLCEDataset, rep::Union{Nothing,ASRReparam},
     free = rep === nothing ? asked : intersect(asked, rep.free)
     if length(free) < length(asked)
         blocked = setdiff(asked, free)
+        # `maxlog` here: this states a property of the BASIS, not of the stage, and
+        # `cross_validate` forwards `frozen`/`sector_mask` to `fit` once per fold — so an
+        # unchanging sentence was reprinted `nfolds` times (the hazard "Who is allowed to
+        # WARN" names for the other two diagnostics).
         @warn "staged fit: $(length(blocked)) selected column(s) are unresolvable on " *
               "this reference cell, so the stage leaves them frozen — no data can " *
-              "determine them (`unresolvable_columns`)" columns = first(blocked, 10)
+              "determine them (`unresolvable_columns`)" columns = first(blocked, 10) maxlog = 1
     end
     isempty(free) &&
         throw(ArgumentError("sector_mask = $(repr(sector_mask)) selects only columns " *
@@ -403,9 +424,16 @@ function _fit_stage(dataset::SLCEDataset, rep::Union{Nothing,ASRReparam},
     # A frozen value on a FREE column is ignored: that column is being re-fitted.
     beta_f[free] .= 0.0
     if had_frozen && !any(!iszero, beta_f)
-        @warn "staged fit: `sector_mask` leaves every column of the frozen model " *
+        # Name the keyword the caller actually used. With the default `sector_mask = :all`
+        # nothing was narrowed, so telling them to "narrow the mask" points at a knob they
+        # never touched; the real statement is that `frozen` without a mask is a no-op.
+        @warn(sector_mask === :all ?
+              "staged fit: `frozen` was passed without a `sector_mask`, so every column " *
+              "is free and nothing is actually frozen — pass `sector_mask` to say which " *
+              "columns this stage should fit" :
+              "staged fit: `sector_mask` leaves every column of the frozen model " *
               "free, so nothing is actually frozen — narrow the mask to the " *
-              "columns this stage should fit" n_free = length(free)
+              "columns this stage should fit", n_free = length(free))
     end
     stage = _stage_reparam(basis, free, beta_f, rep === nothing ? nothing : rep.A)
     if any(!iszero, view(stage.beta_p, free)) && !(estimator isa OLS)

@@ -367,8 +367,13 @@ end
     ds_p = SLCEDataset(basis, configs_p, energies_p)
     est_p = GroupAdaptiveRidge(basis; lambda = 1.0)   # template λ is ignored
 
+    # The λ grids are MSE-relative, i.e. divided by `nconf_p`. `_assemble_problem` whitens
+    # the energy block by `1/√n_E` at every weight setting, so the penalty a given λ applies
+    # scales with `n_E`; a grid written in the old SSE units sits ~1.6 decades too high on
+    # this fixture, where the IRLS lands on the all-zero fixed point (`edof ≈ 1`) and the
+    # warm/cold agreement below stops testing anything.
     @testset "select_fit: warm-started path matches cold fits" begin
-        lams = 10.0 .^ range(0, -6; length = 6)
+        lams = 10.0 .^ range(0, -6; length = 6) ./ nconf_p
         path = select_fit(ds_p, est_p; lambdas = lams, criterion = :gcv)
         @test path.lambda == sort(unique(Float64.(lams)); rev = true)
         # warm-started path entries reproduce cold single-λ fits: both converge to the
@@ -394,7 +399,7 @@ end
     end
 
     @testset "select_fit: end-to-end selection, tables, and validation" begin
-        lams = 10.0 .^ range(1, -7; length = 10)
+        lams = 10.0 .^ range(1, -7; length = 10) ./ nconf_p
         path = select_fit(ds_p, est_p; lambdas = lams, criterion = :gcv)
         np = length(path.lambda)
         @test length(path.score) == length(path.edof) == np

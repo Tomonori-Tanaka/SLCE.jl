@@ -491,9 +491,14 @@ end
         repa = ASRReparam(rep.A, rep.Z, bp, rep.rank)
         Xa, ya, _, _, _ = _assemble_problem(ds, 0.0, 0.0, repa)
         X0, y0, _, _, _ = _assemble_problem(ds, 0.0, 0.0, rep)
+        # `se = 1/√n_E` is the energy block's whitening, and it applies at EVERY weight
+        # setting — including `wT = wF = 0`, so the objective is the energy MSE there too
+        # rather than the SSE. Written out here because this assertion rebuilds the
+        # assembly by hand, which is what makes it a pin on the convention.
+        se = sqrt(1 / length(ds.y_E))
         yoff = ds.X_E * bp
         @test Xa == X0                                   # the design is unchanged
-        @test maximum(abs, ya .- (y0 .- (yoff .- sum(yoff) / length(yoff)))) < 1e-10
+        @test maximum(abs, ya .- (y0 .- se .* (yoff .- sum(yoff) / length(yoff)))) < 1e-10
     end
 
     @testset "AllImages self-image clusters are refused" begin
