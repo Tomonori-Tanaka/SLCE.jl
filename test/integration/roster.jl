@@ -59,6 +59,23 @@ const CR_FE = Crystal(Lattice(Matrix(2.87 * I(3))), [0.0 0.5; 0.0 0.5; 0.0 0.5],
                       [1, 1], ["Fe"])
 const CR_FE222 = tile(CR_FE, (2, 2, 2))
 
+# A DIM-2 SUPERCELL, AND WHAT THIS ROW THEREFORE DOES NOT CLAIM. In a 2×2×2
+# tiling the shifts `+R` and `−R` differ by a supercell vector, so they reach the
+# same image: a cell-periodic field cannot separate them, and fitting the INFINITE
+# crystal's force constants needs dim ≥ 3 for exactly that reason. This row's
+# claims are about the model defined ON THIS CELL — the forward map is inverted,
+# and the boundary tie the conventional cell has is gone — not about transferring
+# constants to the infinite crystal, which no column here asserts.
+#
+# Measured, so that widening the cutoff is a deliberate act: at 2.6 Å the only
+# member distance is the 1NN 2.4855 Å, strictly inside the supercell's
+# Wigner-Seitz cell (the folding distance is L/2 = 2.87 Å). At 2.9 Å the folding
+# shell IS admitted, and it costs nothing here — `identifiability` still reports
+# nullity 0 and recovery stays at 3e-14, because inversion already puts `+R` and
+# `−R` in ONE orbit with one coupling constant, which is what the infinite crystal
+# says too. In a crystal without that inversion the two would be independent and
+# the fold would be a genuine loss.
+
 # B2 FeRh (a = 2.99 Å): Fe at the corner, Rh at the body centre. 1NN is the
 # Fe-Rh bond at 2.589 Å; the 2NN shell at 2.99 Å is Fe-Fe and Rh-Rh.
 const CR_FERH = Crystal(Lattice(Matrix(2.99 * I(3))), [0.0 0.5; 0.0 0.5; 0.0 0.5],
