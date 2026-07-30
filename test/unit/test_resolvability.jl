@@ -438,6 +438,41 @@ end
         @test !_is_staged(fabl)
         @test _is_staged(f2)
         @test select_support(fabl; npoints = 3) isa SupportPath
+
+        # (d) WHICH COORDINATES the dead-column warning reports its indices in. A
+        # freeze-only reparameterization has no constraint rows, so `Z` is exactly the
+        # selection matrix of `free` and γ direction k IS `jphi` column `free[k]` — while
+        # under the real constraint the two spaces are genuinely different and only the γ
+        # statement is true. Reporting a γ index in the first case hands the caller a
+        # number that indexes nothing they hold. The oracle for the expected set is
+        # structural, from the KEYS: a force-only fit sees no pure-spin column.
+        purespin = [j for (j, s) in enumerate(salcs(bj)) if !any(has_disp, s.key.decors)]
+        expected = setdiff(purespin, jfrozen)
+        @test !isempty(expected)
+        function _deadrec(flag)
+            lg = Test.TestLogger()
+            Base.CoreLogging.with_logger(lg) do
+                fit(SLCEFit, dsj, OLS(); asr = flag, force_weight = 1.0)
+            end
+            recs = [r for r in lg.logs if occursin("carry no information", r.message)]
+            @test length(recs) == 1
+            return recs[1]
+        end
+        rb = _deadrec(false)
+        @test rb.kwargs[:coordinates] == "jphi (β)"
+        @test rb.kwargs[:columns] ⊆ expected
+        @test occursin("$(length(expected)) design column", rb.message)
+        @test occursin("refit", rb.message)              # β-space advice, applicable
+        rg = _deadrec(true)
+        @test rg.kwargs[:coordinates] == "reparameterized (γ)"
+        @test occursin("null-space basis", rg.message)   # and NOT the β-space advice
+        @test !occursin("refit", rg.message)
+        # This fixture's ASR branch is also the ALL-ZERO design: its single feasible
+        # direction is pure spin, hence invisible to forces, so EVERY column is dead —
+        # the case `_warn_unidentified` used to return from without a word, i.e. the fit
+        # that determined nothing was the one that said nothing.
+        qdim = size(fit(SLCEFit, dsj, OLS(); force_weight = 1.0).reparam.Z, 2)
+        @test rg.kwargs[:columns] == collect(1:qdim)
     end
 
     @testset "the classification is structural, not sampled" begin

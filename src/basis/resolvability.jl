@@ -272,6 +272,14 @@ function _has_boundary_tie(basis::SLCEBasis)::Bool
 end
 
 # The classification proper, without the fast path: the expansion's own verdict.
+#
+# Two guards read oddly and mean the same thing. `gross[j] > 0.0` exempts a column that
+# deposited NOTHING: such a column is zero as well, but not by cancellation — it would be
+# a builder bug (a SALC with no terms), and calling it unresolvable would name a tie that
+# is not there and send the reader to the wrong chapter with the wrong remedy. The
+# `isempty(S)` branch is the same condition for the whole matrix, hence vacuous — no rows
+# means no deposits means every `gross` is zero and the comprehension returns nothing
+# anyway — and is kept only so the shape is explicit rather than implied.
 function _unresolvable_expanded(basis::SLCEBasis)::Vector{Int}
     S, gross = _signature_matrix(basis)
     p = n_salcs(basis)

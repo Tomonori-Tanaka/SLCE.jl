@@ -208,37 +208,39 @@ function _warn_unidentified(basis::SLCEBasis, X::AbstractMatrix,
     isempty(X) && return nothing
     nrm = [norm(@view X[:, j]) for j in axes(X, 2)]
     nmax = maximum(nrm)
-    nmax == 0.0 && return nothing                  # an all-zero design: nothing to rank
-    dead = findall(<=(_DEAD_COL_RTOL * nmax), nrm)
+    # An ALL-zero design is the loudest case, not an exempt one — every coefficient the
+    # solve returns is then the estimator's null-space convention. This used to return
+    # early ("nothing to rank"), so the one fit that said nothing was the one where
+    # nothing at all was determined: measured on a force-only fit of a bcc joint basis
+    # whose single ASR-feasible direction is pure spin (`test_resolvability.jl` (d)).
+    dead = nmax == 0.0 ? collect(axes(X, 2)) :
+           findall(<=(_DEAD_COL_RTOL * nmax), nrm)
     isempty(dead) && return nothing
-    if rep !== nothing
-        # Under the reparameterization the indices are γ directions, NOT `jphi`
-        # positions: neither the `refit`-drops-them advice (a β-space support rule)
-        # nor the per-SALC structural classification below transfers, because there
-        # is no SALC at index j. Say only what is true in these coordinates.
-        @warn "fit: $(length(dead)) design column(s) carry no information — this " *
-              "fit's data say nothing about them, so their coefficients are an " *
-              "estimator artifact rather than an estimate. `identifiability` " *
-              "reports the full rank deficiency. They are directions of the ASR " *
-              "null-space basis, not `jphi` positions." columns =
-            first(dead, 10) coordinates = "reparameterized (γ)"
-        return nothing
-    end
-    # Columns that are identically zero on this cell are no longer reachable here:
-    # `build_asr` classifies them structurally (`unresolvable_columns`) and excludes
-    # them from the reparameterization's free set, so a dead column at THIS point is
-    # always a data-starved one. The old probe-based split (three seeded
-    # configurations, relative to the largest column) is gone with it — the
-    # classification it approximated is now exact and lives in the basis layer.
-    starved = dead
-    isempty(starved) ||
-        @warn "fit: $(length(starved)) design column(s) carry no information — this " *
-              "fit's data say nothing about them (a force-only fit sees no " *
-              "pure-spin column, for example), so their coefficients are an " *
-              "estimator artifact rather than an estimate. `identifiability` " *
-              "reports the full rank deficiency. `refit` drops them (their scaled " *
-              "magnitude is zero)." columns = first(starved, 10) coordinates =
-            "jphi (β)"
+    # WHICH COORDINATES the reported indices live in, which decides what may be said.
+    # Under a reparameterization with constraint ROWS they are γ directions, not `jphi`
+    # positions: neither the `refit`-drops-them advice (a β-space support rule) nor any
+    # per-SALC reading transfers, because there is no SALC at index `j`. With NO
+    # constraint rows the reparameterization is a pure freeze — `Z` is then exactly the
+    # selection matrix of `rep.free` (`_stage_reparam`, both its `A === nothing` path and
+    # its zero-row one) — so γ direction `k` IS `jphi` column `rep.free[k]`, and reporting
+    # the γ index instead would hand the caller a number that indexes nothing they hold.
+    gamma = rep !== nothing && size(rep.A, 1) > 0
+    cols = rep === nothing || gamma ? dead : rep.free[dead]
+    # A column identically zero on this cell is not reachable here: `build_asr`
+    # classifies those structurally (`unresolvable_columns`) and excludes them from
+    # `free`, so a dead column at THIS point is always a data-starved one. The old
+    # probe-based split (three seeded configurations, relative to the largest column) is
+    # gone with it — the classification it approximated is now exact and lives in the
+    # basis layer.
+    @warn "fit: $(length(dead)) design column(s) carry no information — this " *
+          "fit's data say nothing about them (a force-only fit sees no " *
+          "pure-spin column, for example), so their coefficients are an " *
+          "estimator artifact rather than an estimate. `identifiability` " *
+          "reports the full rank deficiency. " *
+          (gamma ? "They are directions of the ASR null-space basis, not `jphi` " *
+                   "positions." :
+                   "`refit` drops them (their scaled magnitude is zero).") columns =
+        first(cols, 10) coordinates = gamma ? "reparameterized (γ)" : "jphi (β)"
     return nothing
 end
 

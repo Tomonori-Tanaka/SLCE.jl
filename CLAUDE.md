@@ -946,8 +946,16 @@ Easy to break silently — confirm before touching the algorithm.
   and an exact `iszero` test has a measured false negative: `Σ_a u_a` columns sit at
   ~1e-19 on center-of-mass-free samples) and leans on `refit`'s scaled-magnitude rule
   (`|jϕⱼ|·‖X[:,j]‖ > threshold`) to justify its "`refit` drops them" advice — change
-  that rule and the message follows; the advice is deliberately dropped in the ASR
-  branch, where the reported indices are γ directions, not `jphi` positions. The
+  that rule and the message follows; the advice is deliberately dropped when the
+  reparameterization has constraint ROWS, where the reported indices are γ directions and
+  no SALC sits at index `j`. **Zero rows is the other case and it is NOT that one**: the
+  rep is then a pure freeze, `Z` is exactly the selection matrix of `free`, so γ direction
+  `k` IS `jphi` column `free[k]` — reporting the γ index there hands the caller a number
+  indexing nothing they hold, so the message maps it back and gives the β-space advice
+  (gate (d), `test_resolvability.jl`, which reads the log's `columns`/`coordinates`
+  kwargs). An ALL-zero design is likewise not an exempt case but the loudest one — it used
+  to return early ("nothing to rank"), so the only fit that determined nothing was the
+  only fit that said nothing. The
   physical accounting the diagnostic exists for (which channel sees which
   translation-violating directions under center-of-mass-free sampling) is pinned in
   `test/unit/test_identifiability.jl` against the FIXTURE's exact numbers

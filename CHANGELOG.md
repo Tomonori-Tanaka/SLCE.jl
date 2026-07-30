@@ -6,6 +6,26 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — the dead-column warning reported indices nobody could use
+
+Two cases in `_warn_unidentified`, both silent-by-omission rather than wrong.
+
+A reparameterization with **no constraint rows** is a pure freeze, so `Z` is exactly the
+selection matrix of `free` and γ direction `k` is `jphi` column `free[k]`. The warning
+reported the γ index anyway — a number indexing nothing the caller holds — and withheld the
+`refit`-drops-them advice, which does apply there. It now maps back to β positions and says
+so; with constraint rows present nothing changed, because there the two spaces genuinely
+differ.
+
+An **all-zero design** returned early ("nothing to rank"), so the one fit where nothing at
+all was determined was the one fit that said nothing. Measured on a force-only fit of a bcc
+joint basis whose single ASR-feasible direction is pure spin, hence invisible to forces:
+every column dead, no warning. It now reports every column.
+
+Gate (d) in `test_resolvability.jl` reads the log record's `columns` and `coordinates`
+kwargs and checks both branches against a structural oracle (which columns are pure spin is
+a property of the keys, and a force-only fit sees none of them).
+
 ### Added — the physical readouts name a channel the reference cell cannot resolve
 
 The freeze is silent in the fit (the coefficient is held at exactly zero, which is the
