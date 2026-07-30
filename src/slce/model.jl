@@ -513,6 +513,27 @@ struct SLCEDataset
                         force_cols::Vector{Int} = Int[],
                         asr::Union{Nothing,ASRReparam} = nothing)
         nc = length(configs)
+        # A basis with NO columns can only ever fit the mean energy, and every
+        # diagnostic downstream then reports on that intercept: `r2_energy` is
+        # exactly 0.0, `coef` is empty, and `predict_energy` returns the same number
+        # for every configuration — a silent constant dressed as a model. It is
+        # reachable from an ordinary spec, which is why this refuses instead of
+        # warning: the pair a minimum-image convention cannot express is the
+        # same-atom one, so in rocksalt (where the whole magnetic problem is
+        # cation-cation) a superexchange spec yields zero SALCs. `restrict(model,
+        # :spin)` on a lattice-only model builds an empty basis DELIBERATELY, and
+        # keeps working — the refusal is here, at the boundary where training data
+        # meet a basis, not at construction.
+        n_salcs(basis) > 0 ||
+            throw(ArgumentError("this basis has no SALC columns: a dataset built on " *
+                                "it could only fit the mean energy. Common causes: a " *
+                                "cutoff below the first admissible shell, an lmax / " *
+                                "pmax that empties the channel, or a pair that joins " *
+                                "an atom to a periodic image of ITSELF — the " *
+                                "minimum-image convention enumerates one image per " *
+                                "atom pair, so a same-atom pair (rocksalt " *
+                                "cation-cation, any monatomic cell) is never built " *
+                                "and needs a cell with the two atoms distinct"))
         (size(X_E, 1) == nc && length(y_E) == nc) ||
             throw(DimensionMismatch("X_E/y_E rows ($(size(X_E, 1))/$(length(y_E))) " *
                                     "≠ number of configs $nc"))

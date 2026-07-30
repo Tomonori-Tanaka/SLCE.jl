@@ -6,6 +6,23 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — a basis with no columns was fitted as an intercept
+
+`SLCEDataset` accepted a basis with **zero** SALC columns. Everything downstream then
+reported on the intercept: `r2_energy` exactly `0.0`, an empty `coef`, and a
+`predict_energy` returning the same number for every configuration — a silent
+constant dressed as a model, with no warning anywhere.
+
+It is reachable from an ordinary spec. The pair a minimum-image convention cannot
+express is the same-atom one, so in rocksalt (where the whole magnetic problem is
+cation–cation) a superexchange spec on the primitive cell builds nothing at all —
+found by the integration tier's `rs-MnO` row on its first run. The dataset boundary
+now refuses it and names the three causes (a cutoff below the first admissible
+shell; an `lmax`/`pmax` that empties the channel; the same-atom pair, with the
+remedy). The refusal is at that boundary and not at construction because
+`restrict(model, :spin)` builds an empty basis *deliberately* — the clamped-ion
+sub-model of a lattice-only model — and must keep working.
+
 ### Fixed — a Wigner–Seitz tie that symmetry does not fuse was invisible to the freeze
 
 The unresolvable-column freeze classified **columns**, and a boundary tie has a second face

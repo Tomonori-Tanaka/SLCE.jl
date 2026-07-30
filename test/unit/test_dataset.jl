@@ -165,4 +165,26 @@ using Random
         f = fit(SLCEFit, dsy[1:4], OLS())
         @test isapprox(predict_energy(f, configs[5:6]), y[5:6]; atol = 1e-6)
     end
+
+    @testset "a basis with no columns cannot carry training data" begin
+        # A zero-column basis is reachable from an ordinary spec — the pair a
+        # minimum-image convention cannot express is the same-atom one, so a
+        # cation-cation superexchange spec on a cell with one cation has nothing
+        # to build — and everything downstream then reports on the intercept:
+        # r2_energy is exactly 0.0 and predict_energy answers with one number for
+        # every configuration. The refusal belongs at this boundary because
+        # `restrict(model, :spin)` builds an empty basis deliberately (a
+        # lattice-only model's clamped-ion sub-model) and must keep working.
+        empty_b = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 0.05, lmax = [2],
+                                               soc = false))
+        @test n_salcs(empty_b) == 0
+        @test_throws ArgumentError SLCEDataset(empty_b, configs, energies)
+        err = try
+            SLCEDataset(empty_b, configs, energies)
+        catch e
+            e
+        end
+        @test occursin("no SALC columns", err.msg)
+        @test occursin("image of ITSELF", err.msg)
+    end
 end
