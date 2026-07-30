@@ -37,15 +37,26 @@ one site is pure displacement it is wrong, and wrong in a way that still produce
 plausible-looking numbers. [`DecoratedTerm`](@ref) therefore ships `scale` as a
 field: read it, never re-derive it from `body` or `length(atoms)`.
 
+The model here is a one-dimensional superexchange chain — two Fe per cell with a bridging
+O, the same fixture the [force constants](lattice_dynamics.md) and
+[strain](strain.md) pages use. The ligand is the reason it can show what this section is
+about: `O` carries `lmax = 0` (no spin factor) and `pmax > 0` (it still moves), so the
+basis contains sites that are **pure displacement**, which is exactly where the two
+scale rules part ways.
+
 ```@example introspect
 using SLCE, LinearAlgebra, Random
+import Spglib                                   # activates the real space-group backend
 
-cr = Crystal(Lattice(Matrix(3.0 * I(3))), [1/6 -1/6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-spec = BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-    Sector(spin = (sites = 1:2,), cutoff = 1.1),                      # pure spin
-    Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),  # coupled
-    Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)])         # force constants
-basis = SLCEBasis(cr, spec)
+nat = 4
+cr = Crystal(Lattice([5.0 0 0; 0 5.0 0; 0 0 8.0]),
+             [0.0 0.0 0.0 0.0; 0.0 0.0 0.0 0.0; 0.0 0.3 0.5 0.8],
+             [1, 2, 1, 2], ["Fe", "O"])
+spec = BasisSpec(cr; lmax = ["*" => 1, "O" => 0], pmax = 2, sectors = [
+    Sector(spin = (sites = 1:2,), cutoff = 4.2),                            # pure spin
+    Sector(spin = [1, 1], disp = (degree = 2,), sites = 2:3, cutoff = 4.2), # coupled
+    Sector(disp = (degree = 2,), sites = 1:2, cutoff = 4.2)])               # force constants
+basis = SLCEBasis(cr, spec; backend = SpglibBackend())
 model = SLCEModel(basis, 0.0, randn(MersenneTwister(1), n_salcs(basis)))
 
 terms = decorated_terms(model)
@@ -85,12 +96,21 @@ maps are shifted**, and every length check still passes while each coefficient l
 neighbouring cluster.
 
 ```@example introspect
-zeroed = SLCEModel(basis, 0.0, [i == 2 ? 0.0 : c for (i, c) in enumerate(model.jphi)])
-other  = SLCEModel(basis, 0.0, [i == 3 ? 0.0 : c for (i, c) in enumerate(model.jphi)])
+# Pick the hazard's worst case rather than two arbitrary indices: two SALCs of ONE orbit
+# that share every site and slot and differ only in the invariant they project onto.
+keys_ = basis.salc_basis.keys
+byshape = Dict{Any,Vector{Int}}()
+for (i, k) in enumerate(keys_)
+    push!(get!(byshape, (k.body, k.orbit_id, k.decors), Int[]), i)
+end
+i1, i2 = first(sort([v for v in values(byshape) if length(v) > 1]; by = first))[1:2]
+println("zeroing SALC $i1 in one model and $i2 in the other (same orbit, same slots)")
+
+zeroed = SLCEModel(basis, 0.0, [i == i1 ? 0.0 : c for (i, c) in enumerate(model.jphi)])
+other  = SLCEModel(basis, 0.0, [i == i2 ? 0.0 : c for (i, c) in enumerate(model.jphi)])
 # The identity of the interaction a term stands for is its member shape AND its folded
-# tensor: two SALCs of one orbit can share every site and slot and differ only in the
-# invariant they project onto, which is exactly the pair that makes this hazard invisible
-# to a shape-only check.
+# tensor: the pair above differs only in the invariant, which is exactly what makes this
+# hazard invisible to a shape-only check.
 ident(t) = (t.atoms, t.shifts, [(s.site, s.factor) for s in t.slots], t.folded)
 println("pruned:    equal length = ",
         length(decorated_terms(zeroed)) == length(decorated_terms(other)),
@@ -133,13 +153,12 @@ displaced structures, then fit two models to the *same* energies — one joint, 
 spin-only:
 
 ```@example introspect
-nat = 2
 fp = crystal_fingerprint(cr)
 prov = DatumProvenance(; reference_id = "ref", reference_fingerprint = fp)
 rng = MersenneTwister(7)
 randcfg() = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:nat])
 
-data = map(1:200) do _
+data = map(1:300) do _
     e = randcfg()
     u = 0.08 .* randn(rng, 3, nat)          # the structures are displaced
     TrainingDatum(; energy = predict_energy(model, e, u), directions = e,
@@ -151,8 +170,8 @@ joint = SLCEModel(fit(SLCEFit, jds, OLS(); asr = false))
 clamped = restrict(joint, :spin)             # exact: the joint model at u = 0
 
 # the same energies, fitted with no displacement coordinate at all
-sbasis = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
-    Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
+sbasis = SLCEBasis(cr, BasisSpec(cr; lmax = ["*" => 1, "O" => 0], sectors = [
+    Sector(spin = (sites = 1:2,), cutoff = 4.2)]); backend = SpglibBackend())
 sonly = SLCEModel(fit(SLCEFit, SLCEDataset(sbasis, [d.directions for d in data],
                                            [d.energy for d in data]), OLS()))
 

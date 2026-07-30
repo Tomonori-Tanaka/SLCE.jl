@@ -11,27 +11,32 @@ volume grid of fits for magnetovolume coupling.
 
 ## The models on this page
 
-The same two-atom chain as the lattice-dynamics page, fitted under the acoustic sum rule
-(a strain derivative has no meaning without it — see below), plus a second basis further
-down that carries the ε-linear content the magnetoelastic tier needs:
+The same one-dimensional superexchange chain as the [lattice-dynamics
+page](lattice_dynamics.md) — two Fe per cell with a bridging O, unequal Fe–O spacings —
+fitted under the acoustic sum rule (a strain derivative has no meaning without it, see
+below), plus a second basis further down that carries the ε-linear content the
+magnetoelastic tier needs:
 
 ```@example strain
 using SLCE, LinearAlgebra, Random
+import Spglib                                   # activates the real space-group backend
 
-nat = 2
-cr = Crystal(Lattice(Matrix(3.0 * I(3))), [1/6 -1/6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-spec = BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-    Sector(spin = (sites = 1:2,), cutoff = 1.1),
-    Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),
-    Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)])
-basis = SLCEBasis(cr, spec)
+nat = 4
+cr = Crystal(Lattice([5.0 0 0; 0 5.0 0; 0 0 8.0]),
+             [0.0 0.0 0.0 0.0; 0.0 0.0 0.0 0.0; 0.0 0.3 0.5 0.8],
+             [1, 2, 1, 2], ["Fe", "O"])
+spec = BasisSpec(cr; lmax = ["*" => 1, "O" => 0], pmax = 2, sectors = [
+    Sector(spin = (sites = 1:2,), cutoff = 4.2),
+    Sector(spin = [1, 1], disp = (degree = 2,), sites = 2:3, cutoff = 4.2),
+    Sector(disp = (degree = 2,), sites = 1:2, cutoff = 4.2)])
+basis = SLCEBasis(cr, spec; backend = SpglibBackend())
 truth = SLCEModel(basis, 0.0, randn(MersenneTwister(1), n_salcs(basis)))
 
 prov = DatumProvenance(; reference_id = "ref", reference_fingerprint = crystal_fingerprint(cr))
 rng = MersenneTwister(7)
 randcfg() = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:nat])
 
-data = map(1:200) do _
+data = map(1:300) do _
     e = randcfg()
     u = 0.08 .* randn(rng, 3, nat)
     TrainingDatum(; energy = predict_energy(truth, e, u), directions = e,
@@ -44,6 +49,49 @@ constrained = SLCEModel(fit(SLCEFit, jds, OLS(); asr = true))    # the default
 spins = randcfg()
 nothing # hide
 ```
+
+### What a strain does to this cell
+
+Deforming the cell is not a displacement pattern you can draw inside one cell: the field
+``\boldsymbol u_i = \varepsilon\cdot\boldsymbol R_i`` grows with the position, so its
+effect is visible only across several repeats. That is the whole reason this page needs a
+separate machinery from the force constants, and it is worth seeing once:
+
+```@example strain
+using CairoMakie
+CairoMakie.activate!(type = "png")
+
+zc   = cartesian_positions(cr)[3, :]
+c    = cr.lattice.vectors[3, 3]
+isFe = cr.species .== 1
+η    = 0.06                                    # a big strain, for legibility
+
+fig = Figure(size = (820, 300))
+ax  = Axis(fig[1, 1]; xlabel = "z  [Å]",
+           title = "Reference chain (top) and the same chain under ε_zz = $η (bottom)")
+hidespines!(ax); hideydecorations!(ax)
+for (row, s, lbl) in ((1.0, 0.0, "ε = 0"), (0.0, η, "ε_zz = $η"))
+    for rep = 0:2                              # three repeats: the affine field accumulates
+        for a = 1:nat
+            z0 = zc[a] + rep * c
+            scatter!(ax, [z0 * (1 + s)], [row]; markersize = isFe[a] ? 22 : 14,
+                     color = isFe[a] ? :firebrick : :steelblue)
+            s == 0.0 || lines!(ax, [z0, z0 * (1 + s)], [row, row];
+                               color = (:gray45, 0.6), linewidth = 1.5)
+        end
+        lines!(ax, fill(rep * c * (1 + s), 2), [row - 0.22, row + 0.22];
+               color = (:gray, 0.45), linestyle = :dot)
+    end
+    text!(ax, -1.2, row; text = lbl, align = (:right, :center), fontsize = 13,
+          color = :gray25)
+end
+ylims!(ax, -0.45, 1.45); xlims!(ax, -4.5, 3 * c + 1)
+fig
+```
+
+The grey ties show the displacement each atom picks up: zero at the origin, growing with
+`z`. Nothing in [`predict_energy`](@ref) can express that, because its displacement
+argument is one vector per basis atom — cell-periodic by construction.
 
 ## Homogeneous strain
 
@@ -108,9 +156,9 @@ cluster list calls "home", while its translation partners sit on the images the 
 actually reach. When those differ, the cancellation is split across cells and the
 per-cell energy picks up a piece linear in the cell's position.
 
-The crystal here is exactly that case — its two atoms sit at `±1/6`, so each
-atom's bonded partner is a *far* image of the one in the home cell — and
-`strain_derivatives` refuses rather than returning a description-dependent number:
+The chain here is exactly that case — its bonds run between an atom and images that are
+not the home-cell representative — and `strain_derivatives` refuses rather than returning
+a description-dependent number:
 
 ```@example strain
 try
@@ -132,8 +180,9 @@ println("‖ΔD²‖ / ‖D²‖ between two origins: ", round(norm(alt - raw) /
 ```
 
 The fix is the crystal **description**, not the fit: place the atoms so that each one's
-home representative is the image its clusters use. The same chain written with the
-bonded partner in the home cell answers, and its check passes.
+home representative is the image its clusters use. The simpler chain used in the rest of
+this page — two atoms at `0` and `1/3` of the cell, bonded inside it — answers, and its
+check passes.
 
 
 ## Magnetoelastic coupling: the ε-linear tier
@@ -145,20 +194,33 @@ drops out of ε-linear content unconditionally. Everything second order in `ε` 
 conditional on both; nothing here is.
 
 The basis above carries no `degree = 1` content, so it has no magnetoelastic
-coupling at all. Here is one that does — the same chain with a bilinear `ls = [1,1]` pair
-dressed by a relative displacement, fitted under the sum rule:
+coupling at all. Here is one that does. It also switches to the simplest crystal that can
+carry the deliverable — a two-atom chain whose single bond lies inside the cell — because
+the per-bond split below is a property of a bond only when the bond's displacement content
+is *relative*, which is the condition the admonition at the end of this section spells out:
 
 ```@example strain
-mespec = BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
+mecr = Crystal(Lattice(Matrix(3.0 * I(3))), [0.0 1/3; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+mespec = BasisSpec(mecr; lmax = 1, pmax = 2, sectors = [
     Sector(spin = [1, 1], disp = (degree = 1,), sites = 2, cutoff = 1.1),  # magnetoelastic
     Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)])              # force constants
-mebasis = SLCEBasis(cr, mespec)
-metruth = SLCEModel(mebasis, 0.0, randn(MersenneTwister(4), n_salcs(mebasis)))
-medata = map(1:300) do _
-    e = randcfg()
-    u = 0.08 .* randn(rng, 3, nat)
+mebasis = SLCEBasis(mecr, mespec; backend = SpglibBackend())
+
+# The ground truth must be ASR-FEASIBLE: the fit below imposes the sum rule, so a freely
+# drawn coefficient vector would describe a surface the fit cannot represent, and every
+# number after it would report that mismatch instead of the deliverable.
+merep   = SLCE.build_asr(mebasis)
+metruth = SLCEModel(mebasis, 0.0,
+                    merep.Z * (0.5 .* randn(MersenneTwister(4), size(merep.Z, 2))))
+
+mecfg() = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:2])
+meprov  = DatumProvenance(; reference_id = "me",
+                          reference_fingerprint = crystal_fingerprint(mecr))
+medata = map(1:400) do _
+    e = mecfg()
+    u = 0.08 .* randn(rng, 3, 2)
     TrainingDatum(; energy = predict_energy(metruth, e, u), directions = e,
-                  magmoms = ones(nat), displacements = u, provenance = prov)
+                  magmoms = ones(2), displacements = u, provenance = meprov)
 end
 memodel = SLCEModel(fit(SLCEFit, SLCEDataset(mebasis, medata; use_torque = false,
                                              use_force = false), OLS(); asr = true))
@@ -168,6 +230,19 @@ for ((a, b, R), T) in dJ.pairs
     println("bond ($a, $b, $R):  ∂M^{xx}/∂ε = ", round.(T[1, 1, :, :]; sigdigits = 3))
 end
 ```
+
+!!! note "Why the fit above warns about a structurally zeroed column"
+    Building this basis prints an ASR warning naming one column: the ε-linear channel whose
+    spin factor is the **antisymmetric** pair combination (`L_S = 1`, the DMI-like one).
+    That is the constraint doing its job, not a defect of the fixture. The sum rule holds
+    separately in each spin sector, so a spin-dressed displacement channel can only be
+    translation invariant if the truncation contains another term carrying the *same* spin
+    invariant to cancel against — and on a centrosymmetric bond no such partner can exist,
+    because the ε-linear content of a bond with an inversion centre at its midpoint is
+    symmetry-forbidden outright. The coefficient is pinned at exactly zero, which is the
+    right answer; widening the cutoff will not change it. See
+    [Periodic resolvability](../theory/resolvability.md) for the same argument on the
+    lattice side.
 
 [`exchange_strain_derivatives`](@ref) is the model's `dJ/dr`, resolved per bond and per
 strain component instead of collapsed onto a bond length: `T[α, β, γ, δ]` is
@@ -182,7 +257,7 @@ coefficients contracted with site positions, never touching the tesseral-to-Cart
 conversion). That identity is the acceptance gate on this deliverable:
 
 ```@example strain
-e = randcfg()
+e = mecfg()
 recon = zeros(3, 3)
 for ((a, b, _), T) in dJ.pairs, γ = 1:3, δ = 1:3
     recon[γ, δ] += dot(e[:, a], T[:, :, γ, δ] * e[:, b])
@@ -291,7 +366,7 @@ gspec(cr, s) = BasisSpec(cr; lmax = 2, pmax = 2, sectors = [
     Sector(spin = [1, 1], disp = (degree = 1,), sites = 1:2, cutoff = 1.1s),
     Sector(disp = (degree = 1,), sites = 1:2, cutoff = 1.1s),                # closure
     Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1s)])
-gbasis(s) = (c = gcr(s); SLCEBasis(c, gspec(c, s)))
+gbasis(s) = (c = gcr(s); SLCEBasis(c, gspec(c, s); backend = SpglibBackend()))
 
 # The ground truth has to be ASR-FEASIBLE: every grid point is fitted with `asr = true`,
 # so coefficients drawn freely would describe a surface no grid point can represent, and
@@ -305,8 +380,8 @@ gtruth = SLCEModel(gbasis(1.0), -1.5,
 function fit_at(s)
     b = gbasis(s)
     pv = DatumProvenance(; reference_id = "s$s", reference_fingerprint = crystal_fingerprint(gcr(s)))
-    d = map(1:200) do _
-        ec = randcfg()
+    d = map(1:300) do _
+        ec = mecfg()
         u = 0.05 .* randn(rng, 3, 2)
         TrainingDatum(; energy = affine_energy(gtruth, ec, (s - 1) * Matrix(1.0I(3)); base = u),
                       directions = ec, magmoms = ones(2), displacements = u, provenance = pv)
@@ -337,10 +412,10 @@ with its coefficients held fixed, and the **grid finite difference**, taken alon
 which also carries the drift of those coefficients. They have to agree:
 
 ```@example strain
-es = randcfg()
+es = mecfg()
 for s in (0.99, 1.0, 1.01)
-    D = strain_derivatives(model_at(sm, s); spins = es, order = 1)
-    intra = D[1, 1] + D[2, 2] + D[3, 3]              # ε = ηI contracts to the trace
+    Ds = strain_derivatives(model_at(sm, s); spins = es, order = 1)
+    intra = Ds[1, 1] + Ds[2, 2] + Ds[3, 3]           # ε = ηI contracts to the trace
     println("s = $s:  intra-model = ", round(intra; sigdigits = 8),
             "   grid = ", round(grid_strain_derivative(sm, s; spins = es); sigdigits = 8))
 end

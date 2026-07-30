@@ -14,28 +14,41 @@ see [Reading a fitted model](introspection.md) for the term-level view and
 
 ## The model on this page
 
-One two-atom cell, a spin sector, a spin-dressed displacement sector and a pure
-displacement sector, trained on synthetic energies from a known model at displaced
-structures. Two fits of the *same* data, one unconstrained and one under the acoustic sum
+A one-dimensional **superexchange chain**: two Fe sites per cell with a bridging O, the
+Fe–O spacings deliberately unequal. It is the smallest structure that is a *crystal*
+rather than a molecule in a box for the purposes of this page — its couplings reach
+across the cell boundary, which is what makes ``D(\boldsymbol q)`` depend on
+``\boldsymbol q`` at all — and its ligand is what lets the spin pair be dressed by a
+displacement that is not its own (see [Building the basis](basis.md); the ligand species
+carries `lmax = 0`, i.e. no spin factor, and `pmax > 0`, i.e. it still moves).
+
+Three sectors: the pure-spin pair, the same pair dressed by a displacement on either end
+*or on the ligand*, and the spin-free displacement pairs that carry the force constants.
+Two fits of the *same* synthetic data, one unconstrained and one under the acoustic sum
 rule, because the contrast between them is the physics of this page:
 
 ```@example fc
 using SLCE, LinearAlgebra, Random
+import Spglib                                   # activates the real space-group backend
 
-nat = 2
-cr = Crystal(Lattice(Matrix(3.0 * I(3))), [1/6 -1/6; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-spec = BasisSpec(cr; lmax = 1, pmax = 2, sectors = [
-    Sector(spin = (sites = 1:2,), cutoff = 1.1),                           # pure spin
-    Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1),  # coupled
-    Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)])              # force constants
-basis = SLCEBasis(cr, spec)
+nat = 4
+cr = Crystal(Lattice([5.0 0 0; 0 5.0 0; 0 0 8.0]),
+             [0.0 0.0 0.0 0.0; 0.0 0.0 0.0 0.0; 0.0 0.3 0.5 0.8],
+             [1, 2, 1, 2], ["Fe", "O"])
+spec = BasisSpec(cr; lmax = ["*" => 1, "O" => 0], pmax = 2, sectors = [
+    Sector(spin = (sites = 1:2,), cutoff = 4.2),                            # pure spin
+    Sector(spin = [1, 1], disp = (degree = 2,), sites = 2:3, cutoff = 4.2), # coupled, ligand allowed
+    Sector(disp = (degree = 2,), sites = 1:2, cutoff = 4.2)])               # force constants
+basis = SLCEBasis(cr, spec; backend = SpglibBackend())
+println("space group ", basis.spacegroup.symbol, " (", SLCE.n_ops(basis.spacegroup),
+        " operations),  ", n_salcs(basis), " SALCs")
 truth = SLCEModel(basis, 0.0, randn(MersenneTwister(1), n_salcs(basis)))
 
 prov = DatumProvenance(; reference_id = "ref", reference_fingerprint = crystal_fingerprint(cr))
 rng = MersenneTwister(7)
 randcfg() = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:nat])
 
-data = map(1:200) do _
+data = map(1:300) do _
     e = randcfg()
     u = 0.08 .* randn(rng, 3, nat)
     TrainingDatum(; energy = predict_energy(truth, e, u), directions = e,
@@ -46,6 +59,62 @@ jds = SLCEDataset(basis, data; use_torque = false, use_force = false)
 joint = SLCEModel(fit(SLCEFit, jds, OLS(); asr = false))   # deliberately unconstrained
 nothing # hide
 ```
+
+### The structure, drawn from the object that was built
+
+The figure comes straight from `cr` and the neighbor list `basis` was assembled with, so
+it cannot drift from what is computed. Sites are [`cartesian_positions`](@ref); the bars
+are the admitted pairs — the ones the cluster enumeration accepted at their minimum image
+— and the shaded strip is the cell that repeats.
+
+```@example fc
+using CairoMakie
+CairoMakie.activate!(type = "png")
+
+z    = cartesian_positions(cr)[3, :]
+c    = cr.lattice.vectors[3, 3]
+nl   = SLCE.build_neighbor_list(cr, 4.2, MinimumImage())
+isFe = cr.species .== 1
+arc(x1, x2) = (t = range(0, π; length = 80);                       # semicircle x1 → x2
+               ((x1 + x2) / 2 .+ abs(x2 - x1) / 2 .* cos.(t), abs(x2 - x1) / 2 .* sin.(t)))
+
+fig = Figure(size = (900, 330))
+ax  = Axis(fig[1, 1]; aspect = DataAspect(), xlabel = "z  [Å]",
+           title = "Fe–O–Fe–O chain: every pair the truncation admits (arc = one pair)")
+hideydecorations!(ax); hidespines!(ax, :l, :r, :t)
+
+vspan!(ax, 0, c; color = (:gray, 0.08))
+vlines!(ax, [0, c]; color = (:gray, 0.5), linestyle = :dot)
+
+for rep in (-1, 1), a = 1:nat                                      # periodic images, ghosted
+    scatter!(ax, [z[a] + rep * c], [0.0]; markersize = isFe[a] ? 20 : 13,
+             color = isFe[a] ? (:firebrick, 0.25) : (:steelblue, 0.25))
+end
+for p in nl.pairs                                                  # one arc per admitted pair
+    p.i <= p.j || continue
+    xs, ys = arc(z[p.i], z[p.j] + p.shift[3] * c)
+    wrapped = p.shift[3] != 0
+    lines!(ax, xs, ys; color = wrapped ? (:seagreen, 0.85) : (:gray25, 0.7),
+           linewidth = 2, linestyle = wrapped ? :dash : :solid)
+end
+scatter!(ax, z[isFe], zeros(count(isFe)); markersize = 20, color = :firebrick)
+scatter!(ax, z[.!isFe], zeros(count(.!isFe)); markersize = 13, color = :steelblue)
+for a = 1:nat                                                      # spin factor lives on Fe only
+    isFe[a] && lines!(ax, [z[a], z[a]], [-0.9, -1.8]; color = :firebrick, linewidth = 3)
+    text!(ax, z[a], -0.35; text = "$(cr.species_labels[cr.species[a]])$a",
+          align = (:center, :top), fontsize = 13)
+end
+Label(fig[2, 1], "grey solid = pair inside the cell    green dashed = pair closing across " *
+      "the boundary    red stem = site carrying a spin factor (lmax > 0)    " *
+      "pale = periodic images"; fontsize = 12, color = :gray25, tellwidth = false)
+ylims!(ax, -2.3, 3.4); xlims!(ax, -5.5, c + 3.2)
+fig
+```
+
+The dashed arcs are the reason this page has a dispersion at all: those pairs put force
+constants at a nonzero lattice translation ``\boldsymbol R``, and it is exactly the
+``\boldsymbol R \neq \boldsymbol 0`` blocks that carry the ``\boldsymbol q``-dependence
+of ``D(\boldsymbol q)``.
 
 ## Real-space constants
 
@@ -113,8 +182,8 @@ matrix, in eV/Å² — not frequencies of anything. Pass `masses` in amu and the
 `ω²` **in eV/Å²/amu**, which is still not a frequency until you convert it:
 
 ```@example fc
-λ = sort(real(eigvals(Hermitian(dynamical_matrix(fcs, [0.0, 0.0, 0.0];
-                                                 masses = [55.845, 55.845])))))
+masses = [55.845, 15.999, 55.845, 15.999]             # Fe, O, Fe, O — amu, in cell order
+λ = sort(real(eigvals(Hermitian(dynamical_matrix(fcs, [0.0, 0.0, 0.0]; masses = masses)))))
 signed_sqrt(x) = x < 0 ? -sqrt(-x) : sqrt(x)          # imaginary modes stay negative
 println("ω² [eV/Å²/amu]: ", round.(λ; sigdigits = 3))
 println("ν  [THz]      : ", round.(signed_sqrt.(λ) .* 15.633302; sigdigits = 3))
@@ -150,6 +219,41 @@ D_other = dynamical_matrix(force_constants(joint; spins = randcfg()), [0.0, 0.0,
 println("max |ΔD(0)| between two magnetic states: ",
         round(maximum(abs, D_other .- D0); sigdigits = 4))
 ```
+
+### The dispersion, and the magnetic state it belongs to
+
+Sweeping `q` along the chain axis turns the same model into a band structure. Two magnetic
+states, one fit: the gap between the two sets of branches is the spin–lattice coupling the
+joint expansion exists to carry, and no separate calculation produced it.
+
+```@example fc
+qs = range(0, 0.5; length = 61)                        # Γ → the zone edge along z*
+function branches(model, spins)
+    f = force_constants(model; spins = spins, order = 2)
+    reduce(hcat, [signed_sqrt.(sort(real(eigvals(Hermitian(
+        dynamical_matrix(f, [0.0, 0.0, q]; masses = masses)))))) .* 15.633302 for q in qs])
+end
+sA, sB = randcfg(), randcfg()
+bA, bB = branches(constrained, sA), branches(constrained, sB)
+
+fig2 = Figure(size = (760, 380))
+ax2 = Axis(fig2[1, 1]; xlabel = "q  (fractional, along z*)", ylabel = "ν  [THz]",
+           title = "Phonons of one fitted model in two magnetic states")
+for b = 1:size(bA, 1)
+    lines!(ax2, qs, bA[b, :]; color = :firebrick, linewidth = 2,
+           label = b == 1 ? "state A" : nothing)
+    lines!(ax2, qs, bB[b, :]; color = :steelblue, linewidth = 2, linestyle = :dash,
+           label = b == 1 ? "state B" : nothing)
+end
+hlines!(ax2, [0.0]; color = (:gray, 0.6), linestyle = :dot)
+axislegend(ax2; position = :rt)
+fig2
+```
+
+Negative values are imaginary frequencies plotted below zero — this model was fitted to
+*random* synthetic coefficients, so it is mechanically unstable, and the point of the
+figure is the state-to-state difference, not the spectrum itself. Three branches start
+from zero at Γ: those are the acoustic modes the sum rule put there.
 
 
 ## Handing the lattice channel to phonopy

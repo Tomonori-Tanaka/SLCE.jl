@@ -302,15 +302,30 @@ function _asr_nullspace(A::Matrix{Float64})
 end
 
 """
-    build_asr(basis::SLCEBasis) -> Union{Nothing,ASRReparam}
+    build_asr(basis::SLCEBasis; warn = true) -> Union{Nothing,ASRReparam}
 
 Build the ASR reparameterization for `basis`: `nothing` for a pure-spin basis
 (no displacement columns — the structural fast path), otherwise the row-normalized
 constraint matrix, its orthonormal null-space basis `Z`, the (all-zero,
 affine-ready) particular solution, and `rank(A)`. Called once at `SLCEDataset`
 construction and stored on `dataset.asr` (the `force_cols` discipline).
+
+`warn = false` silences the two diagnostics about the *basis* (no
+translation-invariant displacement content at all; individual structurally zeroed
+columns). Pass it from any caller that is **re-deriving** the constraint rather than
+constructing it — [`asr_residual`](@ref) and every derived-quantity path that gates on
+it do, because the truncation has not changed since the construction that already said
+so, and one `asr_residual` per output turns one true statement into a screenful. The
+refusals (a broken symbolic expansion, a forbidden band) are NOT silenced by it: they
+say the answer would be wrong, not that the truncation is narrow.
+
+Both diagnostics also carry `maxlog = 1`, so a script that builds a *grid* of
+structurally identical bases (a [`StrainedModels`](@ref) volume scan) states the fact
+once rather than once per point. The cost is deliberate and bounded: a session that later
+builds a genuinely different narrow basis will not repeat the advice, and
+[`identifiability`](@ref) / [`asr_residual`](@ref) remain the on-demand answers.
 """
-function build_asr(basis::SLCEBasis)::Union{Nothing,ASRReparam}
+function build_asr(basis::SLCEBasis; warn::Bool = true)::Union{Nothing,ASRReparam}
     any(s -> any(has_disp, s.key.decors), salcs(basis)) || return nothing
     A = _asr_matrix(basis)
     m = size(A, 1)
@@ -333,21 +348,26 @@ function build_asr(basis::SLCEBasis)::Union{Nothing,ASRReparam}
     # Correct — the invariant subspace of that span is empty — but it means the
     # sector choice cannot express any lattice coupling, so say it loudly.
     if rank == ndisp && ndisp > 0
-        @warn "ASR: the basis admits no translation-invariant displacement " *
+        warn && @warn "ASR: the basis admits no translation-invariant displacement " *
               "content — every displacement-active coefficient is constrained " *
               "to zero (the truncation lacks the on-site/pair partners needed " *
               "to form difference invariants; widen pmax or the displacement " *
-              "sectors)" n_disp_columns = ndisp
+              "sectors)" n_disp_columns = ndisp maxlog = 1
     else
         # BASIS-level structurally zero columns: coefficients no translation-
         # invariant model can carry, for every support. Reported here, once —
         # `refit` warns only about columns its support ADDITIONALLY kills.
         dead = [j for j in axes(Z, 1) if norm(@view Z[j, :]) < _ASR_DEAD_ROW]
-        isempty(dead) ||
+        (isempty(dead) || !warn) ||
             @warn "ASR: some columns cannot appear in any translation-invariant " *
-                  "model (structurally zeroed by the constraint for every " *
-                  "support — their partners are outside the truncation)" columns =
-                dead
+                  "model (structurally zeroed by the constraint for every support). " *
+                  "The sum rule holds separately in each spin sector, so a column " *
+                  "survives only if the truncation carries a partner with the SAME " *
+                  "spin invariant: for a spin-free displacement channel that means " *
+                  "further pair orbits (widen the cutoff), for a spin-dressed one a " *
+                  "term dressing the same spin factor differently — e.g. a displaced " *
+                  "ligand. Where symmetry forbids the channel outright, no truncation " *
+                  "revives it and zero is the right answer" columns = dead maxlog = 1
     end
     return ASRReparam(An, Z, zeros(n_salcs(basis)), rank)
 end
@@ -364,7 +384,7 @@ models) gate on this value instead of a stored flag. A hand-built violating
 model is legal; it simply reports a large residual.
 """
 function asr_residual(model::SLCEModel)::Float64
-    rep = build_asr(model.basis)
+    rep = build_asr(model.basis; warn = false)   # re-derivation: construction already spoke
     rep === nothing && return 0.0
     return _asr_residual(rep, model.jphi)
 end

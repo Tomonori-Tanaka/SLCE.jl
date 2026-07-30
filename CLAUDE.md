@@ -503,6 +503,21 @@ Easy to break silently — confirm before touching the algorithm.
   (`test/unit/test_asr.jl`). `ASRReparam.beta_p` is the affine slot the staged fit
   fills (frozen-stage offsets); the staged-fit rule is "each stage fitted under its
   own ASR keeps the next stage's constraint homogeneous".
+  **Who is allowed to WARN**: `build_asr(basis; warn = true)` owns the two truncation
+  diagnostics; `asr_residual` calls it with `warn = false` because it re-derives, and any
+  new re-derivation path must do the same or one true statement about the truncation gets
+  reprinted once per derived output (measured: 38 lines on one docs page before this). Both
+  diagnostics also carry `maxlog = 1` so a `StrainedModels` grid of structurally identical
+  bases says it once. The REFUSALS (broken symbolic expansion, forbidden band) ignore
+  `warn` — they say the answer would be wrong, not that the truncation is narrow. The
+  dead-column advice is per channel and easy to state backwards: a spin-FREE displacement
+  column wants more pair orbits (widen the cutoff), a spin-DRESSED one wants a term
+  dressing the same spin invariant differently (a displaced ligand — `sites = 2` gives 4
+  dead columns per pair orbit, `sites = 2:3` gives none), and a symmetry-forbidden channel
+  (ε-linear pair coupling on a bond whose midpoint is an inversion centre) is never
+  revived by any truncation. The doc fixtures on `guide/{introspection,lattice_dynamics,
+  strain}.md` are built to that rule, so a change here shows up as new warnings in the
+  published pages.
 - **Periodic evaluator ↔ affine evaluator** (`fitting/fit.jl` ↔ `slce/affine.jl`):
   `predict_energy` resolves a site's displacement as `u[:, atom]`, so it can express
   ONLY cell-periodic fields — translation is the one affine field that is, which is why

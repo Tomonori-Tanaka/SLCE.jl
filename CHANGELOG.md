@@ -6,6 +6,26 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — the ASR diagnostics say who can fix them, and say it once
+
+`build_asr` gained a `warn` keyword and both of its *diagnostics* (no translation-invariant
+displacement content at all; individual structurally zeroed columns) now carry
+`maxlog = 1`. `asr_residual` passes `warn = false`, because it **re-derives** the
+constraint rather than constructing it — every derived quantity gates on it, so one true
+statement about the truncation was being reprinted once per output (38 times on one
+documentation page). The refusals are untouched: a broken symbolic expansion or a forbidden
+band still throws, and `warn` cannot silence them.
+
+The dead-column message also named the wrong remedy. It said the partners are "outside the
+truncation", which invites widening the cutoff — correct for a spin-free displacement
+channel, useless for a spin-dressed one. The sum rule holds separately in each spin sector,
+so a spin-dressed column survives only if some term dresses the *same* spin invariant
+differently (a displaced ligand, say); and where symmetry forbids the channel outright — an
+ε-linear pair coupling on a bond with an inversion centre at its midpoint — no truncation
+revives it and zero is the right answer. Measured while writing this: a spin-dressed
+`degree = 2` pair sector has 4 structurally dead columns per pair orbit with `sites = 2`
+(12 on a three-orbit fixture) and **none** with `sites = 2:3`, i.e. once the ligand is in.
+
 ### Added — magnetoelastic coupling, with the B₁/B₂ convention pinned
 
 Two deliverables on top of the ε-linear strain response, and deliberately none above it:
