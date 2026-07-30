@@ -14,7 +14,7 @@
 
 using Test
 using SLCE
-using SLCE: _basis_has_spin, _basis_has_disp, _identically_zero_salcs, is_soc_free,
+using SLCE: _basis_has_spin, _basis_has_disp, is_soc_free,
             _assemble_spacegroup, build_neighbor_list, build_clusters,
             build_salc_basis, _superset_cutoff, salcs
 using LinearAlgebra
@@ -234,31 +234,33 @@ end
     end
 
     # A design column can be zero because the DATA say nothing about it (collect more)
-    # or because the SALC is zero for EVERY configuration (nothing will ever help).
-    # The old single message asserted the first for both, which on this cell is advice
-    # that cannot be taken: one of the three lattice-only SALCs has its minimum-image
-    # ties cancel identically.
-    @testset "identically-zero SALCs are named as such, not blamed on the data" begin
+    # or because the SALC is identically zero on this cell (nothing will ever help).
+    # The two call for opposite responses, so they now live at different layers: the
+    # structural case is classified in the basis layer (`unresolvable_columns`) and
+    # FROZEN by the reparameterization, leaving `fit`'s surviving warning to be about
+    # data alone. On this cell one of the three lattice-only SALCs has its
+    # minimum-image ties cancel identically.
+    @testset "identically-zero SALCs are classified structurally, not blamed on data" begin
+        # Oracle: the column norms of a 200-sample design assembled through
+        # `_design_energy` — the production design path, which shares no code with the
+        # symbolic monomial expansion the classifier uses.
+        function _dead_by_design(b)
+            m = n_salcs(b)
+            rp = MersenneTwister(99)
+            cf = [reduce(hcat, [normalize(randn(rp, 3)) for _ = 1:nat]) for _ = 1:200]
+            uf = [0.07 .* randn(rp, 3, nat) for _ = 1:200]
+            Xd = SLCE._design_energy(b, cf, uf)
+            nrm = [norm(@view Xd[:, j]) for j = 1:m]
+            return findall(<=(1e-12 * maximum(nrm)), nrm)
+        end
         @test n_salcs(lattice_only) == 3
-        @test _identically_zero_salcs(lattice_only, 1:3) == [3]
-        # the classifier only ever reports members of what it was handed
-        @test isempty(_identically_zero_salcs(lattice_only, [1, 2]))
-        # Three probe configurations decide a claim about ALL configurations, so pin
-        # the claim against a 200-sample design matrix built through the OTHER code
-        # path (`_design_energy`, not `evaluate_salc`): the two index sets agree
-        # exactly. On this cell that is 14 of 23 joint SALCs — small cells lose far
-        # more of `n_salcs` to minimum-image cancellation than the count suggests.
+        @test unresolvable_columns(lattice_only) == _dead_by_design(lattice_only)
         mj = n_salcs(joint)
-        rp = MersenneTwister(99)
-        cf = [reduce(hcat, [normalize(randn(rp, 3)) for _ = 1:nat]) for _ = 1:200]
-        uf = [0.07 .* randn(rp, 3, nat) for _ = 1:200]
-        Xd = SLCE._design_energy(joint, cf, uf)
-        nrm = [norm(@view Xd[:, j]) for j = 1:mj]
-        @test findall(<=(1e-12 * maximum(nrm)), nrm) ==
-              _identically_zero_salcs(joint, 1:mj)
-        # not degenerate in either direction: some columns survive, and the dead set
-        # is a proper subset rather than "everything the probe happened not to hit"
-        deadj = _identically_zero_salcs(joint, 1:mj)
+        deadj = unresolvable_columns(joint)
+        @test deadj == _dead_by_design(joint)
+        # Not degenerate in either direction: some columns survive and the dead set is a
+        # proper subset. On this cell that is 14 of 23 joint SALCs — a small cell loses
+        # far more of `n_salcs` to minimum-image cancellation than the count suggests.
         @test 0 < length(deadj) < mj
 
         rng = MersenneTwister(0x12)
@@ -269,12 +271,22 @@ end
                                  forces = predict_force(truth, nothing, u),
                                  reference = cr)
                 end for _ = 1:40]
-        ds = SLCEDataset(lattice_only, data)
-        @test_logs((:warn, r"identically zero on this cell"), match_mode = :any,
-                   fit(SLCEFit, ds, OLS(); force_weight = 0.5, asr = false))
+        # The freeze is announced once, where it is decided: at the reparameterization
+        # the dataset builds.
+        ds = @test_logs((:warn, r"cannot resolve"), match_mode = :any,
+                        SLCEDataset(lattice_only, data))
+        # ...and the frozen coefficients come back EXACTLY zero, under the constraint
+        # and under the `asr = false` ablation alike — being unidentifiable on this cell
+        # is a property of the basis, not of what the fit imposes.
+        for flag in (true, false)
+            f = fit(SLCEFit, ds, OLS(); force_weight = 0.5, asr = flag)
+            for j in unresolvable_columns(lattice_only)
+                @test coef(f)[j] === 0.0
+            end
+        end
 
-        # ...and the other branch still fires, on the case the message names: a
-        # force-only fit puts zero weight on the energy block, so every pure-spin
+        # ...and the data-starvation branch still fires, on the case its message names:
+        # a force-only fit puts zero weight on the energy block, so every pure-spin
         # column of a JOINT design is dead — for want of data, not structurally.
         rng2 = MersenneTwister(0x13)
         tj = SLCEModel(joint, 0.0, randn(rng2, n_salcs(joint)))

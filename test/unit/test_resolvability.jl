@@ -33,7 +33,7 @@ using Test
 using SLCE
 using SLCE: salcs, SALC, SALCScratch, evaluate_salc, _signature_matrix,
     _assemble_spacegroup, _superset_cutoff, build_neighbor_list, build_clusters,
-    build_salc_basis
+    build_salc_basis, build_asr, _asr_matrix, _asr_nullspace
 using LinearAlgebra
 using Random
 using StaticArrays
@@ -199,6 +199,44 @@ end
         @test !isempty(unresolvable_columns(byname["bcc harmonic"]))
         @test !isempty(unresolvable_columns(byname["bcc doubled along z only"]))
         @test isempty(unresolvable_columns(byname["bcc as 2x2x2"]))
+    end
+
+    @testset "the freeze is wired into the reparameterization" begin
+        byname = Dict(fixtures)
+        b = byname["bcc harmonic"]
+        frozen = unresolvable_columns(b)
+        @test frozen == [2]                     # 1 of 2, agreed with the evaluator above
+        # Two diagnostics, in this order: the freeze names its own columns and its own
+        # remedy, and only then does the ASR speak about what is left. The second one
+        # is the LOUD case (`rank == ndisp` over the free columns): with the pair's
+        # even-Lf column frozen, the surviving harmonic column has no translation-
+        # invariant content, so this basis can express no lattice coupling at all.
+        rep = @test_logs((:warn, r"cannot resolve"), (:warn, r"no translation-invariant"),
+                         match_mode = :any, build_asr(b))
+        @test rep.free == [1]
+        @test size(rep.Z, 2) == 0               # no free parameter survives
+        # Before the freeze this basis got `Z = [0; 1]`: the only ASR-feasible model was
+        # a multiple of a function that is identically zero, reported through the mild
+        # "some columns are structurally zeroed" message. Whatever else changes, a
+        # feasible model on this basis must not be able to carry the frozen column.
+        @test all(norm(@view rep.Z[j, :]) == 0.0 for j in frozen)
+        @test all(rep.beta_p[j] == 0.0 for j in frozen)
+    end
+
+    @testset "no unresolvable column => the reparameterization is unchanged" begin
+        # Byte-neutrality: where nothing is frozen, `build_asr` must reproduce exactly
+        # what it produced before the freeze existed — the null space of the whole
+        # row-normalized constraint matrix, with every column free.
+        b = Dict(fixtures)["bcc as 2x2x2"]
+        @test isempty(unresolvable_columns(b))
+        A = _asr_matrix(b)
+        An = A ./ [norm(@view A[r, :]) for r in axes(A, 1)]
+        Z0, rank0 = _asr_nullspace(An)
+        rep = build_asr(b; warn = false)
+        @test rep.free == collect(1:n_salcs(b))
+        @test rep.rank == rank0
+        @test rep.Z == Z0                       # bitwise
+        @test rep.A == An
     end
 
     @testset "the classification is structural, not sampled" begin

@@ -6,6 +6,42 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the columns a reference cell cannot resolve are classified and frozen
+
+`unresolvable_columns(basis)` names the design columns that are identically zero on every
+cell-periodic configuration the reference cell can express, and `build_asr` now excludes
+them from the reparameterization's free set, so every fit holds them at exactly zero. They
+are **unidentifiable, not physically zero**: the same basis functions are nonzero under
+`affine_energy` and in a Monte-Carlo supercell, which is why the columns stay in the basis
+and why leaving them free was the actual hazard. Measured before the change, on a bcc
+degree-2 basis: a fit hands such a column an arbitrary value, energies and forces vanish for
+every trainable configuration and `D(0) ≡ 0` — so the acoustic-zero gate passes *vacuously* —
+while `‖D(½,½,0)‖ = 91.4` with eigenvalues ±45.72. The freeze applies under `asr = false`
+too: being unidentifiable on this cell is a property of the basis, not of what the fit
+imposes.
+
+The classification is structural — every SALC is expanded into one common monomial/symbol
+basis (the machinery `_asr_matrix` differentiates, undifferentiated) and each column's
+assembled norm is compared against the gross magnitude it accumulated, which asks "did this
+cancel?" rather than "is this small?". It replaces `_identically_zero_salcs`, a
+three-seeded-probe heuristic in the fitting layer, whose relative-to-the-largest-column cut
+was also blind to the case where *every* column cancels. `fit`'s surviving dead-column
+warning is now purely about data starvation.
+
+Two consequences fall out. `build_asr` no longer throws "the symbolic expansion is broken"
+on a basis whose only ASR-feasible direction was an identically-zero function (measured: bcc
+harmonic got `Z = [0; 1]`, i.e. the only feasible model was a multiple of a null function);
+it now reports the truth, that the surviving free columns admit no translation-invariant
+content. And `group_costs`' structural discount stops pricing null columns at full
+Monte-Carlo cost, because a frozen column has an all-zero `Z` row.
+
+Gated in `test/unit/test_resolvability.jl` against the evaluator on six fixtures (hand-written
+space groups, so the core test environment needs no symmetry backend), plus: the rank
+deficiency of a sampled value matrix equals the number of classified columns on every fixture
+— the property that makes freezing whole *columns* exact rather than approximate — exact
+ε-linearity of a frozen column's strain response, the `2×2×2` remedy versus the insufficient
+single-axis doubling, and byte-neutrality where nothing is frozen (`Z` bitwise unchanged).
+
 ### Changed — a Wigner–Seitz boundary tie is not independently resolvable
 
 [Periodic resolvability](docs/src/theory/resolvability.md) claimed that the equidistant images

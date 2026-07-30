@@ -484,7 +484,19 @@ Easy to break silently — confirm before touching the algorithm.
   The structurally-zeroed test is **one constant**,
   `_ASR_DEAD_ROW` (`‖Z[j, :]‖ < 1e-12`, absolute because `Z` is orthonormal), with four
   readers: `build_asr`'s basis-level warning, `refit`'s movable-column and
-  split-coupled-set rules, and `group_costs`' structural discount. Its group-resolved
+  split-coupled-set rules, and `group_costs`' structural discount.
+  **Two different reasons produce an all-zero `Z` row and they must not be conflated.**
+  A *frozen* column (`unresolvable_columns`, `basis/resolvability.jl`) is identically zero
+  on this cell — no fit can determine it, the remedy is a different reference cell, and
+  `build_asr` excludes it from `free` under `asr = false` too. A *structurally zeroed*
+  free column is excluded by the sum rule — the remedy is a partner term. `build_asr`
+  reports each with its own message and scans only `free` for the second; the counts that
+  gate on translation invariance (`rank == ndisp`) count free displacement columns only, so
+  a basis whose surviving columns admit no invariant content says so loudly instead of
+  throwing "the symbolic expansion is broken". Classification is **structural, never
+  sampled**: the undifferentiated twin of `_asr_matrix`'s monomial expansion, judged per
+  column against its own gross accumulation (a global cut is blind to the all-columns-cancel
+  case, which is exactly the bcc harmonic one). Its group-resolved
   form is `group_freedom` (`s_g = ‖Z[g, :]‖_F²`, `Σ_g s_g ≡ q`, gauge-invariant).
   **The ASR's granularity is NOT the group** (measured 2026-07-28, five fixtures,
   `G` 2→20): no displacement-touched group has a feasible subspace alone, the true

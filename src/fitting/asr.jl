@@ -302,13 +302,28 @@ function _asr_nullspace(A::Matrix{Float64})
 end
 
 """
-    build_asr(basis::SLCEBasis; warn = true) -> Union{Nothing,ASRReparam}
+    build_asr(basis::SLCEBasis; translation = true, warn = true) -> Union{Nothing,ASRReparam}
 
-Build the ASR reparameterization for `basis`: `nothing` for a pure-spin basis
-(no displacement columns — the structural fast path), otherwise the row-normalized
-constraint matrix, its orthonormal null-space basis `Z`, the (all-zero,
-affine-ready) particular solution, and `rank(A)`. Called once at `SLCEDataset`
-construction and stored on `dataset.asr` (the `force_cols` discipline).
+Build the reparameterization every fit on `basis` solves in. It encodes two exact
+facts about the basis, kept in separate fields so neither is mistaken for the other:
+
+  * **translation invariance** — the row-normalized ASR constraint matrix `A` and its
+    orthonormal null-space basis `Z`, so `β = Z·γ` satisfies `A·β = 0` by
+    construction. Skipped entirely with `translation = false` (an ablation path).
+  * **the unresolvable-column freeze** — the columns
+    [`unresolvable_columns`](@ref) names are excluded from `free`, hence held at
+    exactly `0`. They are identically zero on every configuration this reference cell
+    can express, so any value a fit returns for them is an estimator artifact that a
+    Monte-Carlo supercell or a `q ≠ 0` dynamical matrix would amplify into physics the
+    data never constrained. This part is applied whatever `translation` says.
+
+Returns `nothing` only when there is nothing to encode: a basis with no displacement
+columns and no unresolvable ones (the structural fast path, bitwise identical to an
+unconstrained fit). Called once at `SLCEDataset` construction and stored on
+`dataset.asr` (the `force_cols` discipline).
+
+`rank` counts the constraints on the *free* columns, so a basis with no unresolvable
+columns reparameterizes exactly as it did before the freeze existed.
 
 `warn = false` silences the two diagnostics about the *basis* (no
 translation-invariant displacement content at all; individual structurally zeroed
@@ -325,15 +340,38 @@ once rather than once per point. The cost is deliberate and bounded: a session t
 builds a genuinely different narrow basis will not repeat the advice, and
 [`identifiability`](@ref) / [`asr_residual`](@ref) remain the on-demand answers.
 """
-function build_asr(basis::SLCEBasis; warn::Bool = true)::Union{Nothing,ASRReparam}
-    any(s -> any(has_disp, s.key.decors), salcs(basis)) || return nothing
+function build_asr(basis::SLCEBasis; translation::Bool = true,
+                   warn::Bool = true)::Union{Nothing,ASRReparam}
+    p = n_salcs(basis)
+    hasdisp = any(s -> any(has_disp, s.key.decors), salcs(basis))
+    frozen = unresolvable_columns(basis)
+    (isempty(frozen) && !(translation && hasdisp)) && return nothing
+    free = isempty(frozen) ? collect(1:p) : setdiff(1:p, frozen)
+    isempty(frozen) || !warn ||
+        @warn "this reference cell cannot resolve $(length(frozen)) of its $p " *
+              "columns: they are identically zero on every configuration it can " *
+              "express, so the fit holds them at exactly zero. They are " *
+              "UNIDENTIFIABLE, not physically zero — the same basis functions are " *
+              "nonzero under a uniform strain and in a Monte-Carlo supercell, where " *
+              "a fitted value would become physics the data never constrained. The " *
+              "cause is a Wigner-Seitz boundary tie; to determine these " *
+              "coefficients, describe the crystal with a cell in which the offending " *
+              "pair's minimum image is unique (`unresolvable_columns` for the " *
+              "columns, the Periodic resolvability chapter for the remedy)" columns =
+            first(frozen, 10) maxlog = 1
+    # Freeze-only: no constraint rows at all (a pure-spin basis, or `translation =
+    # false`). `_stage_reparam`'s `A === nothing` path gives the plain selection
+    # matrix of the free columns — orthonormal, so every estimator's γ-space contract
+    # still holds verbatim.
+    (translation && hasdisp) || return _stage_reparam(basis, free, zeros(p), nothing)
     A = _asr_matrix(basis)
     m = size(A, 1)
     # store the row-normalized form (the residual gate's conditioning);
     # `_asr_nullspace` normalizes internally (idempotent on this input)
     An = m == 0 ? A : A ./ [norm(@view A[r, :]) for r = 1:m]
-    Z, rank = _asr_nullspace(An)
-    ndisp = length(_disp_active_cols(basis))
+    rep = _stage_reparam(basis, free, zeros(p), An)
+    Z, rank = rep.Z, rep.rank
+    ndisp = length(intersect(_disp_active_cols(basis), free))
     # rank 0 on a displacement-active basis is physically impossible (any single
     # displacement factor has a nonzero translation derivative) — it means the
     # expansion silently produced nothing, and every downstream diagnostic would
@@ -357,7 +395,10 @@ function build_asr(basis::SLCEBasis; warn::Bool = true)::Union{Nothing,ASRRepara
         # BASIS-level structurally zero columns: coefficients no translation-
         # invariant model can carry, for every support. Reported here, once —
         # `refit` warns only about columns its support ADDITIONALLY kills.
-        dead = [j for j in axes(Z, 1) if norm(@view Z[j, :]) < _ASR_DEAD_ROW]
+        # Only the FREE columns: a frozen (unresolvable) column also has an all-zero
+        # `Z` row, and blaming the sum rule for it would name the wrong cause and the
+        # wrong remedy — that one is reported by the freeze diagnostic above.
+        dead = [j for j in free if norm(@view Z[j, :]) < _ASR_DEAD_ROW]
         (isempty(dead) || !warn) ||
             @warn "ASR: some columns cannot appear in any translation-invariant " *
                   "model (structurally zeroed by the constraint for every support). " *
@@ -373,7 +414,7 @@ function build_asr(basis::SLCEBasis; warn::Bool = true)::Union{Nothing,ASRRepara
                   "Either way the coefficient is excluded by the sum rule, not by crystal " *
                   "symmetry: the basis function itself is generally nonzero" columns = dead maxlog = 1
     end
-    return ASRReparam(An, Z, zeros(n_salcs(basis)), rank)
+    return rep
 end
 
 """

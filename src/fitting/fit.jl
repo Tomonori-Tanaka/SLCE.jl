@@ -149,7 +149,13 @@ end
 # take the pure-spin fast path under `asr = true` — unconstrained joint fits are an
 # explicit opt-out.
 function _resolve_asr_rep(dataset::SLCEDataset, asr::Bool)::Union{Nothing,ASRReparam}
-    rep = asr ? dataset.asr : nothing
+    # `asr = false` drops the translation CONSTRAINT, not the unresolvable-column
+    # freeze: those columns are identically zero on this cell whatever the fit
+    # imposes, so leaving them free would hand an ablation study estimator artifacts
+    # that a supercell run would read as physics. Rebuilt here rather than stored,
+    # because this is the opt-out path.
+    rep = asr ? dataset.asr :
+          build_asr(dataset.basis; translation = false, warn = false)
     if asr && rep === nothing && _basis_has_disp(dataset.basis)
         throw(ArgumentError("asr = true but this displacement-decorated dataset " *
                             "carries no ASR reparameterization (AllImages " *
@@ -203,25 +209,13 @@ function _warn_unidentified(basis::SLCEBasis, X::AbstractMatrix,
             first(dead, 10) coordinates = "reparameterized (γ)"
         return nothing
     end
-    structural = _identically_zero_salcs(basis, dead)
-    starved = setdiff(dead, structural)
-    isempty(structural) ||
-        @warn "fit: $(length(structural)) SALC(s) are identically zero on this " *
-              "cell — their members cancel for EVERY configuration, so no amount " *
-              "of data can determine them and `n_salcs` overstates the model's " *
-              "real freedom. This is a property of the basis, not of this fit. The " *
-              "usual cause is a Wigner-Seitz boundary tie: the pair's minimum image " *
-              "is not unique, so its tied images join the same two reference-cell " *
-              "atoms and the invariant can cancel outright (`unresolvable_columns` " *
-              "reports which; for a tie of two, images ±d, it is typically the " *
-              "odd-Lf content, the DMI-like Lf = 1 one included). They are " *
-              "unidentifiable, not physically zero — the same functions are nonzero " *
-              "under a uniform strain and in a Monte-Carlo supercell. To determine " *
-              "them, describe the crystal with a cell in which the pair's minimum " *
-              "image is unique: break the tie in EVERY direction whose separation " *
-              "component is half the cell length (doubling one axis may not be " *
-              "enough). `refit` removes them from the support." columns =
-            first(structural, 10)
+    # Columns that are identically zero on this cell are no longer reachable here:
+    # `build_asr` classifies them structurally (`unresolvable_columns`) and excludes
+    # them from the reparameterization's free set, so a dead column at THIS point is
+    # always a data-starved one. The old probe-based split (three seeded
+    # configurations, relative to the largest column) is gone with it — the
+    # classification it approximated is now exact and lives in the basis layer.
+    starved = dead
     isempty(starved) ||
         @warn "fit: $(length(starved)) design column(s) carry no information — this " *
               "fit's data say nothing about them (a force-only fit sees no " *
@@ -233,40 +227,6 @@ function _warn_unidentified(basis::SLCEBasis, X::AbstractMatrix,
     return nothing
 end
 
-# Which of `cols` name SALCs that are zero for EVERY configuration, not merely for
-# this fit's data. The two call for opposite responses — collect more data, versus
-# nothing will ever help — and the old single message asserted the first for both,
-# which is advice that cannot be taken when a two-atom cell's minimum-image ties
-# annihilate a bond (measured: 1 of 3 columns on a bcc 2-atom lattice-only basis).
-#
-# Decided by evaluating the basis at a few random configurations: a handful of design
-# ROWS, negligible beside the design already assembled, and reached only once a dead
-# column exists. The seed is fixed — a diagnostic must not depend on ambient RNG
-# state — and the threshold is the same relative cut the caller used, because an
-# identically-zero SALC cancels to roundoff, not to exact zero.
-function _identically_zero_salcs(basis::SLCEBasis, cols::AbstractVector{Int};
-                                 nprobe::Int = 3)::Vector{Int}
-    ss = salcs(basis)
-    isempty(ss) && return Int[]
-    nat = n_atoms(basis.crystal)
-    rng = MersenneTwister(0x5A1CDEAD)
-    peak = zeros(Float64, length(ss))
-    scratch = SALCScratch()
-    for _ = 1:nprobe
-        e = randn(rng, 3, nat)
-        for a = 1:nat
-            c = norm(@view e[:, a])
-            c > 0 && (@views e[:, a] ./= c)
-        end
-        u = 0.05 .* randn(rng, 3, nat)
-        for j in eachindex(ss)
-            peak[j] = max(peak[j], abs(evaluate_salc(ss[j], e, u, scratch)))
-        end
-    end
-    ref = maximum(peak)
-    ref == 0.0 && return [j for j in cols if j <= length(peak)]
-    return [j for j in cols if j <= length(peak) && peak[j] <= _DEAD_COL_RTOL * ref]
-end
 
 """
     fit(SLCEFit, dataset, estimator; torque_weight = 0.0, force_weight = 0.0) -> SLCEFit
