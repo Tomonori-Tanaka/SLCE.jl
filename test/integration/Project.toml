@@ -1,0 +1,16 @@
+# Environment for the integration tier: whole-pipeline passes on named real
+# crystals. Separate from the core suite because it needs Spglib — the tier's
+# point is the path a user actually takes (a real space group from a real
+# backend), whereas the unit suite deliberately hand-assembles its groups so
+# `Pkg.test()` never depends on a symmetry backend.
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SLCE = "854eb3e0-bd75-4c3b-927c-573f5c6d8b1d"
+Spglib = "f761d5c5-86db-4880-b97f-9680a7cccfb5"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[sources]
+SLCE = {path = "../.."}

@@ -1035,6 +1035,7 @@ Easy to break silently — confirm before touching the algorithm.
 | `julia -t 4 --project -e 'using Pkg; Pkg.test()'` | unit + Aqua (default) |
 | `TEST_MODE=all julia -t 4 --project -e 'using Pkg; Pkg.test()'` | unit + Aqua + JET |
 | `TEST_MODE=jet julia -t 4 --project -e 'using Pkg; Pkg.test()'` | JET type-stability |
+| `julia --project=test/integration test/integration/runtests.jl` | whole pipeline on six named real crystals |
 | `julia --project=test/oracle test/oracle/runtests.jl` | from-scratch numerics vs pinned Magesty |
 | `julia --project=test/sunny test/sunny/runtests.jl` | real `Sunny.System` energy vs SLCE (extension) |
 | `julia --project=test/glmnet test/glmnet/runtests.jl` | GLMNet Lasso / elastic-net solve (extension) |
@@ -1044,6 +1045,21 @@ The core suite (`runtests.jl`) dispatches on the `TEST_MODE` env var
 (`default`/`all`/`unit`/`aqua`/`jet`) and never depends on Magesty. The oracle,
 Sunny, and GLMNet suites are separate environments that carry the heavy/optional
 dependency (a pinned Magesty.jl / Sunny / GLMNet) the core deliberately omits.
+
+**The integration tier (`test/integration/`, own CI job) is not more unit tests.**
+Every unit file gates one stage against one hand-built fixture; nothing gated the
+*combination* on a crystal with a name, and that is how the last several real
+defects were found ([[feedback-concrete-system-bug-hunting]] in spirit: one real
+system, end to end). It walks bcc Fe (conventional **and** 2×2×2), B2 FeRh, hcp Co,
+wurtzite GaN and rocksalt MnO through build → data → ASR → fit → recovery → every
+deliverable → persistence, and declares a **coverage matrix**: per row, which of
+the 17 columns run and — with a reason in the file — which do not. The driver
+refuses a row that leaves a column unaccounted for and refuses to report success if
+a declared column never executed. It needs Spglib, which is precisely why it is not
+in `Pkg.test()`: the core suite must never depend on a symmetry backend, and here a
+hand-assembled group would defeat the purpose (Spglib is the tier's *independent*
+oracle for the space group). Adding a column means adding it to `COLUMNS`, to
+`CHECKS`, and to every row's `runs` or `skips` — that is the point.
 
 **Run the core suite with `-t N>1`.** CI pins `JULIA_NUM_THREADS: 4` for exactly
 this reason: the threaded-vs-serial gates (`test_threading.jl` for the pure-spin

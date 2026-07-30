@@ -6,6 +6,50 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — an integration tier: the whole pipeline, on crystals with names
+
+`test/integration/` (own environment, own CI job) walks six named real crystals from
+`Crystal` to a persisted model and back: build → data → ASR → fit → recovery → force
+constants / phonons / effective model / `restrict` / strain / magnetoelastic /
+published terms → persistence. The rows are bcc Fe in its conventional cell **and**
+in a 2×2×2 tiling of it, B2 FeRh, hcp Co, wurtzite GaN, and rocksalt MnO; each is
+there for a structural feature that changes which code path fires, not for another
+cell shape.
+
+This is not more unit tests. Every unit file gates one stage against one hand-built
+fixture, and nothing gated the *combination* on a real system — which is how the
+last several real defects in this package were found. It needs Spglib, which is
+exactly why it is outside `Pkg.test()`: the core suite must never depend on a
+symmetry backend, and a hand-assembled group would defeat the tier's purpose
+(Spglib is its independent oracle for the space group).
+
+The tier declares a **coverage matrix** — per row, which of the 17 columns run and,
+with a reason in the file, which do not. The driver refuses a row that leaves a
+column unaccounted for, and refuses to report success if a declared column never
+executed. Every column's oracle is independent of the path it checks: the
+International Tables, the crystal's own space group (`E(g·config) = E(config)`),
+central differences of `predict_energy` and of `affine_energy`, bitwise round trips,
+and the reparameterization's own ledger `m = q + rank + frozen`.
+
+Three things it measured on its first runs, each of which had been assumed the other
+way while writing it:
+
+- **The freeze is the norm at minimal cell size, not an edge case.** bcc Fe freezes
+  14 of its 22 joint columns, B2 FeRh 35 of 46, hcp Co 40 of 57, wurtzite GaN 15 of
+  35. A primitive cell has one atom per orbit, so any coordination shell with
+  multiplicity greater than one reaches the same atom through several images. The
+  2×2×2 tiling of bcc Fe has the *same 22 columns* and freezes none of them, going
+  from 4 free parameters to 10.
+- **`asr = false` is not a control by itself.** Refitting centre-of-mass-free data
+  whose target came from a feasible model returns the same coefficients either way
+  (3e-15) — the constraint only bites when the data pull away from it. The tier now
+  builds a deliberately violating truth, and separately lets the sample drift, which
+  is what makes the violation observable in every row.
+- **What the sum rule costs is a property of the row**, ranging from machine
+  precision on the heavily frozen cells to 0.69 on the tie-free ones: with
+  `Σ_a u_a = 0` the energy block barely sees the violating content while the force
+  block does.
+
 ### Fixed — a basis with no columns was fitted as an intercept
 
 `SLCEDataset` accepted a basis with **zero** SALC columns. Everything downstream then

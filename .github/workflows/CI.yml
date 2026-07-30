@@ -70,6 +70,31 @@ jobs:
         env:
           JULIA_NUM_THREADS: "4"
 
+  integration:
+    name: integration tier — whole pipeline on real crystals
+    runs-on: ubuntu-latest
+    steps:
+      # Whole-pipeline passes on six named crystals (test/integration/README.md).
+      # It carries its own environment because it needs Spglib, and `Pkg.test()`
+      # must never depend on a symmetry backend — the unit fixtures assemble their
+      # space groups by hand for exactly that reason. Here a hand-assembled group
+      # would defeat the purpose: the tier is about the path a user takes, and
+      # Spglib is an independent implementation of the one thing those fixtures
+      # would otherwise assert about themselves.
+      #
+      # This job is not a duplicate of the unit suite. It is the tier that found a
+      # zero-column basis being fitted as an intercept, and it is where a defect
+      # that only appears when the STAGES are composed will show up first.
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.12"
+      - uses: julia-actions/cache@v2
+      - name: Instantiate the integration environment
+        run: julia --project=test/integration -e 'using Pkg; Pkg.instantiate()'
+      - name: Run the integration tier
+        run: julia --project=test/integration test/integration/runtests.jl
+
   phonopy:
     name: phonopy export — convention gate
     runs-on: ubuntu-latest

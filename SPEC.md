@@ -1034,6 +1034,29 @@ capability consumed by both the introspection and the Sunny interop.
   ALAMODE `MODE = suggest` equivalent, is also unimplemented), and how they are
   crossed with the spin configurations.
 
+## Integration tier (`test/integration/`)
+
+A separate Julia env (`[sources]`-deving `SLCE`, plus Spglib) that runs the **whole
+pipeline on named real crystals**: build → data → ASR → fit → recovery → force
+constants / phonons / effective model / restrict / strain / magnetoelastic /
+published terms → persistence. Six rows — bcc Fe in its conventional cell and in a
+2×2×2 tiling of it, B2 FeRh, hcp Co, wurtzite GaN, rocksalt MnO — each chosen for a
+structural feature that changes which code path fires, and seventeen columns whose
+oracles are independent of the path they check (the International Tables; the
+crystal's own space group; central differences of `predict_energy` and of
+`affine_energy`; bitwise round trips; the reparameterization's own ledger
+`m = q + rank + frozen`).
+
+The tier declares a **coverage matrix**: `roster.jl` lists, per row, the columns
+that run and the reason for each that does not, and the driver refuses both an
+unaccounted-for column and a declared column that never executed. It is a CI job of
+its own and is deliberately outside `Pkg.test()` — the core suite must not depend on
+a symmetry backend. Run:
+`julia --project=test/integration test/integration/runtests.jl`. See
+`test/integration/README.md` for the roster, the column/oracle table, and the facts
+it measured (the freeze is the norm in minimal cells; what the sum rule costs is a
+property of the row).
+
 ## Oracle environment (`test/oracle/`)
 
 A separate Julia env (`[sources]`-deving both `SLCE` and a pinned
