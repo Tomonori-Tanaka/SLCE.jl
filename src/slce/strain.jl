@@ -279,9 +279,14 @@ function _check_strain_origin(model::SLCEModel, e::Matrix{Float64}, n::Int,
         "image, so the per-cell energy picks up a piece linear in the cell's position. " *
         "Fix the crystal DESCRIPTION, not the fit — choose fractional coordinates whose " *
         "home images are the ones the clusters use (for a dimer chain, the bonded " *
-        "partner rather than its far image). `order = 1` is unaffected and needs no such " *
-        "choice. Pass `check_origin = false` to see the origin-dependent number anyway, " *
-        "for diagnosis only."))
+        "partner rather than its far image), OR describe the crystal with a larger cell. " *
+        "The second option is not a fallback: in a small primitive cell there may be NO " *
+        "such choice — in wurtzite each cation bonds to three distinct images of the same " *
+        "anion, so no assignment of fractional coordinates makes every bonded partner a " *
+        "home image, and the ε² tier is out of reach until the cell is enlarged. " *
+        "`order = 1` is unaffected and needs no such choice. Pass " *
+        "`check_origin = false` to see the origin-dependent number anyway, for diagnosis " *
+        "only."))
 end
 
 # The same trap `_warn_spin_blind` catches for the force constants, one order lower and

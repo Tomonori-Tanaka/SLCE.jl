@@ -87,8 +87,14 @@ using Random
         @test occursin("⋮ ($(m - 20) more)", s)          # truncation count
         one = repr(c)
         @test occursin("$m terms", one) && occursin("j0=", one)
-        # a short table prints no truncation marker
-        short = coeftable(SLCEModel(basis, 0.0, zeros(m)[1:1], basis.salc_basis.keys[1:1]))
+        # a short table prints no truncation marker. Built on a genuinely SMALL basis: the
+        # old fixture handed `SLCEModel` a 1-element `jphi` against this 44-column basis,
+        # which the constructor now refuses — a model whose coefficient count disagrees
+        # with its basis silently answers about a prefix of it.
+        bshort = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
+                                              soc = false))
+        @test n_salcs(bshort) <= 20                       # short enough to print in full
+        short = coeftable(SLCEModel(bshort, 0.0, zeros(n_salcs(bshort))))
         @test !occursin("more", sprint(show, MIME("text/plain"), short))
     end
 

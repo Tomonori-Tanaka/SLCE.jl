@@ -219,6 +219,15 @@ function BasisSpec(labels::AbstractVector{<:AbstractString} = String[];
                                  "degree cap; 0 clamps a species)")) :
              zeros(Int, nkd)) :
         _resolve_species_table(pmax, nkd, lv, "pmax")
+    # The dense form refuses `pmax > 0` with no displacement content; the sugar form used to
+    # accept it, and the cap then advertised a channel nothing could build — `_basis_has_disp`
+    # read `true` off it, so `predict_energy(model, e)` demanded a displacement field, the
+    # datum reader demanded a `reference_id`, and `spin_multipole_terms` refused the model,
+    # all for a declared-but-unreachable degree. Reject it at the same boundary the dense
+    # form does, so the two agree on what a spec may say.
+    has_disp_content || all(iszero, pmax_v) || throw(ArgumentError(
+        "pmax = $pmax caps a displacement degree, but no sector in the table carries " *
+        "displacement content — add `disp = (degree = ...)` to a sector, or drop `pmax`"))
     maxdeg = maximum(r.disp_degree[2] for r in rules; init = 0)
     if maxdeg > 0 && isodd(maxdeg)
         @warn "the maximum total displacement degree $maxdeg is odd: the leading " *
@@ -507,6 +516,17 @@ struct SLCEDataset
         (size(X_E, 1) == nc && length(y_E) == nc) ||
             throw(DimensionMismatch("X_E/y_E rows ($(size(X_E, 1))/$(length(y_E))) " *
                                     "≠ number of configs $nc"))
+        # The energy and torque blocks are FULL-WIDTH (only `X_F` is stored compact), and
+        # the width has to be checked here because `_assemble_problem` reads the design
+        # width off `dataset.X_E` — a narrower block then yields a `jphi` shorter than the
+        # basis and every readout silently answers about a prefix of it. The compact force
+        # block was validated from the start; these two were not.
+        size(X_E, 2) == n_salcs(basis) ||
+            throw(DimensionMismatch("X_E has $(size(X_E, 2)) columns for " *
+                                    "$(n_salcs(basis)) SALC basis functions"))
+        isempty(y_T) || size(X_T, 2) == n_salcs(basis) ||
+            throw(DimensionMismatch("X_T has $(size(X_T, 2)) columns for " *
+                                    "$(n_salcs(basis)) SALC basis functions"))
         (size(X_T, 1) == length(y_T) == length(torque_config)) ||
             throw(DimensionMismatch("X_T rows $(size(X_T, 1)), y_T length " *
                                     "$(length(y_T)), torque_config length " *
@@ -856,6 +876,10 @@ function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::Abstra
                    provenance::DatumProvenance = DatumProvenance())::SLCEDataset
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
+    # Same refusal as the 4- and 5-argument forms. An empty dataset is unfittable (`fit`
+    # raises "dataset has no observations") and `d[:]` raises "empty configuration
+    # selection", so accepting it here only moved the error away from the mistake.
+    isempty(configs) && throw(ArgumentError("no configurations given"))
     _require_pure_spin_basis(basis)
     cfgs = [Matrix{Float64}(c) for c in configs]
     _validate_configs(basis, cfgs; atol = atol)
@@ -921,6 +945,25 @@ struct SLCEModel
     j0::Float64
     jphi::Vector{Float64}
     keys::Vector{SALCKey}
+
+    # THE WIDTH IS CHECKED HERE, not only in the 3-argument method, because the readouts
+    # loop `eachindex(model.jphi)` against `salcs(basis)`: a SHORT `jphi` silently evaluates
+    # a PREFIX of the basis, in `predict_energy`, `decorated_terms`, `force_constants`,
+    # `effective_model` and the persisted document alike, and only `coeftable` (which
+    # compares against `keys`) notices. `SLCEModel(f::SLCEFit)` reaches this constructor
+    # directly, so a dataset whose design was narrower than its basis used to produce a
+    # model that answered every question about the wrong number of SALCs. A LONG `jphi`
+    # merely threw a `BoundsError` somewhere downstream; it is the short case that was
+    # silent, which is why the equality is checked and not a bound.
+    function SLCEModel(basis::SLCEBasis, j0::Float64, jphi::Vector{Float64},
+                       keys::Vector{SALCKey})
+        length(jphi) == n_salcs(basis) || throw(DimensionMismatch(
+            "jphi has $(length(jphi)) coefficients for $(n_salcs(basis)) SALC basis " *
+            "functions"))
+        length(keys) == length(jphi) || throw(DimensionMismatch(
+            "keys has $(length(keys)) entries for $(length(jphi)) coefficients"))
+        return new(basis, j0, jphi, keys)
+    end
 end
 
 """

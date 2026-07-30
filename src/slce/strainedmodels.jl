@@ -441,7 +441,13 @@ end
 # `R_cart = A R_frac A⁻¹` is invariant under `A → sA`, so the space group is the same
 # object, and the SALC members and folded tensors are angular/combinatorial.
 function _scaled_basis(basis::SLCEBasis, s::Real)::SLCEBasis
-    s ≈ 1 && return basis
+    # EXACTLY one, not `≈ 1`. The honest test for "no surgery needed" is equality: `isapprox`
+    # at its default `rtol = √eps ≈ 1.5e-8` silently returned the REFERENCE cell — and the
+    # reference cutoff surfaces — for a requested scale up to ~1e-8 away, which then reached
+    # `strain_derivatives`' absolute site positions and `magnetoelastic_constants`' volume.
+    # The grid's own bookkeeping is exact (`s / sm.scales[1]`), so there is nothing to
+    # tolerate here.
+    s == 1 && return basis
     cr = basis.crystal
     cr2 = Crystal(Lattice(s .* cr.lattice.vectors; pbc = Tuple(cr.lattice.pbc)),
                   cr.frac_positions, cr.species, cr.species_labels)

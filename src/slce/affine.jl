@@ -42,10 +42,25 @@ affine_energy(model, e, zeros(3, 3); base = u) == predict_energy(model, e, u)
 ```
 
 The `origin` shifts the field by the constant `−M·origin`, i.e. by a rigid
-translation, so on a model that satisfies the acoustic sum rule
-(`asr_residual(model) ≈ 0`) the result does not depend on it. That independence is
-a *test* of the ASR, not an assumption: on an unconstrained model the origin moves
-the answer.
+translation, so **to first order in `M`** the acoustic sum rule
+(`asr_residual(model) ≈ 0`) makes the result independent of it.
+
+!!! warning "Beyond first order the origin does move the answer, on real crystals by O(1)"
+    The ASR is an identity in the ATOM variables, i.e. on cell-periodic fields, and at
+    `M = 0` the affine field is cell-periodic. One order out it is not, and the per-SITE
+    identity that would be needed is not implied — the gap is the home-image gauge
+    [`strain_derivatives`](@ref) measures on every `order ≥ 2` call. Measured on
+    ASR-clean models at `‖M‖ ~ 0.01`, the relative spread of `affine_energy` over four
+    origins is **1.08 on wurtzite GaN, 1.69 on rocksalt MgO and 1.04 on B2 FeRh**, and on
+    MgO the rigid-rotation energy changes sign with the origin.
+
+    So origin independence is a *test* of the ASR only in the linear regime, and a
+    dimer whose bond lies inside the cell (the test-suite fixture) is not representative.
+    Anything that reads this at finite `M` — [`rotational_residual`](@ref) especially —
+    must treat `origin` as part of the question, not as a detail: a small residual at one
+    origin is not a statement about the model. The fix is the crystal DESCRIPTION, the
+    same one `strain_derivatives` names: fractional coordinates whose home images are the
+    ones the clusters use.
 
 Intended uses are diagnostics — [`rotational_residual`](@ref) is built on this — and
 strain response. It is not a fitting path: the strain channel is not a model
@@ -219,7 +234,17 @@ channel (`𝓡_U E = −𝓡_S E`) instead of vanishing, and a nonzero value her
 transfer rather than an error. [`rotation_transfer_residual`](@ref) is the statement
 that holds in both cases.
 
-**Two traps when reading the number.** A truncated model is never *exactly*
+**The `origin` is part of the question, not a detail.** Because the measurement is at
+finite `ω`, the ASR does *not* make it origin-independent (see the warning in
+[`affine_energy`](@ref)): the same ASR-clean model on wurtzite GaN reads `5.5e-16` at the
+default origin and `1.27` about `(7, −3, 2.5)` — "perfectly invariant" against "as bad as
+possible" — and the rotation about that second origin genuinely costs `ΔE = 0.425`, so the
+default-origin value is a **false negative**. Measured spreads on rocksalt MgO
+(`0.415 … 0.756`) and B2 FeRh (`1.000 … 0.355`) run in both directions. Report the value
+with its origin, or scan a few and read the largest; a single default-origin number is not
+a property of the model.
+
+**Two further traps when reading the number.** A truncated model is never *exactly*
 invariant — the rotational condition ties order `n` to order `n + 1` — so a fit to a
 genuinely invariant potential lands on a residual that **vanishes with `ω`** rather
 than on zero (measured `~10⁻³` and falling, against `~1.7` and flat for a random

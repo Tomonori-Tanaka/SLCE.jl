@@ -167,7 +167,48 @@ _me_strain(rng, s = 0.1) = (S = s * randn(rng, 3, 3); (S + transpose(S)) / 2)
         # the clamped-ion qualifier rides in the return value, so `result.B2` cannot be
         # quoted without it (design record §7)
         @test got.ion === :clamped
-        @test propertynames(got) == (:B1, :B2, :ion, :residual, :volume)
+        @test propertynames(got) == (:B1, :B2, :ion, :residual, :signal, :volume)
+        @test got.signal > 1e-6                     # a live projection, not an empty one
+    end
+
+    # An EMPTY problem must not score as a perfect one. When the whole ε-linear tier is
+    # frozen out by the boundary tie — the generic case on a standard cell of a cubic
+    # magnet — `resid / ‖dev‖` is 0/0, and reporting `0.0` would be the best possible
+    # value beside `B₁ = B₂ = 0`, indistinguishable from a determined answer. The oracle is
+    # the frozen set itself (`unresolvable_columns`, an independent classifier) plus the
+    # closed-form fact that a model with no ε-linear content has no response to project.
+    @testset "an absent tier reports NaN, not a perfect residual" begin
+        # B2 FeRh in its standard cubic cell: the Fe–Rh pair reaches all eight body
+        # corners at once, so the ε-linear tier — odd under exchanging a bond's two ends —
+        # is annihilated. The model below is a GENERIC ASR-feasible one, so the zero
+        # response comes from the freeze and not from a zero coefficient vector.
+        cr = Crystal(Lattice(Matrix(2.99 * I(3))), [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 2],
+                     ["Fe", "Rh"])
+        rots = oh48_matrices()
+        sg = _assemble_spacegroup(cr, rots,
+                                  [SVector{3,Float64}(0, 0, 0) for _ in rots],
+                                  "Pm-3m", 0; tol = 1e-6)
+        rcut = 2.7                       # the 1NN Fe–Rh distance is √3/2 · 2.99 = 2.589
+        spec = BasisSpec(cr; lmax = 2, pmax = 2, sectors = [
+            Sector(spin = (sites = 1:2,), cutoff = rcut),
+            Sector(spin = [1, 1], disp = (degree = 1,), sites = 2, cutoff = rcut),
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = rcut)])
+        nl = build_neighbor_list(cr, rcut)
+        cs = build_clusters(cr, nl, sg; nbody = 2)
+        sb = build_salc_basis(cr, sg, cs, spec; neighbors = nl)
+        basis = SLCEBasis(cr, sg, sb, spec)
+        elin = [j for (j, s) in enumerate(salcs(basis))
+                if any(has_disp, s.key.decors) && any(has_spin, s.key.decors)]
+        @test !isempty(elin)                        # the fixture HAS an ε-linear tier ...
+        @test elin ⊆ unresolvable_columns(basis)    # ... and this cell resolves none of it
+        model = _me_model(MersenneTwister(0x0b2), basis)
+        @test all(==(0.0), model.jphi[elin])        # frozen, exactly
+        @test any(!=(0.0), model.jphi)              # but the model is not the zero vector
+        got = @test_logs((:warn, r"NO magnetization-dependent"), match_mode = :any,
+                         magnetoelastic_constants(model))
+        @test isnan(got.residual)                   # 0/0 is undefined, never 0.0
+        @test got.B1 == 0.0 && abs(got.B2) == 0.0
+        @test got.signal < 1e-12
     end
 
     @testset "the convention itself: shear factor, range, trace, sign" begin

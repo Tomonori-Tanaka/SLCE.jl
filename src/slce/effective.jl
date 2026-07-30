@@ -333,6 +333,7 @@ end
 
 """
     predict_energy(em::EffectiveModel, e, du) -> Float64
+    predict_energy(em::EffectiveModel, ::Nothing, du) -> Float64
 
 Energy of the effective model at spin configuration `e` (`3 × n_atoms`, unit columns)
 and INCREMENTAL displacement `du` (`3 × n_atoms`, Cartesian), measured from the
@@ -341,6 +342,12 @@ displaced reference `R + em.u0`.
 By construction this equals `predict_energy(model, e, em.u0 .+ du)` for the model the
 effective one came from. Note that `du = 0` is the `u0`-frozen point, not the
 clamped-ion one.
+
+`e = nothing` is the lattice-only entry, matching
+[`predict_energy(model, nothing, u)`](@ref predict_energy): it is accepted exactly when no
+term carries a spin factor, so a lattice-only effective model does not have to be handed a
+fabricated `3 × n_atoms` matrix. It refuses on a spin-carrying one rather than assuming a
+direction.
 """
 function predict_energy(em::EffectiveModel, e::AbstractMatrix{<:Real},
                         du::AbstractMatrix{<:Real})::Float64
@@ -366,4 +373,16 @@ function predict_energy(em::EffectiveModel, e::AbstractMatrix{<:Real},
         total += w
     end
     return total
+end
+
+function predict_energy(em::EffectiveModel, ::Nothing,
+                        du::AbstractMatrix{<:Real})::Float64
+    any(t -> !isempty(t.spins), em.terms) && throw(ArgumentError(
+        "this effective model carries spin factors — pass the spin configuration: " *
+        "predict_energy(em, e, du). `nothing` is the lattice-only entry, and " *
+        "substituting a fabricated direction would hide forgotten magnetic data"))
+    nat = n_atoms(em.crystal)
+    size(du) == (3, nat) || throw(DimensionMismatch(
+        "displacement increment du is $(size(du)); expected (3, $nat)"))
+    return predict_energy(em, zeros(3, nat), du)
 end

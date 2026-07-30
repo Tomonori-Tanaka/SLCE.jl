@@ -830,13 +830,21 @@ end
 # Shortest interatomic distance of the reference crystal under periodic images
 # (shifts in [-1, 1]³ — adequate for the mildly skewed cells the guard serves;
 # includes the self-image case, i.e. the shortest lattice translation).
+#
+# Non-periodic axes emit no shift, like everywhere else in the geometry layer: a slab given
+# a short placeholder vector along its vacuum axis has no image there, and counting one
+# invents a shorter "interatomic distance" and a correspondingly too-small warning threshold.
 function _min_reference_distance(crystal::Crystal)::Float64
     A = crystal.lattice.vectors
+    pbc = crystal.lattice.pbc
     nat = n_atoms(crystal)
+    r1 = pbc[1] ? (-1:1) : (0:0)
+    r2 = pbc[2] ? (-1:1) : (0:0)
+    r3 = pbc[3] ? (-1:1) : (0:0)
     dmin = Inf
     for a = 1:nat, b = a:nat
         df = crystal.frac_positions[:, b] .- crystal.frac_positions[:, a]
-        for s1 = -1:1, s2 = -1:1, s3 = -1:1
+        for s1 in r1, s2 in r2, s3 in r3
             (a == b && s1 == 0 && s2 == 0 && s3 == 0) && continue
             d = norm(A * (df .+ SVector{3,Float64}(s1, s2, s3)))
             d < dmin && (dmin = d)
@@ -853,7 +861,11 @@ end
 # probe large amplitudes.
 function _check_displacement_radius(crystal::Crystal,
                                     disps::Vector{Matrix{Float64}})
-    thr = 0.5 * _min_reference_distance(crystal)       # finite: self-images always counted
+    # Finite whenever a distance exists at all: a periodic axis contributes its own lattice
+    # translation as a self-image. The one exception is a single atom with no periodic axis
+    # — nothing to be closer than — and there the guard simply has no threshold to apply.
+    thr = 0.5 * _min_reference_distance(crystal)
+    isfinite(thr) || return nothing
     umax = 0.0
     iworst = 0
     for (i, u) in enumerate(disps)

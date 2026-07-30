@@ -49,6 +49,15 @@ Number of `(l, m)` pairs with `l ≤ lmax`, i.e. `(lmax + 1)²`.
 @inline _parity(n::Integer)::Int = isodd(n) ? -1 : 1
 
 # √((2l+1)/(4π) · (l−m)!/(l+m)!) for m ≥ 0, formed without large factorials.
+#
+# UNDEFINED FOR m > l, and loudly so: the loop range then straddles zero, the accumulator is
+# divided by 0, and the `Inf` meets `dnPl`'s exact 0 to give **NaN** rather than 0. That is
+# deliberate — the `_unsafe` kernels are the hot path and carry no branch — but it means a
+# caller that loops `m` over a table wider than `2l + 1` poisons a whole accumulation
+# instead of adding nothing. Every in-tree and downstream caller uses `m = -l:l`; the
+# checked entries (`Zlm` / `grad_Zlm`) throw. Do not "fix" this by returning 0.0: a silent
+# zero would turn an indexing bug into a plausible number, which is the trade this package
+# refuses everywhere else.
 @inline function _plm_norm(l::Int, m::Int)::Float64
     acc = (2 * l + 1) / (4π)
     @inbounds for i = (l - m + 1):(l + m)
@@ -91,6 +100,13 @@ Tesseral harmonic `Zₗₘ(u)` for a unit vector `u`, without input validation.
 Passing `cache` (a `Vector{Float64}` of length ≥ `l + 1`, contents irrelevant)
 reuses it as the associated-Legendre recursion workspace, making the call
 allocation-free; the returned value is identical with or without it.
+
+!!! warning "Preconditions: `l ≥ 0`, `|m| ≤ l`, `‖u‖ = 1` — outside them the value is junk"
+    "Without input validation" means the preconditions are the caller's, not that the
+    result is defined without them. In particular `|m| > l` returns **`NaN`** (the
+    normalization divides by zero), so a caller looping `m` over a table wider than
+    `2l + 1` poisons its whole accumulation rather than adding nothing. Use the checked
+    [`Zlm`](@ref) when the indices are not yours to guarantee.
 """
 @inline function Zlm_unsafe(l::Integer, m::Integer, u::AbstractVector{<:Real},
                             cache::Vector{Float64})::Float64

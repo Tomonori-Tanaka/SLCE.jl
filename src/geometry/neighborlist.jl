@@ -115,12 +115,27 @@ against `cutoff[species[i], species[j]]`, with `Inf` = no cutoff for that pair
 (`MinimumImage` only) and `0` excluding it. The stored `NeighborList.cutoff` is
 the largest radius the list was built with.
 """
+# `search` is accepted for signature parity with the `MinimumImage` methods and REFUSED
+# when set: the AllImages image box is derived from the cutoff (`ceil(cutoff·‖b_d‖)`, exactly
+# tight), so there is nothing for it to widen. Silently ignoring it left a numerical knob
+# inert — a caller who raised `search` to widen a suspect scan and then switched `selection`
+# got no effect and no word about it.
 build_neighbor_list(crystal::Crystal, cutoff::Real, ::AllImages;
                     tol::Real = _SAME_DIST_RTOL, search::Integer = 2)::NeighborList =
     (isfinite(cutoff) ||
          throw(ArgumentError("AllImages needs a finite cutoff; got $cutoff " *
                              "(use MinimumImage for the full Wigner–Seitz cell)"));
+     _reject_allimages_search(search);
      build_neighbor_list(crystal, cutoff; tol = tol))
+
+function _reject_allimages_search(search::Integer)
+    search == 2 || throw(ArgumentError(
+        "`search` has no meaning for AllImages: its image box is derived from the cutoff " *
+        "(ceil(cutoff·‖bᵈ‖), exactly tight), so there is no scan to widen. Drop the " *
+        "keyword, or pass MinimumImage if the adaptive minimum-image search is what you " *
+        "meant to control"))
+    return nothing
+end
 
 # Shared validation for the per-species-pair matrix methods.
 function _check_cutoff_matrix(crystal::Crystal, M::AbstractMatrix{<:Real})
@@ -140,6 +155,7 @@ function build_neighbor_list(crystal::Crystal, cutoff::AbstractMatrix{<:Real},
     all(isfinite, cutoff) ||
         throw(ArgumentError("AllImages needs finite cutoffs; the matrix has Inf " *
                             "entries (use MinimumImage for the full Wigner–Seitz cell)"))
+    _reject_allimages_search(search)
     return _build_nl_allimages(crystal, Float64.(cutoff), Float64(tol))
 end
 

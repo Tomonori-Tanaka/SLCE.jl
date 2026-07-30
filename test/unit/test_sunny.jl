@@ -98,7 +98,12 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         lat = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
         cr = Crystal(lat, [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75], [1, 1, 1, 1], ["Fe"])
         b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], soc = false))
-        model = SLCEModel(b, 0.0, [0.0137], b.salc_basis.keys)
+        # only the first SALC is populated, and it is spelled out as a FULL-WIDTH vector:
+        # `[0.0137]` used to work by relying on a short `jphi` truncating the evaluation,
+        # which is the silent-prefix hazard the `SLCEModel` constructor now refuses.
+        jphi = zeros(n_salcs(b))
+        jphi[1] = 0.0137
+        model = SLCEModel(b, 0.0, jphi, b.salc_basis.keys)
         terms = _bilinear_terms(model)
         for (_, M) in terms.pairs
             @test isapprox(M, (M[1, 1]) * I; atol = 1e-12)   # diagonal isotropic

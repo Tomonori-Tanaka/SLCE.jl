@@ -176,8 +176,18 @@ function build_clusters(crystal::Crystal, neighbors::NeighborList, spacegroup::S
             idxs = Int[]
             for s in orbit_sigs
                 push!(assigned, s)
-                v = get(sig2members, s, nothing)        # closure ⇒ present; guard anyway
-                v === nothing || append!(idxs, v)
+                # The candidate list is closed under the space group, so every image of a
+                # candidate IS a candidate. Assert it instead of skipping: a missing image
+                # would leave the orbit short — a biased design column whose orbit sum omits
+                # cluster instances — and `assigned` has already swallowed the signature, so
+                # it would never reappear as an orbit of its own. Either the invariant holds
+                # (no cost) or it is violated (must be loud).
+                haskey(sig2members, s) || error(
+                    "cluster enumeration is not closed under the space group: the image " *
+                    "$s of a candidate cluster is not itself a candidate. The orbit would " *
+                    "be built short, silently biasing its design column — check the image " *
+                    "selection and the tie tolerance rather than proceeding")
+                append!(idxs, sig2members[s])
             end
             sort!(idxs)
             ms = ClusterMember[members[j] for j in idxs]

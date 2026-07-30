@@ -308,7 +308,17 @@ end
 function _lattice_spec(spec::BasisSpec)::BasisSpec
     rules = SectorRule[r for r in spec.sector_rules
                        if r.spin_mode === :none && r.disp_degree[2] > 0]
-    return BasisSpec(spec.nbody, zeros(Int, length(spec.lmax)), spec.pmax, spec.lsum,
+    # No spin-FREE displacement sector means the lattice sub-model has no displacement
+    # content either (spin-free SALCs come only from `spin_mode === :none` rows), so `pmax`
+    # must be zeroed along with the rules. Keeping the cap while dropping every rule made
+    # the `BasisSpec` constructor refuse its own dense form — "pmax > 0 needs a sector
+    # table with displacement content" — which named a keyword the caller had passed and
+    # made `restrict(model, :lattice)` unusable on exactly the minimal magnetoelastic spec
+    # (`Sector(spin = [1,1], disp = (degree = 1,))` alone). The empty lattice sub-model is
+    # the right answer there; `restrict(model, :spin)` already returns its empty
+    # counterpart without complaint.
+    pmax = isempty(rules) ? zeros(Int, length(spec.pmax)) : spec.pmax
+    return BasisSpec(spec.nbody, zeros(Int, length(spec.lmax)), pmax, spec.lsum,
                      spec.cutoff, spec.soc, rules, spec.disp_scale,
                      spec.species_labels)
 end

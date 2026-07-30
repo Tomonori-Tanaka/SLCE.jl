@@ -62,6 +62,12 @@ const _ME_COMPONENTS = ((1, 1), (2, 2), (3, 3), (1, 2), (1, 3), (2, 3))
 # magnetoelastic signal itself, and anything larger is structure, not roundoff.
 const _ME_RESIDUAL_TOL = 1e-6
 
+# Below this fraction of the response scale there is no magnetization-dependent signal to
+# project, so `residual` is `NaN` rather than the flattering `0.0` a 0/0 produces. Relative
+# to `max(‖y‖, ‖dev‖)` because a reference stress can dwarf the magnetoelastic part; at
+# 1e-12 the surviving signal would be roundoff on that scale either way.
+const _ME_SIGNAL_RTOL = 1e-12
+
 function _me_signs(model::SLCEModel,
                    signs::Union{AbstractVector{<:Real},Nothing})::Vector{Float64}
     nat = n_atoms(model.basis.crystal)
@@ -77,7 +83,7 @@ end
 
 """
     magnetoelastic_constants(model::SLCEModel; signs = nothing, tol = 1e-6)
-        -> (; B1, B2, ion, residual, volume)
+        -> (; B1, B2, ion, residual, signal, volume)
 
 The **cubic magnetoelastic constants** of `model`, in the pinned convention
 
@@ -120,6 +126,20 @@ magnetoelastic content that is *not* of the two-constant cubic form. It is small
 a cubic crystal whose spin content stops at `l = 2`; a warning fires above `tol`, and
 `B₁`/`B₂` are then the projection of something else onto this form, which is a summary
 and not a decomposition.
+
+`signal` is the norm of that α-dependent part, i.e. the size of what was projected.
+
+!!! warning "`B₁ = B₂ = 0` with `residual = NaN` means ABSENT, not determined"
+    On a standard cell of a cubic magnet the whole ε-linear tier is usually **frozen**: it
+    is odd under exchanging a bond's two ends, and the Wigner–Seitz boundary tie annihilates
+    exactly that (measured on B2 FeRh, rocksalt MnO and L1₀ FePt — every ε-linear column
+    gone). There is then nothing to project, so `residual` would be `0/0`; reporting `0.0`
+    there would be the *best* possible score for an empty problem. The degenerate case
+    therefore returns `residual = NaN`, `signal ≈ 0`, and warns. `B₁ = B₂ = 0` is an
+    absence of representable content on **this cell**, not a statement that the crystal has
+    no magnetoelastic coupling. The remedy is a cell in which the offending pair's minimum
+    image is unique — see
+    [Periodic resolvability](@ref "Periodic resolvability") — never a wider cutoff.
 
 # Arguments
 
@@ -177,7 +197,34 @@ function magnetoelastic_constants(model::SLCEModel;
         rows = c:nc:(nd * nc)
         dev[rows] .-= sum(@view dev[rows]) / nd
     end
-    residual = resid / max(norm(dev), eps())
+    # AN EMPTY PROBLEM IS NOT A GOOD FIT. `resid / max(‖dev‖, eps())` sends a model with no
+    # magnetization-dependent ε-linear response at all to `residual = 0.0` — the BEST
+    # possible value, read as "the two-constant cubic form explains 100 % of it" — beside
+    # `B₁ = B₂ = 0`, which is indistinguishable from a determined answer. That is the
+    # generic outcome on a standard cell of a cubic magnet, because the whole ε-linear tier
+    # is odd under exchanging a bond's two ends and the boundary tie annihilates it:
+    # measured `(B₁, B₂, residual) = (0, -0, 0)` with EVERY ε-linear column frozen on B2
+    # FeRh, rocksalt MnO and L1₀ FePt. So the degenerate case reports `residual = NaN`
+    # (0/0 is undefined, not perfect), carries the projected signal magnitude in `signal`,
+    # and says out loud that zero here is an absence rather than a measurement.
+    signal = norm(dev)
+    ref = max(norm(y), signal)
+    if ref == 0.0 || signal <= _ME_SIGNAL_RTOL * ref
+        residual = NaN
+        @warn "magnetoelastic_constants: this model has NO magnetization-dependent " *
+              "ε-linear response on this cell (the projected signal is $signal against " *
+              "a response scale of $ref), so the returned B₁ = B₂ = 0 is an ABSENCE, " *
+              "not a measurement, and `residual` is NaN rather than 0. The usual cause " *
+              "is the Wigner-Seitz boundary tie: the ε-linear tier is odd under " *
+              "exchanging a bond's two ends, so a standard cell of a cubic magnet freezes " *
+              "all of it (`unresolvable_columns` lists the columns, the Periodic " *
+              "resolvability chapter has the remedy — a cell in which the minimum image " *
+              "is unique). The other cause is a sector table with no `spin` × " *
+              "`disp = (degree = 1,)` content at all."
+        return (; B1 = x[7] / V, B2 = x[8] / V, ion = :clamped, residual, signal,
+                volume = V)
+    end
+    residual = resid / signal
     if residual > tol
         # Deliberately NOT `maxlog`-limited: this reports a property of ONE model, and
         # `maxlog` silences a call site for the whole process — the second model in a
@@ -192,7 +239,7 @@ function magnetoelastic_constants(model::SLCEModel;
               "form is cubic-specific), spin content beyond l = 2, or a magnetic state " *
               "whose sublattices do not share one axis."
     end
-    return (; B1 = x[7] / V, B2 = x[8] / V, ion = :clamped, residual, volume = V)
+    return (; B1 = x[7] / V, B2 = x[8] / V, ion = :clamped, residual, signal, volume = V)
 end
 
 # ---------------------------------------------------------------------------------------
@@ -364,9 +411,17 @@ function _ex_derivatives(model::SLCEModel, o::SVector{3,Float64})
     ss = model.basis.salc_basis.salcs
     F2 = zeros(Float64, 3, 3, 3)                       # [m₁, m₂, γ] for the pair channel
     F1 = zeros(Float64, 5, 3)                          # [m,  γ]     for the single-ion one
+    # The coefficient filter sits INSIDE the term loop, below the `skipped`
+    # classification, and the order is load-bearing: `skipped` must be a property of the
+    # BASIS, never of one fit's values. With the filter hoisted above the loop, a model
+    # whose non-representable ε-linear channels happen to sit at exactly zero reported
+    # `skipped == []` — a false all-clear that `refit` or any reweighting undoes. Measured
+    # on a dimer basis with an `ls = [2,2] × degree = 1` sector: 150 channels reported
+    # against a random model, 0 against the same model with exactly those coefficients
+    # zeroed, while `bilinear_terms` (which pushes `skipped` before its own `scale == 0`
+    # filter, for this reason) still reported all 225.
     for k in eachindex(model.jphi)
         jphi = model.jphi[k]
-        jphi == 0.0 && continue
         salc = ss[k]
         weight = jphi * (4π)^(count(has_spin, salc.decors) / 2)
         reported = false
@@ -383,6 +438,7 @@ function _ex_derivatives(model::SLCEModel, o::SVector{3,Float64})
                     end
                     continue
                 end
+                jphi == 0.0 && continue         # see the note above the outer loop
                 kind, spin, id = cls
                 sd = t.slots[id].site
                 d = A * SVector{3,Float64}(frac[1, mem.atoms[sd]] + mem.shifts[sd][1],
