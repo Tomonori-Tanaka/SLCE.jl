@@ -41,10 +41,12 @@
 #      zero and is frozen at exactly zero. Equal weighting here is SYMMETRY, not a
 #      gauge, so the surviving even content is a determined coupling and stays.
 #  (b) the tied images sit in DIFFERENT orbits — no operation relates them, so each
-#      carries its own coupling. Every column is individually nonzero, but the two
-#      orbits are the SAME function of cell-periodic data (a design column depends on
-#      the atoms a member joins, never on which image it reached them through), so the
-#      data determine only the SUM. Nothing is zero and nothing cancels; a whole
+#      carries its own coupling. Every column is individually nonzero, and the columns
+#      of the two orbits are NOT equal either (a member's tensors carry its own bond
+#      geometry). What collapses is the SPAN: every member of either orbit reads its
+#      sites' displacements off the same reference-cell atoms, so the orbits span the
+#      SAME function space and the data determine only how much of that space is used
+#      in total, never how it divides. Nothing is zero and nothing cancels; a whole
 #      COMBINATION of columns is flat.
 #
 # Face (b) needs low symmetry — measured with real space groups, `nullity(S)` is
@@ -252,14 +254,22 @@ unique, so tied members join the same two reference-cell atoms — and it has tw
    coupling and is kept.
 2. **the whole interaction is dropped.** In low symmetry (P1, monoclinic) no operation
    relates the tied images, so they sit in *different* orbits with independent
-   couplings. Each column is nonzero, but a design column depends on which atoms a
-   member joins and never on which image it reached them through — so the two orbits are
-   the same function here and the data fix only the SUM. Splitting that sum has no
-   physical basis (the cell determines the pair only at `q = 0`, where both images carry
-   the same phase), so every column of every orbit sharing an atom multiset is frozen
-   instead of split. This discards the determined sum as well: the fit residual stops
-   being zero, deliberately, because a silent split would publish a dispersion the data
-   never constrained.
+   couplings. Each column is nonzero, and the columns of the two orbits are not equal to
+   each other either — a member's tensors carry its own bond geometry. What collapses is
+   the SPAN: every member of either orbit reads its sites' displacements off the same
+   reference-cell atoms, so the orbits span the same function space and the data fix only
+   how much of that space is used in total. Splitting that total has no physical basis
+   (the cell determines the pair only at `q = 0`, where both images carry the same
+   phase), so every column of every orbit sharing an atom multiset is frozen instead of
+   split. This discards the determined part as well: the fit residual stops being zero,
+   deliberately, because a silent split would publish a dispersion the data never
+   constrained.
+
+   The undetermined fraction is NOT "half" in general. It is `length(frozen) −
+   rank(S[:, frozen])`: for a `k`-fold tie whose images the point group fully separates
+   into `k` orbits it is `1 − 1/k` of the block, and under PARTIAL fusion faces 1 and 2
+   mix within one basis (measured on a four-fold tie under `{E, m_y}`: 8 vanishing plus
+   10 undetermined, true flat dimension 13).
 
 Either way the remedy is the same, and it is never a wider cutoff: describe the crystal
 with a cell in which that pair's minimum image *is* unique — break the tie in every
@@ -277,7 +287,28 @@ The classification is exact and deterministic — a symbolic expansion into a co
 monomial basis, not a numerical probe of the evaluator. A cheap structural pre-check
 (is any atom multiset reached twice — by two members of one orbit, or by two orbits?)
 rules the whole phenomenon out before that expansion runs, so a cell with unique minimum
-images pays nothing for asking.
+images pays nothing for asking. That pre-check is exact because a tie is NECESSARY, and
+the necessity is a proof rather than a measurement: under `MinimumImage` every edge sits
+at its atom pair's minimum image, so fixing site 1 at the origin fixes every other site's
+image uniquely as long as each of those minimum images is unique — one cluster per atom
+multiset, up to translation. Two orbits over one multiset therefore force some edge to
+have a second equidistant image.
+
+**At `N ≥ 3` the freeze protects CONGRUENT siblings only.** A tie produces several
+clusters over one atom multiset, and `candidate_clusters` admits a cluster only when all
+`C(N,2)` edges sit at their minimum image simultaneously (the compact-cluster criterion).
+Congruent siblings pass or fail that test together, so they are enumerated together and
+the freeze sees them. A NON-congruent sibling — same atom multiset, but reached through
+an image that puts one of its other edges on a longer shell — is rejected there, and the
+tie then leaves no trace at all: `_has_boundary_tie` returns `false` and nothing is
+frozen. That is not a hidden indeterminacy. The rejected cluster's coupling is absorbed
+by the admitted one exactly as a farther shell of a pair is, because a design column is a
+function of the cell-periodic field: measured on a P1 cell whose `(1,2)` edge is tied, a
+3-body degree-`(1,1,1)` sector spans the FULL trilinear space (rank 27 = 3³, identical
+span to an independently built basis of all 27 monomials), so nothing is unidentifiable
+and `identifiability` reports `nullity = 0`. What the aliasing costs is the `R` label:
+[`force_constants`](@ref) attributes the whole coupling to the admitted geometry, which
+matters when the cubic constants are exported and read as `Φ(R₁, R₂)`.
 """
 function unresolvable_columns(basis::SLCEBasis)::Vector{Int}
     # The refusal first, so it does not depend on whether the fast path fires.
@@ -338,9 +369,21 @@ The freeze, with the two reasons kept apart because their messages differ:
   justified. The whole interaction is dropped;
 - `columns` — what `fit` freezes, the union in ascending order;
 - `multisets` — the offending atom multisets, for the message;
-- `residual_flat` — flat directions LEFT after the freeze, computed only when face (b)
-  fires (that is the only case where orbit granularity can under- or over-shoot). A
-  nonzero value is reported rather than swallowed.
+- `residual_flat` — flat directions LEFT after the freeze, computed whenever the
+  expansion ran. A nonzero value is reported rather than swallowed.
+
+It used to be computed only when face (b) fired, on the argument that whole-orbit
+granularity is the only thing that can under- or over-shoot. That argument is sound and
+covers only ONE of the two routes to a leftover flat direction. The other needs no second
+orbit at all: two channels of a SINGLE orbit, each individually nonzero, can become
+dependent once the tie collapses their arguments. A per-column test cannot see that by
+construction, and under the old condition nothing else looked either — so the one
+diagnostic that could have caught it was switched off in exactly the case it was needed.
+No basis has yet produced a nonzero value (about 70 were tried: real crystals and
+hand-grouped fixtures, `N = 1..4`, degree ≤ 6, tie multiplicities 2/4/6/8, `frozen` equal
+to the sampled nullity every time), which is a reason to keep the check cheap, not a
+reason to skip it. `S` is already built by the time we get here and the rank costs about
+2 % of building it.
 """
 function _unresolvable_split(basis::SLCEBasis)
     orbits, multisets = _shared_multisets(basis)
@@ -360,8 +403,11 @@ function _unresolvable_split(basis::SLCEBasis)
                    [j for (j, s) in enumerate(salcs(basis))
                     if _orbit_of(s) in orbits && !(j in vset)]
     columns = sort!(vcat(vanishing, undetermined))
+    # NOT gated on `undetermined`: a leftover flat direction can also come from two
+    # channels of ONE orbit going dependent, which face (a) alone reaches — see the
+    # docstring. `S` is already built, so this is the cheap half of the step.
     residual_flat = 0
-    if !isempty(undetermined) && !isempty(S)
+    if !isempty(S)
         kept = setdiff(1:p, columns)
         # `identifiability`'s cut, on the structural expansion instead of the design:
         # relative to σ_max at `min(size)·eps`, so the two reports are read the same way.

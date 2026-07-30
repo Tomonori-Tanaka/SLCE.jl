@@ -204,6 +204,12 @@ end
             sv = svdvals(V)
             rank = count(>(1e-10), sv)
             @test p - rank == length(unresolvable_columns(b))
+            # The same property as the classifier reports it. These fixtures are face
+            # (a) only, which is exactly the case `_unresolvable_split` used to skip —
+            # so this assertion was passing on an untouched initial value and asserting
+            # nothing. It is a real check only because the computation is no longer
+            # conditioned on face (b) having fired.
+            @test SLCE._unresolvable_split(b).residual_flat == 0
         end
     end
 
@@ -593,6 +599,159 @@ end
         @test norm(touched.jphi[frozen]) > 0.1      # the fixture must exercise it
         f2 = fit(SLCEFit, SLCEDataset(b, mkdata(touched)), OLS(); force_weight = 0.4)
         @test r2_energy(f2) < 0.99
+    end
+
+    # Gate (H). The two faces in ONE basis. Every other fixture here has exactly one of
+    # them — the cubic ones are face (a) only, gate (G) is face (b) only — and that split
+    # left `_unresolvable_split`'s `!(j in vset)` guard, the single line deciding what
+    # happens where the faces intersect, untested: with face (a) alone nothing reads
+    # `undetermined`, and with face (b) alone `vanishing` is empty, so deleting the guard
+    # (or reversing the precedence) failed no assertion.
+    #
+    # The fixture makes the group fuse a tie only PARTIALLY. The two atoms differ by half
+    # a cell in BOTH x and y, a four-fold tie; `m_y` is a real symmetry of the positions
+    # and permutes the y images (face a), while nothing swaps the x images (face b).
+    @testset "(H) both faces of a tie in one basis" begin
+        cr = Crystal(Lattice(Matrix(Diagonal([3.0, 3.0, 6.0]))),
+                     [0.1 0.6; 0.0 0.5; 0.03 0.28], [1, 1], ["Fe"])
+        my = SMatrix{3,3,Float64}(Diagonal([1.0, -1.0, 1.0]))
+        spec = BasisSpec(cr; lmax = 0, pmax = 2,
+                         sectors = [Sector(disp = (degree = 1:2,), sites = 1:2,
+                                           cutoff = 2.7)])
+        b = _basis_with_ops(cr, spec, [SMatrix{3,3,Float64}(Matrix(1.0 * I(3))), my])
+        p = n_salcs(b)
+        split = SLCE._unresolvable_split(b)
+
+        # The fixture must exercise BOTH, or every assertion below is vacuous.
+        @test !isempty(split.vanishing)
+        @test !isempty(split.undetermined)
+        # ... and the guard's actual content: a column is classified once. Dropping
+        # `!(j in vset)` puts the vanishing columns into `undetermined` as well, which
+        # this pair of assertions is the only thing in the suite to notice.
+        @test isempty(intersect(split.vanishing, split.undetermined))
+        @test allunique(split.columns)
+        @test split.columns == sort(vcat(split.vanishing, split.undetermined))
+
+        # The evaluator, not the classifier, says how much is really flat. The freeze is
+        # deliberately COARSER than that (whole orbits go), and it must still leave
+        # nothing flat behind — the property gate (B) states, on a basis with both faces.
+        V, = _evaluator_view(b; nprobe = 400, seed = 4)
+        sv = svdvals(V)
+        nullity = p - count(>(1e-10 * sv[1]), sv)
+        @test 0 < nullity < length(split.columns)
+        kept = setdiff(1:p, split.columns)
+        svk = svdvals(V[:, kept])
+        @test count(>(1e-10 * svk[1]), svk) == length(kept)
+        @test split.residual_flat == 0
+    end
+
+    # Gate (I). Face (b) at N = 3 — the same phenomenon on a THREE-body atom multiset,
+    # which no other fixture reaches (every other one truncates at pairs). The classifier
+    # is body-agnostic by construction, and this is what says so out loud.
+    @testset "(I) face (b) on a three-body cluster" begin
+        # P1, and TWO tied edges: (1,2) and (2,3) are each separated by exactly a/2 in x.
+        cr = Crystal(Lattice(Matrix(3.0 * I(3))),
+                     [0.0 0.5 0.0; 0.0 0.13 0.31; 0.0 0.07 0.44], [1, 1, 1], ["Fe"])
+        spec = BasisSpec(cr; lmax = 0, pmax = 3, nbody = 3,
+                         sectors = [Sector(disp = (degree = 3,), sites = 1:3,
+                                           cutoff = 2.2)])
+        b = _basis_with_ops(cr, spec, [SMatrix{3,3,Float64}(Matrix(1.0 * I(3)))])
+        p = n_salcs(b)
+        split = SLCE._unresolvable_split(b)
+
+        # The tie is geometric, computed from the lattice alone.
+        A = cr.lattice.vectors
+        @test norm(A * [0.5, 0.13, 0.07]) ≈ norm(A * [-0.5, 0.13, 0.07])
+
+        # It is genuinely a THREE-body statement: a 3-atom multiset is reached by more
+        # than one orbit, and 3-body columns are among those frozen. Without these two
+        # the testset would be an expensive restatement of gate (G).
+        @test [1, 2, 3] in split.multisets
+        @test 3 in [salcs(b)[j].key.body for j in split.columns]
+        @test isempty(split.vanishing)          # low symmetry: face (b), never face (a)
+
+        # Which columns go is derived from the KEYS, as in gate (G) — not read back.
+        orbs = Set((salcs(b)[j].key.body, salcs(b)[j].key.orbit_id) for j in split.columns)
+        @test split.columns == [j for (j, s) in enumerate(salcs(b))
+                                if (s.key.body, s.key.orbit_id) in orbs]
+
+        # The evaluator's verdict: really flat, and strictly less than what was frozen
+        # (the freeze drops determined content on purpose), with nothing left over.
+        V, = _evaluator_view(b; nprobe = 3 * p, seed = 11)
+        sv = svdvals(V)
+        nullity = p - count(>(1e-10 * sv[1]), sv)
+        @test 0 < nullity < length(split.columns)
+        kept = setdiff(1:p, split.columns)
+        svk = svdvals(V[:, kept])
+        @test count(>(1e-10 * svk[1]), svk) == length(kept)
+        @test split.residual_flat == 0
+
+        # End to end, as at N = 2: a truth on the retained span comes back exactly and
+        # the frozen coefficients are exactly zero, while data containing the dropped
+        # interaction fails loudly instead of being split silently.
+        rng = MersenneTwister(5)
+        rep = build_asr(b; warn = false)
+        truth = SLCEModel(b, 0.0, rep.beta_p .+ rep.Z * randn(rng, size(rep.Z, 2)))
+        mkdata(model) = [begin
+                             u = 0.03 .* randn(rng, 3, 3)
+                             lattice_datum(predict_energy(model, nothing, u);
+                                           displacements = u,
+                                           forces = predict_force(model, nothing, u),
+                                           reference = cr)
+                         end for _ = 1:150]
+        f = fit(SLCEFit, SLCEDataset(b, mkdata(truth)), OLS(); force_weight = 0.4)
+        @test rmse_energy(f) < 1e-12
+        @test maximum(abs, f.jphi .- truth.jphi) < 1e-10
+        @test identifiability(f).nullity == 0
+        @test all(==(0.0), f.jphi[split.columns])
+        touched = SLCEModel(b, 0.0, randn(MersenneTwister(3), p))
+        @test norm(touched.jphi[split.columns]) > 0.1
+        @test r2_energy(fit(SLCEFit, SLCEDataset(b, mkdata(touched)), OLS();
+                            force_weight = 0.4)) < 0.99
+    end
+
+    # Gate (J). The SCOPE of the freeze at N >= 3, which is a real limit and is easy to
+    # read as a bug. The compact-cluster criterion admits a cluster only when all C(N,2)
+    # edges are simultaneously minimum-image, so a tie's NON-congruent sibling (same
+    # atoms, but one of its other edges lands on a longer shell) is rejected there and
+    # the tie leaves no trace at all — no tie reported, nothing frozen. That is aliasing
+    # and not indeterminacy, and the oracle for "nothing is lost" is built here from
+    # scratch: a 3-body degree-(1,1,1) energy is a trilinear form in the three atoms'
+    # displacements, so the whole function space is spanned by the 27 monomials
+    # u_{1a} u_{2b} u_{3c}, written out independently of the package.
+    @testset "(J) at N >= 3 a non-congruent sibling is aliased, not frozen" begin
+        cr = Crystal(Lattice(Matrix(3.0 * I(3))),
+                     [0.0 0.5 0.25; 0.0 0.2 0.3; 0.0 0.1 0.42], [1, 1, 1], ["Fe"])
+        spec = BasisSpec(cr; lmax = 0, pmax = 3, nbody = 3,
+                         sectors = [Sector(disp = (degree = 3,), sites = 3,
+                                           cutoff = 2.6)])
+        b = _basis_with_ops(cr, spec, [SMatrix{3,3,Float64}(Matrix(1.0 * I(3)))])
+        p = n_salcs(b)
+
+        # The (1,2) edge IS tied, from the lattice alone — the pre-check's silence below
+        # is a statement about clusters, not about the geometry.
+        A = cr.lattice.vectors
+        @test norm(A * [0.5, 0.2, 0.1]) ≈ norm(A * [-0.5, 0.2, 0.1])
+        @test !_has_boundary_tie(b)
+        @test isempty(unresolvable_columns(b))
+
+        # Nothing is lost: the basis spans exactly the full trilinear space.
+        rng = MersenneTwister(23)
+        U = [0.05 .* randn(rng, 3, 3) for _ = 1:400]
+        scratch = SALCScratch()
+        X = [evaluate_salc(salcs(b)[j], zeros(3, 3), u, scratch)
+             for u in U, j = 1:p]
+        T = zeros(length(U), 27)
+        for a = 1:3, c = 1:3, d = 1:3
+            col = 9(a - 1) + 3(c - 1) + d
+            for (i, u) in enumerate(U)
+                T[i, col] = u[a, 1] * u[c, 2] * u[d, 3]
+            end
+        end
+        rk(M) = (s = svdvals(M); count(>(1e-10 * s[1]), s))
+        @test rk(T) == 27
+        @test rk(X) == p
+        @test rk(hcat(X, T)) == 27          # identical span: every coupling representable
     end
 
     @testset "the classification is structural, not sampled" begin

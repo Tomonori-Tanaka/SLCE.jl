@@ -433,9 +433,9 @@ function build_asr(basis::SLCEBasis; translation::Bool = true,
     isempty(split.undetermined) || !warn ||
         @warn "this reference cell reaches $(length(split.multisets)) atom group(s) " *
               "through MORE THAN ONE cluster orbit (a Wigner-Seitz boundary tie that " *
-              "symmetry does not fuse), so those orbits are the same function of any " *
-              "configuration it can express and only the SUM of their couplings is " *
-              "determined. Splitting that sum has no physical basis — the two images " *
+              "symmetry does not fuse), so those orbits span the SAME space of " *
+              "functions of any configuration it can express and only the total of " *
+              "their couplings is determined. Splitting it has no physical basis — the images " *
               "carry the same phase only at q = 0 — so the whole interaction is " *
               "DROPPED: $(length(split.undetermined)) column(s) are held at exactly " *
               "zero. The fit residual will not reach zero on data that contains them, " *

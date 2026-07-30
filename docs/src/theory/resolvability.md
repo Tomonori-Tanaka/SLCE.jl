@@ -140,10 +140,17 @@ surviving even-``L_f`` content is a genuine coupling and stays.
 
 In low symmetry — ``P1``, monoclinic — no operation relates the two equidistant images, so
 they sit in **different orbits** carrying **independent** couplings. Nothing cancels and no
-column is zero. What happens instead is that the two orbits are *the same function* of
-anything this cell can express, because a design column depends on which atoms a member
-joins and never on which image it reached them through. The data therefore fix only the
-**sum** of the two couplings.
+column is zero — and the two orbits' columns are not equal to each other either, since a
+member's tensors carry its own bond geometry. What collapses is the **span**: every member
+of either orbit reads its sites' displacements off the same reference-cell atoms, so the
+two orbits span the *same space of functions* of anything this cell can express. The data
+therefore fix only how much of that space is used in **total**, never how it divides
+between the two couplings.
+
+The undetermined fraction is not "half" in general: it is ``\text{(frozen columns)} -
+\operatorname{rank} S[:, \text{frozen}]``, which is ``1 - 1/k`` of the block for a
+``k``-fold tie the point group separates completely, and something in between when the
+group fuses the images only partially — in which case the two faces coexist in one basis.
 
 A minimal example: a ``P1`` cell whose atoms 1 and 2 differ by exactly half the ``a`` axis,
 so their pair sits on the WS face with two equidistant images and no symmetry between them.

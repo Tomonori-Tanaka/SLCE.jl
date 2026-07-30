@@ -180,8 +180,9 @@ key, equal to the transpose.
     The paragraph above assumes the point group permutes the tied images, so they share one
     orbit. In `P1`, monoclinic or any hand-built cell without symmetry they land in
     **different** orbits with independent couplings, every column is nonzero, and the data
-    determine only their **sum** — the two orbits are the same function of anything a
-    cell-periodic configuration can express. No split of that sum has a physical basis (the
+    determine only their **total** — the two orbits span the same space of functions of
+    anything a cell-periodic configuration can express (their columns are not equal; the
+    span is). No split of that total has a physical basis (the
     images share a phase only at `q = 0`), so the whole interaction is dropped: every column
     of the tied orbits is held at exactly zero and `fit` names the atom group.
 

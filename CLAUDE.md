@@ -510,17 +510,37 @@ Easy to break silently — confirm before touching the algorithm.
   equally and the odd content cancels — the column is identically zero, equal weighting here
   is *symmetry* rather than a gauge, and the surviving even content is a determined coupling
   that stays. (b) in low symmetry no operation relates them, so they sit in DIFFERENT orbits
-  with independent couplings: every column is nonzero, but a design column depends on which
-  atoms a member joins and never on which image it reached them through, so the two orbits
-  are the same function here and only the SUM is determined — a null COMBINATION, invisible
-  to any per-column test. Face (b) is the dangerous one and was missed until measured: on a
+  with independent couplings: every column is nonzero and the two orbits' columns are not
+  equal to each other either (a member's tensors carry its own bond geometry). What
+  collapses is the SPAN — every member of either orbit reads its sites' displacements off
+  the same reference-cell atoms — so the orbits span one function space and only the TOTAL
+  is determined: a null COMBINATION, invisible to any per-column test. **Never restate this
+  as "the two orbits are the same function"**; that wording was wrong and stood in six
+  places until a review caught it (a column-equality claim is falsified by evaluating any
+  two of them). The undetermined fraction is `length(frozen) − rank(S[:, frozen])`, which
+  is `1 − 1/k` for a fully separated `k`-fold tie and NOT "half" in general — under partial
+  fusion the two faces coexist in one basis (four-fold tie under `{E, m_y}`: 8 vanishing +
+  10 undetermined, true flat dimension 13). Face (b) is the dangerous one and was missed until measured: on a
   P1 cell with the pair on the WS face, a force co-fit reached `rmse_E = 4.2e-16` with a clean
   `asr_residual` and `D(0)` exact to 1.2e-15 while `D(q)` was **52 % wrong**, nine flat
   directions all ASR-feasible, `fit` silent. So **`_has_boundary_tie` must scan ACROSS SALCs**
   (is any atom multiset reached by two orbits?) — the within-SALC scan is the hole, and under
-  `MinimumImage` the cross-orbit case can only come from a tie (measured: widening the cutoff
-  to admit a farther shell of the same pair does not produce one, only the minimum image is
-  enumerated). **There is no justified split of the determined sum** — the images share a
+  `MinimumImage` the cross-orbit case can only come from a tie — and that necessity is a
+  PROOF, not a measurement: every edge sits at its atom pair's minimum image, so fixing
+  site 1 at the origin fixes every other site's image uniquely while those minimum images
+  are unique, giving one cluster per atom multiset up to translation.
+  **At `N ≥ 3` the freeze covers CONGRUENT siblings only, and that is a scope statement to
+  keep saying out loud.** The compact-cluster criterion admits a cluster only when all
+  `C(N,2)` edges are simultaneously minimum-image; congruent siblings pass or fail
+  together and the freeze sees them, but a sibling reached through an image that puts one
+  of its OTHER edges on a longer shell is rejected there, and the tie then leaves no trace
+  (`_has_boundary_tie` false, nothing frozen). That is aliasing, not indeterminacy — the
+  admitted cluster absorbs it exactly, measured on a P1 cell with a tied `(1,2)` edge where
+  a 3-body degree-`(1,1,1)` sector spans the FULL trilinear space (rank 27 = 3³, span
+  identical to an independently built basis of all 27 monomials, `identifiability.nullity
+  = 0`). The cost is the `R` LABEL: `force_constants` attributes the coupling to the
+  admitted geometry, which matters once cubic constants are exported and read as
+  `Φ(R₁, R₂)`. Do not "fix" this by loosening the compact criterion. **There is no justified split of the determined sum** — the images share a
   phase only at `q = 0`, so equal division is an interpolation ansatz, which is why route A's
   freeze-at-zero for face (a) is legitimate and a face-(b) split would not be — so the whole
   interaction is dropped: every column of every orbit sharing an atom multiset is frozen.

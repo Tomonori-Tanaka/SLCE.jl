@@ -6,6 +6,77 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — `residual_flat` is computed whenever the expansion ran
+
+`_unresolvable_split` used to compute its leftover-flat-direction count only when tie
+face (b) had fired, on the argument that whole-orbit granularity is the only thing that
+can under- or over-shoot. That argument is sound and covers one of the two routes to a
+leftover flat direction. The other needs no second orbit: two channels of a SINGLE orbit,
+each individually nonzero, can go dependent once the tie collapses their arguments — face
+(a) territory, where a per-column test is blind by construction and, until now, nothing
+else looked either. The one diagnostic that could have caught it was switched off in
+exactly the case it was for.
+
+No basis has yet produced a nonzero value — about 70 were tried (real crystals and
+hand-grouped fixtures, `N = 1..4`, degree ≤ 6, tie multiplicities 2/4/6/8) and `frozen`
+equalled the sampled nullity every time. That is a reason to keep the check cheap, not to
+skip it: `S` is already built by the time the count is taken, and the rank costs about 2 %
+of building it.
+
+### Fixed — the face-(b) argument was stated wrongly in six places
+
+"A design column depends on which atoms a member joins and never on which image it
+reached them through, so the two orbits are the same function" is false as written: a
+member's tensors carry its own bond geometry, so the two orbits' columns are *not* equal
+and evaluating any two of them shows it. What actually collapses is the **span** — every
+member of either orbit reads its sites' displacements off the same reference-cell atoms,
+so the orbits span one function space and the data fix only how much of that space is used
+in total. The conclusion (freeze the sharing orbits outright, never split) is unchanged;
+the justification is not. Corrected in `unresolvable_columns`' docstring, the
+`basis/resolvability.jl` header, `build_asr`'s warning text, `theory/resolvability.md`,
+`guide/lattice_dynamics.md` and `CLAUDE.md`.
+
+Two facts recorded with it. The undetermined fraction is **not "half"** in general — it is
+`length(frozen) − rank(S[:, frozen])`, so `1 − 1/k` for a `k`-fold tie the group separates
+completely, and something between when the group fuses the images only partially, in which
+case both faces occur in one basis. And the necessity of a tie is a **proof**, not a
+measurement: under `MinimumImage` fixing site 1 at the origin fixes every other site's
+image uniquely while those minimum images are unique, so two orbits over one atom multiset
+force some edge to have a second equidistant image.
+
+### Documented — at `N ≥ 3` the freeze covers congruent siblings only
+
+The compact-cluster criterion admits a cluster only when all `C(N,2)` edges are
+simultaneously minimum-image. Congruent siblings of a tie pass or fail that together, so
+the freeze sees them; a sibling reached through an image that puts one of its *other*
+edges on a longer shell is rejected there, and the tie then leaves no trace at all — no
+tie reported, nothing frozen. That is aliasing, not indeterminacy: measured on a P1 cell
+with a tied `(1,2)` edge, a 3-body degree-`(1,1,1)` sector spans the full trilinear space
+(rank 27 = 3³, span identical to an independently built basis of all 27 monomials), so
+every coupling is representable and `identifiability` reports `nullity = 0`. What the
+aliasing costs is the `R` **label**: `force_constants` attributes the coupling to the
+admitted geometry, which matters once cubic constants are exported and read as
+`Φ(R₁, R₂)`.
+
+### Added — three resolvability gates: both faces at once, and `N ≥ 3`
+
+- **(H) both faces of a tie in one basis.** Every previous fixture had exactly one face,
+  which left `_unresolvable_split`'s `!(j in vset)` guard — the single line deciding what
+  happens where the faces intersect — untested: with face (a) alone nothing reads
+  `undetermined`, with face (b) alone `vanishing` is empty, so deleting the guard failed
+  no assertion. The new fixture makes a four-fold tie that `{E, m_y}` fuses only
+  partially. Deleting the guard now fails it.
+- **(I) face (b) on a three-body cluster.** The classifier is body-agnostic by
+  construction and was never run at `N ≥ 3`; this gates a three-atom multiset reached by
+  two orbits, end to end (exact recovery on the retained span, frozen coefficients exactly
+  zero, loud failure on data containing the dropped interaction).
+- **(J) the `N ≥ 3` scope above**, with the 27-monomial trilinear space built in the test
+  as the independent oracle for "nothing is lost".
+
+Gate (B) also now asserts `residual_flat == 0` on the face-(a)-only fixtures. That
+assertion was previously passing on an untouched initial value; it has content only
+because the count is no longer conditioned on face (b).
+
 ### Added — an integration tier: the whole pipeline, on crystals with names
 
 `test/integration/` (own environment, own CI job) walks six named real crystals from
