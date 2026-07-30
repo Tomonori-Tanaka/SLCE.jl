@@ -288,6 +288,15 @@ end
 # supercell resolves the tie and the missing channel becomes real physics;
 # `magnetoelastic_constants` inherits it through `strain_derivatives`). Cheap on an untied
 # basis: the classifier short-circuits on a structural pre-check.
+#
+# **`maxlog` is keyed per READOUT, via `_id`, and that is load-bearing.** Julia keys
+# `maxlog` by the log STATEMENT, so one `@warn` shared by six readouts at `maxlog = 1`
+# says it for whichever ran first and silences the other five — measured: on a B2 FeRh
+# joint basis `strain_derivatives` warned and `magnetoelastic_constants`,
+# `magnon_phonon_vertices`, `decorated_terms` and `force_constants` all returned their
+# frozen-channel results in silence. `magnetoelastic.jl` already records the same trap for
+# its residual warning. The `what` string is therefore part of the log id, so each
+# deliverable says it once and no deliverable is muted by another.
 function _warn_unresolvable(model::SLCEModel, what::AbstractString)
     frozen = try
         unresolvable_columns(model.basis)
@@ -306,7 +315,8 @@ function _warn_unresolvable(model::SLCEModel, what::AbstractString)
               "basis functions are nonzero in a supercell, and the remedy is a cell in " *
               "which the offending pair's minimum image is unique (NOT a wider cutoff). " *
               "`unresolvable_columns` lists them; the Periodic resolvability chapter " *
-              "has the argument" columns = first(absent, 10) maxlog = 1
+              "has the argument" columns = first(absent, 10) maxlog = 1 _id =
+            Symbol(:slce_unresolvable_absent_, what)
     isempty(supplied) ||
         @warn "$what: the model carries a NONZERO coefficient on $(length(supplied)) " *
               "column(s) this reference cell cannot resolve, and $what does see them: " *
@@ -315,7 +325,8 @@ function _warn_unresolvable(model::SLCEModel, what::AbstractString)
               "though it is identically zero in the energy of any configuration this " *
               "cell can express. No data on this cell can have determined it. Legal — a " *
               "hand-built or externally fixed coefficient — but nothing here validates " *
-              "it" columns = first(supplied, 10) maxlog = 1
+              "it" columns = first(supplied, 10) maxlog = 1 _id =
+            Symbol(:slce_unresolvable_supplied_, what)
     return nothing
 end
 

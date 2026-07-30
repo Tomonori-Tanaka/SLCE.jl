@@ -475,6 +475,126 @@ end
         @test rg.kwargs[:columns] == collect(1:qdim)
     end
 
+    # (G) THE UNFUSED TIE. Everything above is the case where the point group permutes
+    # the tied images, so they share one orbit and the odd content cancels — a null
+    # COLUMN. In low symmetry the same tie puts them in DIFFERENT orbits with
+    # independent couplings: every column is nonzero and a null COMBINATION appears
+    # instead. The old within-SALC pre-check could not see that (asserted below as the
+    # kill-shot), so nine flat directions reached `dynamical_matrix(q ≠ 0)` with a 52 %
+    # error while every gate was green.
+    #
+    # Oracles, none of them the classifier: the geometric tie is computed from the
+    # lattice; which columns SHOULD go is derived from the SALC keys; the "no data can
+    # see it" claim is the production evaluator; the "the readouts can" claim is
+    # `dynamical_matrix`; and the recovery claim is a synthetic ground truth.
+    @testset "(G) a tie symmetry does not fuse drops the whole interaction" begin
+        lat = Lattice(Matrix(3.0 * I(3)))
+        # P1 (identity only): atoms 1,2 differ by EXACTLY 0.5 in fractional x.
+        cr = Crystal(lat, [0.0 0.5 0.25; 0.0 0.2 0.3; 0.0 0.1 0.42], [1, 1, 1], ["Fe"])
+        spec = BasisSpec(cr; lmax = 1, pmax = 2,
+                         sectors = [Sector(disp = (degree = 1:2,), sites = 1:2,
+                                           cutoff = 2.6)])
+        b = _basis_with_ops(cr, spec, [SMatrix{3,3,Float64}(Matrix(1.0 * I(3)))])
+        p = n_salcs(b)
+
+        # The fixture really is tied, from the lattice alone: the two images of the
+        # (1,2) pair are equidistant. If this ever stops holding the gate is vacuous.
+        A = cr.lattice.vectors
+        d(R) = norm(A * ([0.5, 0.2, 0.1] .+ R))
+        @test d([0, 0, 0]) ≈ d([-1, 0, 0])
+        @test d([0, 0, 0]) < 2.6 && d([0, 1, 0]) > 2.6
+
+        # ... and the two tied images land in TWO orbits, while no single SALC repeats
+        # an atom multiset. That second half is the kill-shot: it is exactly the
+        # condition the within-SALC scan tests, so a pre-check that looks only inside
+        # one SALC returns `false` here and the freeze silently stops working.
+        orbs = unique([(s.key.body, s.key.orbit_id) for s in salcs(b)
+                       for m in s.members if sort(m.atoms) == [1, 2]])
+        @test length(orbs) == 2
+        @test all(s -> allunique([sort(m.atoms) for m in s.members]), salcs(b))
+        @test _has_boundary_tie(b)
+
+        # Which columns go is derived from the keys, not read back from the classifier.
+        want = [j for (j, s) in enumerate(salcs(b))
+                if (s.key.body, s.key.orbit_id) in orbs]
+        frozen = unresolvable_columns(b)
+        @test frozen == want
+        @test !isempty(frozen) && length(frozen) < p
+        # Face (b), not face (a): each dropped column is individually NONZERO, so the
+        # null-column test alone reports nothing at all.
+        @test isempty(_unresolvable_expanded(b))
+        split = SLCE._unresolvable_split(b)
+        @test isempty(split.vanishing) && split.undetermined == want
+        @test split.multisets == [[1, 2]]
+
+        # Nothing flat is left behind: the structural expansion over the kept columns
+        # has full column rank (the same statement gate (B) makes, by sampling).
+        S, = _signature_matrix(b)
+        kept = setdiff(1:p, frozen)
+        sv = svdvals(S[:, kept])
+        @test count(>(1e-9 * sv[1]), sv) == length(kept)
+        @test split.residual_flat == 0
+
+        # WHAT the drop costs, exactly. The frozen block splits in half: the SUMS are
+        # determined and the DIFFERENCES are not. For a two-fold tie each channel of one
+        # orbit pairs with exactly one channel of the other, so the undetermined
+        # subspace is half the block — that ratio is the oracle, not a pinned 9.
+        Sf = S[:, frozen]
+        svf = svdvals(Sf)
+        rank_f = count(>(1e-9 * svf[1]), svf)
+        @test rank_f == length(frozen) ÷ 2
+        @test length(frozen) - rank_f == length(frozen) ÷ 2
+
+        # The DIFFERENCE directions are what no cell-periodic observable can see — the
+        # production evaluator says so — while the read-outs do see them, which is why
+        # the split had to be refused rather than chosen. (Arbitrary values on the frozen
+        # columns are visible; that is the determined half, and dropping it is the
+        # deliberate price.)
+        rng = MersenneTwister(0x0b)
+        N = nullspace(Sf; rtol = 1e-9)
+        @test size(N, 2) == length(frozen) - rank_f
+        v = zeros(p)
+        v[frozen] .= N * randn(rng, size(N, 2))
+        m0 = SLCEModel(b, 0.0, zeros(p))
+        m1 = SLCEModel(b, 0.0, 0.7 .* v)
+        for _ = 1:5
+            u = 0.03 .* randn(rng, 3, 3)
+            @test abs(predict_energy(m1, nothing, u) -
+                      predict_energy(m0, nothing, u)) < 1e-14
+            @test norm(predict_force(m1, nothing, u) -
+                       predict_force(m0, nothing, u)) < 1e-13
+        end
+        mass = fill(55.845, 3)
+        Dof(m, q) = dynamical_matrix(force_constants(m; order = 2), q; masses = mass)
+        @test norm(Dof(m1, [0.0, 0.0, 0.0]) - Dof(m0, [0.0, 0.0, 0.0])) < 1e-12
+        @test norm(Dof(m1, [0.3, 0.1, 0.2]) - Dof(m0, [0.3, 0.1, 0.2])) > 1e-3
+
+        # The fit is now identified: a truth drawn from the RETAINED span comes back
+        # exactly, and `identifiability` reports no flat direction.
+        rep = build_asr(b; warn = false)
+        truth = SLCEModel(b, 0.0, rep.beta_p .+ rep.Z * randn(rng, size(rep.Z, 2)))
+        fp = crystal_fingerprint(cr)
+        mkdata(model) = [begin
+                             u = 0.03 .* randn(rng, 3, 3)
+                             lattice_datum(predict_energy(model, nothing, u);
+                                           displacements = u,
+                                           forces = predict_force(model, nothing, u),
+                                           reference = cr)
+                         end for _ = 1:120]
+        f = fit(SLCEFit, SLCEDataset(b, mkdata(truth)), OLS(); force_weight = 0.4)
+        @test rmse_energy(f) < 1e-12
+        @test maximum(abs, f.jphi .- truth.jphi) < 1e-10
+        @test identifiability(f).nullity == 0
+        @test all(==(0.0), f.jphi[frozen])          # exactly zero, for the MC prune
+
+        # And the price is paid LOUDLY: data that contains the dropped interaction can
+        # no longer be fitted exactly. A silent split is what this replaces.
+        touched = SLCEModel(b, 0.0, randn(MersenneTwister(3), p))
+        @test norm(touched.jphi[frozen]) > 0.1      # the fixture must exercise it
+        f2 = fit(SLCEFit, SLCEDataset(b, mkdata(touched)), OLS(); force_weight = 0.4)
+        @test r2_energy(f2) < 0.99
+    end
+
     @testset "the classification is structural, not sampled" begin
         b = _basis_with_ops(_bcc(), _harmonic(_bcc()), _cubic_ops())
         first = unresolvable_columns(b)

@@ -6,6 +6,134 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — a Wigner–Seitz tie that symmetry does not fuse was invisible to the freeze
+
+The unresolvable-column freeze classified **columns**, and a boundary tie has a second face
+that is not a null column. When the point group permutes the tied images they share one
+orbit whose sum weights them equally, and odd content cancels — that is the case the freeze
+handled. In low symmetry (`P1`, monoclinic) no operation relates them, so they sit in
+**different orbits** with independent couplings: every column is individually nonzero, but
+the two orbits are the same function of any cell-periodic configuration, so only the SUM of
+their couplings is determined and a whole *combination* is flat.
+
+Measured on a `P1` three-atom cell whose pair sits exactly on the WS face: `p = 63`,
+structural rank 54, so nine flat directions — all of them ASR-feasible, hence untouched by
+`build_asr`. A 400-configuration force co-fit reached `rmse_energy = 4.2e-16` with a clean
+`asr_residual`, `identifiability` reporting `nullity = 9` (gap 2.6e14), coefficients off by
+1.37 against a truth whose largest was 2.32, `D(0)` exact to 1.2e-15 — and **`D(q)` 52 %
+wrong**. `fit` emitted no warning, because its check is per column and each column was fine.
+
+Fixes:
+
+- `_has_boundary_tie` now looks **across** SALCs (is any atom multiset reached by two
+  orbits?), not only inside one. The old within-SALC scan returned `false` on the fixture
+  above, so the expansion never ran. Under `MinimumImage` the cross-orbit case can only
+  arise from a tie — verified that widening the cutoff to admit a farther shell of the same
+  pair does *not* produce one, since only the minimum image is enumerated.
+- The tied orbits are frozen **whole**: `unresolvable_columns` now returns the union of the
+  vanishing columns and every column of every orbit sharing an atom multiset.
+  `_unresolvable_split` keeps the two reasons apart, and `build_asr` gives each its own
+  message with its own remedy.
+- There is no justified split of the determined sum — the two images share a phase only at
+  `q = 0`, so equal division is an interpolation ansatz and not a measurement — so the
+  interaction is dropped rather than divided. This **discards determined content on
+  purpose**: on the fixture the 18 dropped columns are 9 determined sums plus 9
+  undetermined differences, and a fit to data containing that shell now reports
+  `r2_energy ≈ 0.70` instead of 1. The nonzero residual is the intended signal.
+- A cheap structural pre-check still short-circuits the whole thing, and when the
+  cross-orbit case does fire the remaining structural rank is verified and reported rather
+  than assumed (`residual_flat`).
+
+Standard cells are unaffected, and the reason is symmetry: with space groups from Spglib the
+count of null columns already equals the full structural nullity on bcc Fe, B2 FeRh, hcp Co,
+wurtzite GaN and rocksalt MnO.
+
+Gate (G) in `test/unit/test_resolvability.jl`; worked example with the numbers in
+`docs/src/theory/resolvability.md`.
+
+### Fixed — five of the six read-outs were silenced by the freeze warning's `maxlog`
+
+Julia keys `maxlog` by the log **statement**, so one `@warn` shared by six deliverables at
+`maxlog = 1` speaks for whichever ran first. Measured on a B2 FeRh joint basis:
+`strain_derivatives` warned, and `magnetoelastic_constants`, `magnon_phonon_vertices`,
+`decorated_terms` and `force_constants` all returned frozen-channel results in silence. The
+log id now carries the read-out name, so each says it once and none mutes another.
+
+### Fixed — `magnetoelastic_constants` scored an empty problem as a perfect one
+
+`residual = resid / max(‖dev‖, eps())` sent a model with no magnetization-dependent
+ε-linear response to `residual = 0.0` — the *best* possible value — beside `B₁ = B₂ = 0`,
+indistinguishable from a determined answer. That is the generic outcome on a standard cell
+of a cubic magnet, because the ε-linear tier is odd under exchanging a bond's two ends and
+the boundary tie annihilates it (measured: every ε-linear column frozen on B2 FeRh,
+rocksalt MnO and L1₀ FePt). The degenerate case now reports `residual = NaN`, carries the
+projected magnitude in a new `signal` field, and says out loud that zero is an absence
+rather than a measurement.
+
+`exchange_strain_derivatives`' `skipped` list was likewise computed *below* its
+`jphi == 0.0 && continue`, making "content this view cannot show" a property of one fit's
+values: a model whose non-representable channels sat at exactly zero reported
+`skipped == []`, a false all-clear that `refit` undoes. Measured 150 channels against a
+random model and 0 against the same model with those coefficients zeroed. The
+classification now happens above the coefficient filter, as `bilinear_terms` already did.
+
+### Fixed — the fold deal never reached the force channel
+
+`_grouped_folds` spreads a class over folds by dealing consecutive indices, so a *channel*
+is spread only if its classes are visited consecutively. Under the `2·torque + force`
+packing the torque channel is `{3, 2}` — adjacent, safe by accident — while the force
+channel is `{3, 1}`, which descending order splits around class 2. Measured on 1 both /
+1 torque-only / 1 force-only / 3 plain: both force-bearing configs landed in the same fold
+for every seed at `nf = 2` and `nf = 3`, so a training split had no force rows and `fit`
+refused it with "the dataset has no force data" — about a dataset that has it. The silent
+face was per-fold scores mixing objectives, with `wF·MSE_F` present in some folds and
+absent in others.
+
+`_grouped_folds` now takes a `class_order`, and the two-ragged case asks for `[2, 3, 1, 0]`,
+in which both channels are consecutive. Every other occupancy pattern keeps the descending
+deal bit-identically, so no recorded seed moves. `select_fit`'s `:cv` branch gained the same
+per-channel fold caps (it had none, and being a Gram-downdating path it dropped a channel
+from the training design *silently*), and its raggedness test no longer re-derives torque
+row counts from `3 · n_atoms`.
+
+### Changed — the objective is MSE at every weight, so `lambda` means one thing
+
+`_assemble_problem` whitened the energy block by `√((1 − w_T − w_F)/n_E)` whenever a
+derivative weight was positive and returned the centered design **unscaled** otherwise —
+i.e. it minimized the energy SSE at `w_T = w_F = 0` and the energy MSE everywhere else,
+while `fit`'s docstring states the MSE form throughout. OLS is unaffected, but every
+penalized estimator saw a Gram jumping by `n_E` across that boundary: measured on 60
+configurations, `Ridge(lambda = 1.0)` gave `rmse_energy = 0.0038` at `w_T = 0` and `0.086`
+at `w_T = 1e-12`. An infinitesimal weight was not an infinitesimal change.
+
+The energy-only branch now applies the same `1/√n_E`. **λ for an energy-only penalized fit
+is `n_E` times smaller than before** — recorded λ paths must be rescaled; the test fixtures'
+grids were divided by their configuration count.
+
+### Fixed — a model could carry fewer coefficients than its basis has SALCs
+
+`SLCEModel`'s four-field default constructor validated nothing, and `SLCEModel(f::SLCEFit)`
+goes straight through it (the three-argument method did check). `SLCEDataset` did not check
+`X_E`/`X_T` widths either — only the compact `X_F` was checked — and `_assemble_problem`
+reads the design width off `dataset.X_E`. A narrower block therefore produced a model whose
+`jphi` was shorter than its basis, and since every read-out loops `eachindex(model.jphi)`,
+`predict_energy`, `decorated_terms`, `force_constants` and `effective_model` all silently
+answered about a **prefix** of the basis; only `coeftable` noticed. Both widths are now
+checked at their constructors. Two test fixtures were relying on the gap — one of them
+(`test_sunny.jl`) expressed "only the first SALC" as a one-element `jphi` — and now spell
+out full-width vectors.
+
+Also fixed at the same boundary: `restrict(model, :lattice)` threw
+`"pmax > 0 needs a sector table with displacement content"` whenever no spin-free
+displacement sector existed — which is exactly the minimal magnetoelastic spec — naming a
+keyword the caller had passed; the empty lattice sub-model is the right answer, and
+`restrict(model, :spin)` already returned its empty counterpart without complaint. The
+`BasisSpec` sector form now also rejects `pmax > 0` with no displacement content in any
+sector, as the dense form always did: the unreachable cap made `_basis_has_disp` read
+`true`, so `predict_energy(model, e)` demanded a displacement field and
+`spin_multipole_terms` refused the model. And the three-argument `SLCEDataset` now refuses
+empty `configs`, like the four- and five-argument forms.
+
 ### Fixed — the dead-column warning reported indices nobody could use
 
 Two cases in `_warn_unidentified`, both silent-by-omission rather than wrong.

@@ -64,7 +64,13 @@ the orbit sum runs over them with whatever signs the invariant carries. Any cont
 A tie is *necessary* for this to happen — with a unique minimum image every member has its
 own atom content and nothing can cancel — but which content dies depends on how the group
 relates the tied members, not on the tie alone, so the reliable statement is the measured
-one. [`unresolvable_columns`](@ref) reports it exactly for a given basis. Measured examples —
+one. [`unresolvable_columns`](@ref) reports it exactly for a given basis.
+
+Everything in this subsection assumes the tied images end up in **one orbit**, which needs
+the point group to permute them. When it does not — low symmetry — the same tie takes a
+different algebraic form and costs more; that is the [next
+subsection](#When-symmetry-does-not-fuse-the-tie), and it is the more dangerous of the two.
+Measured examples of the fused case —
 the counts depend on the group, so each row names the cell and the symmetry it was built with:
 
 | basis | tie | columns | identically zero |
@@ -125,6 +131,113 @@ in *every* direction whose separation component equals half the cell length. Dou
 axis is not automatically enough — describing bcc with a cell doubled along ``z`` only
 reduces the corner tie from eight images to four, and the dead channels stay dead, whereas a
 ``2\times2\times2`` cell puts the cross pair strictly inside the WS cell and resolves it.
+
+### When symmetry does not fuse the tie
+
+Everything above needed the point group to permute the tied images, which is what puts them
+in **one** orbit whose sum weights them equally. That equal weighting is symmetry, so the
+surviving even-``L_f`` content is a genuine coupling and stays.
+
+In low symmetry — ``P1``, monoclinic — no operation relates the two equidistant images, so
+they sit in **different orbits** carrying **independent** couplings. Nothing cancels and no
+column is zero. What happens instead is that the two orbits are *the same function* of
+anything this cell can express, because a design column depends on which atoms a member
+joins and never on which image it reached them through. The data therefore fix only the
+**sum** of the two couplings.
+
+A minimal example: a ``P1`` cell whose atoms 1 and 2 differ by exactly half the ``a`` axis,
+so their pair sits on the WS face with two equidistant images and no symmetry between them.
+
+```@example resb
+using SLCE
+cr = Crystal(Lattice([3.0 0 0; 0 3.0 0; 0 0 3.0]),
+             [0.0 0.5 0.25; 0.0 0.2 0.3; 0.0 0.1 0.42], [1, 1, 1], ["Fe"])
+b = SLCEBasis(cr, BasisSpec(cr; lmax = 1, pmax = 2,
+                            sectors = [Sector(disp = (degree = 1:2,), sites = 1:2,
+                                              cutoff = 2.6)]))
+frozen = unresolvable_columns(b)
+(n_salcs(b), length(frozen))
+```
+
+Both images are at the same distance, and each is its own orbit — that is the whole
+condition:
+
+```@example resb
+using LinearAlgebra
+A, fr = cr.lattice.vectors, cr.frac_positions
+orbits = unique([(s.key.body, s.key.orbit_id, round(norm(A * (fr[:, m.atoms[2]] .+
+                     m.shifts[2] .- fr[:, m.atoms[1]] .- m.shifts[1])); digits = 4))
+                 for s in SLCE.salcs(b) for m in s.members if sort(m.atoms) == [1, 2]])
+```
+
+**There is no justified way to split that sum.** Equal division is what aliasing-aware
+force-constant codes do, but for two bonds no symmetry relates it is an interpolation
+ansatz, not a measurement: the two images differ by a lattice vector ``\boldsymbol R_1 -
+\boldsymbol R_2`` of *this* cell, so their phases ``e^{2\pi i \boldsymbol q\cdot\boldsymbol
+R}`` agree only where ``\boldsymbol q = \boldsymbol 0``. Off ``\Gamma`` the split is pure
+choice, and it is a choice that shows up in a published number.
+
+So the package **drops the whole interaction**: every column of every orbit that shares an
+atom group with another orbit is held at exactly zero, and [`fit`](@ref) names the atom group
+and the count. This deliberately discards the determined sum as well — with the interaction
+gone, data that contains it can no longer be fitted exactly, and that nonzero residual is
+the intended signal:
+
+```@example resb
+using Random
+rng = MersenneTwister(3)
+truth = SLCEModel(b, 0.0, randn(rng, n_salcs(b)))          # touches the dropped orbits
+data = [(u = 0.03 .* randn(rng, 3, 3);
+         lattice_datum(predict_energy(truth, nothing, u); displacements = u,
+                       forces = predict_force(truth, nothing, u), reference = cr))
+        for _ = 1:200]
+f = fit(SLCEFit, SLCEDataset(b, data), OLS(); force_weight = 0.4)
+round(r2_energy(f); digits = 3)     # < 1: the dropped shell is real in this data
+```
+
+**What exactly is lost, and what is only unknown.** The 18 dropped columns split evenly:
+the structural expansion has rank 9 over them, so **9 dimensions are the sums — determined by
+the data — and the other 9 are the differences, which nothing on this cell can see.** Dropping
+the interaction discards both halves. Keeping the determined half would mean writing the sum
+down on one image or spreading it over both, i.e. choosing the split, which is the thing
+without a basis. (Note that arbitrary values on the frozen columns *are* visible in the
+energy — that is the determined half. Only a pure difference is invisible.)
+
+Why the alternative is worse is worth seeing, since it is the failure this treatment exists
+to prevent. Two models differing by a pure difference direction are indistinguishable in
+everything the cell can express and identical at ``\Gamma``, yet far apart off it — measured
+on this fixture and gated in `test/unit/test_resolvability.jl` gate (G):
+
+| quantity | difference between the two models |
+|----------|----------------------------------:|
+| ``E(\boldsymbol u)`` | ``5\times10^{-19}`` |
+| forces | ``4\times10^{-17}`` |
+| ``\boldsymbol D(\boldsymbol 0)`` | ``2\times10^{-17}`` |
+| ``\boldsymbol D(0.3, 0.1, 0.2)`` | ``4\times10^{-2}`` |
+
+Before the freeze covered this case a *fit* on exactly this cell reached ``\text{rmse}_E =
+4\times10^{-16}`` with a clean [`asr_residual`](@ref) and an exact ``\boldsymbol
+D(\boldsymbol 0)``, while ``\boldsymbol D(\boldsymbol q)`` came out **52 % wrong**, every
+coefficient of the tied shell was arbitrary, and nothing warned — because each column on its
+own was perfectly nonzero.
+
+One more practical note: the check is cheap where it does not apply. The structural pre-check
+asks only whether some atom group is reached twice, so a cell with unique minimum images pays
+nothing for the question.
+
+Real crystals in their standard settings are mostly *not* affected, and the reason is
+symmetry — measured with space groups from Spglib, on a spin + displacement basis:
+
+| crystal (standard cell) | ops | columns | fused tie (zero) | unfused tie (dropped) |
+|-------------------------|----:|--------:|-----------------:|----------------------:|
+| bcc Fe, 1NN and 1+2NN | 96 | 5 | 2 | 0 |
+| B2 FeRh | 48 | 6 | 2 | 0 |
+| hcp Co | 8 | 12 | 2 | 0 |
+| wurtzite GaN, 2.1 Å / 3.3 Å | 4 | 40 / 76 | 8 / 28 | 0 |
+| rocksalt MnO (cubic 8-atom) | 192 | 18 | 4 | 0 |
+
+The unfused case is what to expect from monoclinic and triclinic settings, and from any cell
+built by hand without symmetry.
 
 ### What the read-outs do about it
 

@@ -176,6 +176,21 @@ key, equal to the transpose.
     Remedy, again, a different cell — see
     [Periodic resolvability](../theory/resolvability.md).
 
+!!! warning "In low symmetry the same tie drops the interaction outright"
+    The paragraph above assumes the point group permutes the tied images, so they share one
+    orbit. In `P1`, monoclinic or any hand-built cell without symmetry they land in
+    **different** orbits with independent couplings, every column is nonzero, and the data
+    determine only their **sum** — the two orbits are the same function of anything a
+    cell-periodic configuration can express. No split of that sum has a physical basis (the
+    images share a phase only at `q = 0`), so the whole interaction is dropped: every column
+    of the tied orbits is held at exactly zero and `fit` names the atom group.
+
+    Two consequences to expect. `r2_energy` **will not reach 1** on data that contains the
+    dropped shell — that is the intended signal, not a fit failure. And more columns can go
+    than there are flat directions, because the granularity is the orbit. The worked example,
+    with the 52 %-wrong dispersion this prevents, is in
+    [Periodic resolvability](../theory/resolvability.md#When-symmetry-does-not-fuse-the-tie).
+
 !!! note "The result carries the magnetic space group, without one being declared"
     This is the joint expansion's headline claim on the lattice side. The SALCs are
     projected with the paramagnetic grey group ``G \\times \\{1, T\\}``; fixing `spins`

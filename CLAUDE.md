@@ -505,9 +505,35 @@ Easy to break silently — confirm before touching the algorithm.
   (measured: 0 of 1 on bcc harmonic, 0 of 4 pure-spin, 6 of 8 at degree 3, 4 of 10 on
   spin × degree-1) and *structurally* none of the pure-spin ones — no displacement slot for a
   strain to act on. Never restore the `dJ/dr` reading.
+  **A BOUNDARY TIE HAS TWO ALGEBRAIC FACES and only the first is a null column.** (a) the
+  point group permutes the tied images, so they share ONE orbit whose sum weights them
+  equally and the odd content cancels — the column is identically zero, equal weighting here
+  is *symmetry* rather than a gauge, and the surviving even content is a determined coupling
+  that stays. (b) in low symmetry no operation relates them, so they sit in DIFFERENT orbits
+  with independent couplings: every column is nonzero, but a design column depends on which
+  atoms a member joins and never on which image it reached them through, so the two orbits
+  are the same function here and only the SUM is determined — a null COMBINATION, invisible
+  to any per-column test. Face (b) is the dangerous one and was missed until measured: on a
+  P1 cell with the pair on the WS face, a force co-fit reached `rmse_E = 4.2e-16` with a clean
+  `asr_residual` and `D(0)` exact to 1.2e-15 while `D(q)` was **52 % wrong**, nine flat
+  directions all ASR-feasible, `fit` silent. So **`_has_boundary_tie` must scan ACROSS SALCs**
+  (is any atom multiset reached by two orbits?) — the within-SALC scan is the hole, and under
+  `MinimumImage` the cross-orbit case can only come from a tie (measured: widening the cutoff
+  to admit a farther shell of the same pair does not produce one, only the minimum image is
+  enumerated). **There is no justified split of the determined sum** — the images share a
+  phase only at `q = 0`, so equal division is an interpolation ansatz, which is why route A's
+  freeze-at-zero for face (a) is legitimate and a face-(b) split would not be — so the whole
+  interaction is dropped: every column of every orbit sharing an atom multiset is frozen.
+  That discards determined content ON PURPOSE (18 columns = 9 determined sums + 9
+  undetermined differences on the fixture, `r2_energy ≈ 0.70` on data containing the shell),
+  and the nonzero residual is the intended loud failure. Standard cells are untouched and the
+  reason is symmetry: with real space groups the null-column count already equals the full
+  structural nullity on bcc Fe, B2 FeRh, hcp Co, wurtzite GaN, rocksalt MnO. `residual_flat`
+  reports any flat direction the orbit granularity leaves behind rather than assuming none.
+  Gate (G) in `test_resolvability.jl`; the worked example is in `theory/resolvability.md`.
   **Two different reasons produce an all-zero `Z` row and they must not be conflated.**
-  A *frozen* column (`unresolvable_columns`, `basis/resolvability.jl`) is identically zero
-  on this cell — no fit can determine it, the remedy is a different reference cell, and
+  A *frozen* column (`unresolvable_columns`, `basis/resolvability.jl`) cannot be determined
+  on this cell — no fit can reach it, the remedy is a different reference cell, and
   `build_asr` excludes it from `free` under `asr = false` too. A *structurally zeroed*
   free column is excluded by the sum rule — the remedy is a partner term. `build_asr`
   reports each with its own message and scans only `free` for the second; the counts that
@@ -664,14 +690,22 @@ Easy to break silently — confirm before touching the algorithm.
   (including the acceptance gate above) and still carries an unconstrained dispersion —
   measured on the z-doubled bcc fixture, `D(0)` equal to 1e-12 and `D(0.3, 0.1, 0.25)`
   different, from a single frozen coefficient. Gate (F) in `test_resolvability.jl`; the
-  advice is a different reference CELL, never a wider cutoff. Both messages carry
-  `maxlog = 1`, and the call sites are affordable only because `unresolvable_columns`
-  short-circuits on a structural pre-check (`_has_boundary_tie`): a tie is NECESSARY
-  (rows are keyed by per-atom content, so members with different atom multisets never meet,
-  and a lone member's contribution is nonzero by construction), so an untied cell never
-  pays the expansion. That equivalence is what gate (A) checks by running BOTH
-  `unresolvable_columns` and the unconditional `_unresolvable_expanded` against the
-  evaluator — break the necessity claim and the freeze silently stops working.
+  advice is a different reference CELL, never a wider cutoff. **Both messages carry
+  `maxlog = 1` AND a per-read-out `_id`**, and the `_id` is load-bearing: Julia keys `maxlog`
+  by the log STATEMENT, so one shared `@warn` at `maxlog = 1` speaks for whichever
+  deliverable ran first and silences the other five — measured on a B2 FeRh joint basis,
+  `strain_derivatives` warned while `magnetoelastic_constants`, `magnon_phonon_vertices`,
+  `decorated_terms` and `force_constants` all returned frozen-channel results in silence
+  (`magnetoelastic.jl` records the same trap for its own residual warning). The call sites are
+  affordable only because `unresolvable_columns` short-circuits on a structural pre-check
+  (`_has_boundary_tie`): a tie is NECESSARY (rows are keyed by per-atom content, so content
+  over different atom multisets never meets, and a lone member's contribution is nonzero by
+  construction), so an untied cell never pays the expansion. The pre-check must scan ACROSS
+  SALCs as well as within one — see the two faces of a tie in the ASR chain above; the
+  within-SALC-only version let face (b) through silently. Gate (A) checks the equivalence by
+  running BOTH `unresolvable_columns` and the unconditional `_unresolvable_expanded` against
+  the evaluator; gate (G) pins face (b). Break the necessity claim and the freeze silently
+  stops working.
   **The magnetic symmetry of the result is a consequence of the projection, not an
   input, and it is the package's headline physics claim** — say it wherever force
   constants are described. Force constants are time-reversal EVEN, so an antiunitary
@@ -871,6 +905,17 @@ Easy to break silently — confirm before touching the algorithm.
   centered-`X` contract. Validated in the separate `test/glmnet/` env (GLMNet-backed) and
   `test/unit/test_fit.jl` (core `AdaptiveRidge` / `FixedCoefficients` solves), never mixing
   the two (GLMNet absent in the core suite).
+- **The objective is the energy MSE at EVERY weight setting** (`fitting/fit.jl`
+  `_assemble_problem`): the energy block is whitened by `√((1 − w_T − w_F)/n_E)`, and the
+  `w_T = w_F = 0` branch applies the same `1/√n_E` rather than returning the centered design
+  unscaled. It used to return it unscaled, i.e. minimize the SSE there and the MSE everywhere
+  else, which made the objective DISCONTINUOUS at zero: OLS is scale-invariant, but every
+  penalized estimator's Gram jumped by `n_E`, so one `lambda` meant two things — measured on
+  60 configurations, `Ridge(lambda = 1.0)` gave `rmse_energy` 0.0038 at `w_T = 0` and 0.086 at
+  `w_T = 1e-12`. λ for an energy-only penalized fit is therefore `n_E` times smaller than in
+  any record predating this; the `test_selection.jl` grids divide by their config count, and
+  `test_asr.jl`'s hand-built assembly reference carries the `se` factor explicitly (which is
+  what makes it a pin on the convention).
 - **GCV ↔ `_assemble_problem` ↔ `islinear` ↔ the GAR weight map** (`fitting/selection.jl`,
   `fitting/estimators.jl`): `gcv`/`effective_dof` reassemble the design through
   `_assemble_problem` (change the centering/whitening and the score moves with `fit`),

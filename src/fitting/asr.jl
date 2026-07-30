@@ -397,19 +397,26 @@ function build_asr(basis::SLCEBasis; translation::Bool = true,
     # keeps the documented escape hatch open: such a joint dataset already tells the
     # user that fits must pass `asr = false`, and refusing here would leave no route at
     # all. Said once, because it withdraws a guarantee.
-    frozen = try
-        unresolvable_columns(basis)
+    split = try
+        _unresolvable_split(basis)
     catch err
         err isa UnclassifiableBasis || rethrow()
         warn && @warn "cannot tell which columns this reference cell resolves — " *
                       "$(err.reason). Nothing is frozen, so a fit may return values " *
                       "for columns no data can determine" maxlog = 1
-        Int[]
+        (; columns = Int[], vanishing = Int[], undetermined = Int[],
+         multisets = Vector{Int}[], residual_flat = 0)
     end
+    frozen = split.columns
     (isempty(frozen) && !(translation && hasdisp)) && return nothing
     free = isempty(frozen) ? collect(1:p) : setdiff(1:p, frozen)
-    isempty(frozen) || !warn ||
-        @warn "this reference cell cannot resolve $(length(frozen)) of its $p " *
+    # TWO reasons, TWO messages. Face (a) is "this column is the zero function"; face (b)
+    # is "these couplings are real but only their sum is determined, and no split is
+    # justified". Merging them would give the reader one count and the wrong remedy for
+    # half of it — and face (b) additionally changes what a good fit looks like, since
+    # dropping the determined sum leaves a residual on purpose.
+    isempty(split.vanishing) || !warn ||
+        @warn "this reference cell cannot resolve $(length(split.vanishing)) of its $p " *
               "columns: they are identically zero on every configuration it can " *
               "express, so the fit holds them at exactly zero. They are " *
               "UNIDENTIFIABLE, not physically zero: tiling this cell maps the tied " *
@@ -422,7 +429,29 @@ function build_asr(basis::SLCEBasis; translation::Bool = true,
               "coefficients, describe the crystal with a cell in which the offending " *
               "pair's minimum image is unique (`unresolvable_columns` for the " *
               "columns, the Periodic resolvability chapter for the remedy)" columns =
-            first(frozen, 10) maxlog = 1
+            first(split.vanishing, 10) maxlog = 1
+    isempty(split.undetermined) || !warn ||
+        @warn "this reference cell reaches $(length(split.multisets)) atom group(s) " *
+              "through MORE THAN ONE cluster orbit (a Wigner-Seitz boundary tie that " *
+              "symmetry does not fuse), so those orbits are the same function of any " *
+              "configuration it can express and only the SUM of their couplings is " *
+              "determined. Splitting that sum has no physical basis — the two images " *
+              "carry the same phase only at q = 0 — so the whole interaction is " *
+              "DROPPED: $(length(split.undetermined)) column(s) are held at exactly " *
+              "zero. The fit residual will not reach zero on data that contains them, " *
+              "which is the intended signal. To fit these couplings, describe the " *
+              "crystal with a cell in which that group's minimum image is unique " *
+              "(never a wider cutoff — see the Periodic resolvability chapter)" atoms =
+            first(split.multisets, 5) columns = first(split.undetermined, 10) maxlog = 1
+    # Orbit granularity can in principle leave a flat combination behind (two orbits that
+    # share nothing but are still dependent). Measured never to happen, but a silent
+    # residue here is exactly the failure the freeze exists to end, so it is reported.
+    split.residual_flat == 0 || !warn ||
+        @warn "after dropping the tied orbits, $(split.residual_flat) flat " *
+              "direction(s) remain in the structural expansion: some coefficient " *
+              "combination is still undetermined on this cell. Run " *
+              "`identifiability` on the fit and treat q ≠ 0 readouts as " *
+              "unconstrained" maxlog = 1
     # Freeze-only: no constraint rows at all (a pure-spin basis, or `translation =
     # false`). `_stage_reparam`'s `A === nothing` path gives the plain selection
     # matrix of the free columns — orthonormal, so every estimator's γ-space contract
@@ -497,6 +526,7 @@ end
 
 """
     asr_residual(model::SLCEModel) -> Float64
+    asr_residual(f::SLCEFit) -> Float64
 
 Relative ASR residual `‖A·β‖ / (‖A‖·‖β‖)` (Frobenius norm on `A`) of a model's
 coefficients — `0.0` for a pure-spin basis (no constraints) or an exactly
@@ -505,6 +535,15 @@ about ASR is persisted (the fingerprint precedent — recompute, never trust), s
 physical consumers (force-constant deliverables, Monte-Carlo ingest of joint
 models) gate on this value instead of a stored flag. A hand-built violating
 model is legal; it simply reports a large residual.
+
+On a fit the value is the one recorded at fit time (`f.asr_residual`), so the method is
+there for uniformity with the other diagnostics rather than to recompute anything.
+
+An [`AllImages`](@ref) basis with self-image clusters **raises** instead of returning a
+number: the constraint matrix needs a Gaunt expansion of the same-site factor product,
+which the builder does not implement. That is deliberate — a `NaN` would pass every
+`residual > tol` gate downstream — and such a basis is already an explicit opt-out
+(`SLCEDataset` tells the caller that fits must pass `asr = false`).
 """
 function asr_residual(model::SLCEModel)::Float64
     basis = model.basis
@@ -518,6 +557,11 @@ function asr_residual(model::SLCEModel)::Float64
     isempty(A) && return 0.0
     return _asr_residual(A ./ [norm(@view A[r, :]) for r in axes(A, 1)], model.jphi)
 end
+
+# The fit RECORDS its residual at fit time, so this reads the field rather than rebuilding
+# `A` — which would also disagree with the recorded value for a staged fit, whose constraint
+# is its stage's and not the basis-level one.
+asr_residual(f::SLCEFit)::Float64 = f.asr_residual
 
 _asr_residual(rep::ASRReparam, beta::Vector{Float64}) = _asr_residual(rep.A, beta)
 

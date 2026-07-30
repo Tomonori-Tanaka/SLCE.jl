@@ -34,6 +34,37 @@
 # annihilated orbit sum. Never quote the strain response as the reason a column is
 # kept; the supercell argument is the one that holds unconditionally.
 #
+# A tie has TWO algebraic faces, and only the first one is a null column.
+#
+#  (a) the tied images sit in ONE orbit — the point group permutes them, so the orbit
+#      sum weights them equally and the odd content cancels: the column is identically
+#      zero and is frozen at exactly zero. Equal weighting here is SYMMETRY, not a
+#      gauge, so the surviving even content is a determined coupling and stays.
+#  (b) the tied images sit in DIFFERENT orbits — no operation relates them, so each
+#      carries its own coupling. Every column is individually nonzero, but the two
+#      orbits are the SAME function of cell-periodic data (a design column depends on
+#      the atoms a member joins, never on which image it reached them through), so the
+#      data determine only the SUM. Nothing is zero and nothing cancels; a whole
+#      COMBINATION of columns is flat.
+#
+# Face (b) needs low symmetry — measured with real space groups, `nullity(S)` is
+# exactly the count of null columns on bcc Fe, B2 FeRh, hcp Co, wurtzite GaN and
+# rocksalt MnO, and face (b) appears on P1 and on monoclinic C2/c (CuO). It is the
+# more dangerous of the two: the fit is perfect (`rmse_E` ~ 1e-16), `asr_residual` is
+# clean, `D(0)` is exact — and `D(q ≠ 0)` moves by 50 % between two models the data
+# cannot tell apart.
+#
+# There is NO justified split of the sum. Equal division is what phonopy/ALM-style
+# codes do with aliased images, but for two bonds no symmetry relates it is an
+# interpolation ansatz, not a measurement: the cell determines the pair only at the `q`
+# where `exp(2πi q·(R₁ − R₂)) = 1`, and `R₁ − R₂` is a lattice vector of THIS cell, so
+# that is `q = 0` alone. Rather than turn an undetermined split into a
+# publishable-looking dispersion, the whole interaction is dropped: every column of
+# every orbit sharing an atom multiset is frozen at exactly zero and named. That
+# deliberately discards the determined sum too — the fit residual stops being zero,
+# which is the loud failure — and the remedy is the same as for face (a): a reference
+# cell in which the minimum image is unique.
+#
 # The test is STRUCTURAL, not statistical: expand every SALC into the one common
 # monomial/symbol basis (spin factors are opaque symbols `(atom, l, m)`,
 # displacement factors are exact monomials from
@@ -205,21 +236,38 @@ end
 """
     unresolvable_columns(basis::SLCEBasis) -> Vector{Int}
 
-The design columns that are identically zero on every cell-periodic configuration
-this reference cell can express, in ascending order. Their coefficients are
-**unidentifiable from any amount of training data on this cell** — not physically
-zero: tiling this cell maps the tied images onto *distinct* atoms, so the same basis
-functions are nonzero throughout a Monte-Carlo supercell run. (A uniform strain
-reveals some of them as well, but not all, and never a pure-spin one — that has no
-displacement slot for a strain to act on.)
+The design columns whose coefficients are **unidentifiable from any amount of training
+data on this cell**, in ascending order — not physically zero: tiling this cell maps the
+tied images onto *distinct* atoms, so the same basis functions are nonzero throughout a
+Monte-Carlo supercell run.
 
-The cause is a Wigner–Seitz boundary tie (see the [Periodic
-resolvability](@ref "Periodic resolvability") chapter): the pair's minimum image is
-not unique, so its tied members join the same two reference-cell atoms and the
-content odd under permuting them cancels in the orbit sum. To determine such a
-coefficient, describe the crystal with a cell in which that pair's minimum image
-*is* unique — break the tie in every direction whose separation component equals
-half the cell length.
+The cause is always a Wigner–Seitz boundary tie (see the [Periodic
+resolvability](@ref "Periodic resolvability") chapter) — the pair's minimum image is not
+unique, so tied members join the same two reference-cell atoms — and it has two faces:
+
+1. **the column vanishes.** The point group permutes the tied images, so they sit in one
+   orbit whose sum weights them equally, and the content odd under the permutation
+   cancels: the column is identically zero as a function of cell-periodic data. Equal
+   weighting is symmetry here, so the *even* content of the same orbit is a determined
+   coupling and is kept.
+2. **the whole interaction is dropped.** In low symmetry (P1, monoclinic) no operation
+   relates the tied images, so they sit in *different* orbits with independent
+   couplings. Each column is nonzero, but a design column depends on which atoms a
+   member joins and never on which image it reached them through — so the two orbits are
+   the same function here and the data fix only the SUM. Splitting that sum has no
+   physical basis (the cell determines the pair only at `q = 0`, where both images carry
+   the same phase), so every column of every orbit sharing an atom multiset is frozen
+   instead of split. This discards the determined sum as well: the fit residual stops
+   being zero, deliberately, because a silent split would publish a dispersion the data
+   never constrained.
+
+Either way the remedy is the same, and it is never a wider cutoff: describe the crystal
+with a cell in which that pair's minimum image *is* unique — break the tie in every
+direction whose separation component equals half the cell length.
+
+Face 2 is the dangerous one and was missed until it was measured: a fit on a tied P1 cell
+reached `rmse_energy = 4e-16` with a clean `asr_residual` and an exact `D(0)`, while
+`D(q ≠ 0)` was 52 % wrong and every coefficient of the tied shell was arbitrary.
 
 [`fit`](@ref) pins these coefficients at exactly zero and says so; the columns
 themselves are kept, because the basis describes the infinite crystal and a
@@ -227,9 +275,9 @@ Monte-Carlo supercell consumes them.
 
 The classification is exact and deterministic — a symbolic expansion into a common
 monomial basis, not a numerical probe of the evaluator. A cheap structural pre-check
-(does any orbit put two members on the same reference-cell atoms?) rules the whole
-phenomenon out before that expansion runs, so a cell with unique minimum images pays
-nothing for asking.
+(is any atom multiset reached twice — by two members of one orbit, or by two orbits?)
+rules the whole phenomenon out before that expansion runs, so a cell with unique minimum
+images pays nothing for asking.
 """
 function unresolvable_columns(basis::SLCEBasis)::Vector{Int}
     # The refusal first, so it does not depend on whether the fast path fires.
@@ -240,18 +288,101 @@ function unresolvable_columns(basis::SLCEBasis)::Vector{Int}
                                       "products need a Gaunt expansion this " *
                                       "monomial expansion does not implement"))
     end
-    _has_boundary_tie(basis) || return Int[]
-    return _unresolvable_expanded(basis)
+    return _unresolvable_split(basis).columns
 end
 
-# A TIE IS NECESSARY, and cheap to rule out. Two members can only cancel each other if
-# they deposit on the same row, and a row is keyed by its per-ATOM content — so members
-# whose atom multisets differ never meet. What is left is a member cancelling on its own,
-# which cannot happen: a member's contribution is the invariant projected on the
-# stabilizer of that one instance, and it is nonzero by construction (the same
-# single-member values gate (A) in `test/unit/test_resolvability.jl` uses as its scale).
+# The orbit a SALC belongs to. `SALCKey`'s first two fields address the cluster orbit;
+# the rest address a channel within it, so every column of one orbit shares this.
+_orbit_of(s::SALC)::Tuple{Int,Int} = (s.key.body, s.key.orbit_id)
+
+"""
+    _shared_multisets(basis) -> (orbits, multisets)
+
+The atom multisets reached by MORE THAN ONE cluster orbit, and the set of orbits that
+reach them. Under [`MinimumImage`](@ref) this is exactly tie face (b): a second orbit
+over the same atoms requires some edge to have a second equidistant minimum image
+(measured — widening the cutoff to admit a farther shell of the same pair does *not*
+produce one, because only the minimum image is enumerated).
+
+Under [`AllImages`](@ref) it also catches genuinely distinct shells of one pair, which
+ARE redundant for the cell-periodic evaluator this package has, and would stop being
+redundant only on the future generalized-Bloch path where `exp(iq·R)` separates the
+images. That path must revisit this function; today freezing them is the honest reading.
+"""
+function _shared_multisets(basis::SLCEBasis)
+    owners = Dict{Vector{Int},Set{Tuple{Int,Int}}}()
+    for s in salcs(basis)
+        o = _orbit_of(s)
+        for mem in s.members
+            push!(get!(() -> Set{Tuple{Int,Int}}(), owners, sort(mem.atoms)), o)
+        end
+    end
+    multisets = sort!([k for (k, v) in owners if length(v) > 1])
+    orbits = Set{Tuple{Int,Int}}()
+    for k in multisets
+        union!(orbits, owners[k])
+    end
+    return orbits, multisets
+end
+
+"""
+    _unresolvable_split(basis) -> (; columns, vanishing, undetermined, multisets,
+                                     residual_flat)
+
+The freeze, with the two reasons kept apart because their messages differ:
+
+- `vanishing` — tie face (a): identically zero on every configuration this cell can
+  express (the null-column test);
+- `undetermined` — tie face (b): a column of an orbit that shares an atom multiset with
+  another orbit, so only the sum of their couplings is determined and no split is
+  justified. The whole interaction is dropped;
+- `columns` — what `fit` freezes, the union in ascending order;
+- `multisets` — the offending atom multisets, for the message;
+- `residual_flat` — flat directions LEFT after the freeze, computed only when face (b)
+  fires (that is the only case where orbit granularity can under- or over-shoot). A
+  nonzero value is reported rather than swallowed.
+"""
+function _unresolvable_split(basis::SLCEBasis)
+    orbits, multisets = _shared_multisets(basis)
+    empty_result = (; columns = Int[], vanishing = Int[], undetermined = Int[],
+                    multisets = Vector{Int}[], residual_flat = 0)
+    # One pre-check for both faces: `_has_boundary_tie` is true when a single SALC
+    # repeats an atom multiset (face a) or when `orbits` is nonempty (face b).
+    _has_boundary_tie(basis) || return empty_result
+    S, gross = _signature_matrix(basis)
+    p = n_salcs(basis)
+    vanishing = isempty(S) ? [j for j = 1:p if gross[j] > 0.0] :
+                [j for j = 1:p
+                 if gross[j] > 0.0 &&
+                    norm(@view S[:, j]) <= _CANCELLATION_RTOL * gross[j]]
+    vset = Set(vanishing)
+    undetermined = isempty(orbits) ? Int[] :
+                   [j for (j, s) in enumerate(salcs(basis))
+                    if _orbit_of(s) in orbits && !(j in vset)]
+    columns = sort!(vcat(vanishing, undetermined))
+    residual_flat = 0
+    if !isempty(undetermined) && !isempty(S)
+        kept = setdiff(1:p, columns)
+        # `identifiability`'s cut, on the structural expansion instead of the design:
+        # relative to σ_max at `min(size)·eps`, so the two reports are read the same way.
+        residual_flat = isempty(kept) ? 0 : length(kept) - _struct_rank(S[:, kept])
+    end
+    return (; columns, vanishing, undetermined, multisets, residual_flat)
+end
+
+# A TIE IS NECESSARY, and cheap to rule out. Columns interact only through shared rows,
+# and a row is keyed by its per-ATOM content — so content over different atom multisets
+# never meets. Two members of ONE SALC over the same multiset is face (a); the same
+# multiset reached by TWO orbits is face (b). Both are one pass over the member lists.
 #
-# So an untied basis — every cell with unique minimum images, which is most of them —
+# **This check used to look inside one SALC only, and that was a real hole**: on a P1 cell
+# whose pair sits on the Wigner–Seitz face the two tied images land in different orbits,
+# so `_has_boundary_tie` returned `false`, the expansion never ran, and nine flat
+# directions reached `dynamical_matrix(q ≠ 0)` with a 52 % error while every gate was
+# green. The necessity argument was sound for a null COLUMN and silent about a null
+# COMBINATION. Never narrow this back to the within-SALC scan.
+#
+# An untied basis — every cell with unique minimum images, which is most of them — still
 # skips the expansion entirely. That matters because the diagnostics at the physical
 # readouts (`_warn_unresolvable`, `slce/forceconstants.jl`) call this on every deliverable,
 # and the expansion is not free (measured 40 ms / 70 MiB on 334 columns). The equivalence
@@ -268,7 +399,17 @@ function _has_boundary_tie(basis::SLCEBasis)::Bool
             push!(seen, key)
         end
     end
-    return false
+    orbits, _ = _shared_multisets(basis)
+    return !isempty(orbits)
+end
+
+# Numerical rank of the structural expansion, at `identifiability`'s convention
+# (`min(size)·eps` relative to σ_max) so a `residual_flat` count and an
+# `identifiability` report are read against the same cut.
+function _struct_rank(M::AbstractMatrix)::Int
+    isempty(M) && return 0
+    s = svdvals(M)
+    return count(>(minimum(size(M)) * eps(Float64) * s[1]), s)
 end
 
 # The classification proper, without the fast path: the expansion's own verdict.

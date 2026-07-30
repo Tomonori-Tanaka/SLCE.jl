@@ -344,6 +344,26 @@ capability consumed by both the introspection and the Sunny interop.
   enters the strata only at `w_F > 0` — at `w_F = 0` results are bit-identical to
   the pre-force-channel behaviour. Gate (j) at model level + synthetic recovery plan A:
   `test/unit/test_jointdata.jl`.
+- **Periodic resolvability — the freeze (`basis/resolvability.jl`)**:
+  `unresolvable_columns(basis)` names the coefficients no data on this reference cell can
+  determine, and `build_asr` holds them at exactly zero (excluded from `free`, under
+  `asr = false` too). A Wigner–Seitz boundary tie has **two faces** and both are frozen:
+  (a) the point group permutes the tied images, so they share one orbit whose sum weights
+  them equally and the odd content cancels — an identically zero column (`vanishing`);
+  (b) in low symmetry no operation relates them, so they sit in *different* orbits with
+  independent couplings, every column is nonzero, and only the SUM is determined — the whole
+  interaction is dropped (`undetermined`: every column of every orbit sharing an atom
+  multiset). Face (b) admits no justified split (the images share a phase only at
+  `q = 0`), so dropping discards determined content on purpose: measured on a P1 fixture,
+  18 columns = 9 determined sums + 9 undetermined differences, and `r2_energy ≈ 0.67` on
+  data containing the shell — the intended loud failure. Classification is structural
+  (`_signature_matrix`, the undifferentiated twin of the ASR expansion, judged per column
+  against its own gross accumulation), never sampled, and short-circuits on a cheap
+  cross-SALC pre-check (`_has_boundary_tie`); when face (b) fires the remaining structural
+  rank is verified (`residual_flat`) rather than assumed. Real standard cells are
+  unaffected — with space groups from Spglib the null-column count already equals the full
+  structural nullity on bcc Fe / B2 FeRh / hcp Co / wurtzite GaN / rocksalt MnO. Gates (A)
+  and (G), `test/unit/test_resolvability.jl`.
 - **ASR — exact translation-invariance constraints (M3 slice 4)**: `A·β = 0`
   enforced by null-space reparameterization `β = Z·γ` (design record §6 +
   its 2026-07-26 amendments). Builder (`fitting/asr.jl`): translation
@@ -391,8 +411,17 @@ capability consumed by both the introspection and the Sunny interop.
   fields (translation is the one affine field that is; that asymmetry is why the ASR was
   testable through the ordinary predictors and rotation was not). Reduces to
   `predict_energy` **bit-identically** at `M = 0` — the gate that keeps it from becoming
-  a second evaluator — and is `origin`-independent to `1e-15` under the ASR (and
-  demonstrably *not* on an unconstrained model). `rotational_residual(model, spins;
+  a second evaluator — and is `origin`-independent to `1e-15` under the ASR **to first
+  order in `M` only**: the ASR is an identity in the atom variables, i.e. on cell-periodic
+  fields, and at finite `M` the affine field is not one. Measured relative spread over four
+  origins on ASR-clean models at `‖M‖ ~ 0.01`: 1.08 (wurtzite GaN), 1.69 (rocksalt MgO,
+  where the rigid-rotation energy changes sign), 1.04 (B2 FeRh) — so
+  `rotational_residual` is a function of `(model, origin)` and a single default-origin
+  value can be a false negative (GaN: `5.5e-16` at the default against `1.27` about
+  `(7, −3, 2.5)`, where the rotation genuinely costs `ΔE = 0.425`). The gap is the same
+  home-image gauge `strain_derivatives` measures at `order ≥ 2`; the suite's dimer fixture
+  (bond inside the cell) is the special case where it vanishes.
+  `rotational_residual(model, spins;
   omega, axis, origin, u0)` = `|ΔE_rot| / RMS_6(ΔE_strain)` over the six
   Frobenius-normalized symmetric directions of the same `‖O − I‖_F`;
   `rotation_transfer_residual` = `|ΔE_joint| / (|ΔE_lattice| + |ΔE_spin|)`, which needs
