@@ -366,8 +366,12 @@ function build_asr(basis::SLCEBasis; warn::Bool = true)::Union{Nothing,ASRRepara
                   "spin invariant: for a spin-free displacement channel that means " *
                   "further pair orbits (widen the cutoff), for a spin-dressed one a " *
                   "term dressing the same spin factor differently — e.g. a displaced " *
-                  "ligand. Where symmetry forbids the channel outright, no truncation " *
-                  "revives it and zero is the right answer" columns = dead maxlog = 1
+                  "ligand. A PAIR channel whose exchange parity (the parity of its spin " *
+                  "factor times (-1)^Lf) comes out EVEN can only couple to u_a + u_b: no " *
+                  "extra pair orbit and no wider cutoff changes that parity, so its " *
+                  "partner has to come from another sector — a displaced third atom. " *
+                  "Either way the coefficient is excluded by the sum rule, not by crystal " *
+                  "symmetry: the basis function itself is generally nonzero" columns = dead maxlog = 1
     end
     return ASRReparam(An, Z, zeros(n_salcs(basis)), rank)
 end

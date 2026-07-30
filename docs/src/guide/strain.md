@@ -234,15 +234,23 @@ end
 !!! note "Why the fit above warns about a structurally zeroed column"
     Building this basis prints an ASR warning naming one column: the ε-linear channel whose
     spin factor is the **antisymmetric** pair combination (`L_S = 1`, the DMI-like one).
-    That is the constraint doing its job, not a defect of the fixture. The sum rule holds
-    separately in each spin sector, so a spin-dressed displacement channel can only be
-    translation invariant if the truncation contains another term carrying the *same* spin
-    invariant to cancel against — and on a centrosymmetric bond no such partner can exist,
-    because the ε-linear content of a bond with an inversion centre at its midpoint is
-    symmetry-forbidden outright. The coefficient is pinned at exactly zero, which is the
-    right answer; widening the cutoff will not change it. See
-    [Periodic resolvability](../theory/resolvability.md) for the same argument on the
-    lattice side.
+    That is the constraint doing its job, not a defect of the fixture, and the reason is an
+    **exchange parity**. Translation invariance forces a pair channel's displacement content
+    to couple to the *difference* ``u_a - u_b``, i.e. to be odd under exchanging the two ends
+    of the bond, and a term's exchange parity is the parity of its spin factor times
+    ``(-1)^{L_f}``. With `L_S = 1` (spin-antisymmetric) and odd ``L_f`` the product comes out
+    **even**, so this channel can only couple to ``u_a + u_b`` and no translation-invariant
+    model can carry it. Widening the cutoff does not help: every additional *pair* orbit
+    repeats the same parity — describing the same chain with a doubled cell just contributes
+    a second dead column of its own. What does supply a partner is a term dressing the same
+    spin pair factor with the displacement on a **third** atom (a displaced ligand,
+    `sites = 2:3`).
+
+    Note what the warning does *not* say. The basis function itself is not zero — it takes
+    values of order 0.3 on these configurations — so the coefficient is excluded by the sum
+    rule, not by crystal symmetry. For the other way a column can be unusable, a boundary tie
+    that makes it identically zero on cell-periodic data, see
+    [Periodic resolvability](../theory/resolvability.md).
 
 [`exchange_strain_derivatives`](@ref) is the model's `dJ/dr`, resolved per bond and per
 strain component instead of collapsed onto a bond length: `T[α, β, γ, δ]` is

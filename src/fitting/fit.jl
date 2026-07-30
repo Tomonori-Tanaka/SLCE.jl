@@ -209,9 +209,18 @@ function _warn_unidentified(basis::SLCEBasis, X::AbstractMatrix,
         @warn "fit: $(length(structural)) SALC(s) are identically zero on this " *
               "cell — their members cancel for EVERY configuration, so no amount " *
               "of data can determine them and `n_salcs` overstates the model's " *
-              "real freedom. This is a property of the basis, not of this fit: " *
-              "widen the cell or drop the channel. `refit` removes them from the " *
-              "support." columns = first(structural, 10)
+              "real freedom. This is a property of the basis, not of this fit. The " *
+              "usual cause is a Wigner-Seitz boundary tie: the pair's minimum image " *
+              "is not unique, so its tied images join the same two reference-cell " *
+              "atoms and the part odd under permuting them cancels (for a tie of two, " *
+              "images ±d, that is the whole odd-Lf content, DMI included). They are " *
+              "unidentifiable, not physically zero — the same functions are nonzero " *
+              "under a uniform strain and in a Monte-Carlo supercell. To determine " *
+              "them, describe the crystal with a cell in which the pair's minimum " *
+              "image is unique: break the tie in EVERY direction whose separation " *
+              "component is half the cell length (doubling one axis may not be " *
+              "enough). `refit` removes them from the support." columns =
+            first(structural, 10)
     isempty(starved) ||
         @warn "fit: $(length(starved)) design column(s) carry no information — this " *
               "fit's data say nothing about them (a force-only fit sees no " *

@@ -36,7 +36,7 @@ radial cutoff; `cutoff = Inf` keeps the whole WS cell (Magesty spells this
 ## Boundary ties
 
 On the WS boundary several images are exactly equidistant, and they are kept as **distinct
-members** — each is a genuinely different, independently resolvable geometry:
+members** — in the infinite crystal they are genuinely different bonds:
 
 | WS boundary feature | Multiplicity |
 |---------------------|-------------:|
@@ -52,6 +52,35 @@ cr = Crystal(Lattice([3.0 0 0; 0 3.0 0; 0 0 3.0]), [0.0 0.5; 0.0 0.5; 0.0 0.5], 
 nl = SLCE.build_neighbor_list(cr, Inf, MinimumImage())   # public-unexported: qualify
 length([p for p in nl.pairs if (p.i, p.j) == (1, 2)])     # 8 equidistant corner images
 ```
+
+### What a tie costs on a finite cell
+
+Distinct members are *not* independently resolvable. Every image of a tie joins the **same
+two atoms of the reference cell**, and a [`TrainingDatum`](@ref) carries one spin and one
+displacement per reference-cell atom — so all tied members see the identical arguments, and
+the orbit sum runs over them with whatever signs the invariant carries. Any content that is
+**odd** under the operations permuting the tied images therefore cancels identically.
+
+For the simplest tie — multiplicity 2, images ``\pm\boldsymbol d``, i.e. a pair whose
+separation is half a lattice vector — that operation is bond reversal
+``\hat{\boldsymbol r} \to -\hat{\boldsymbol r}``, which the invariant carries as
+``(-1)^{L_f}``. The entire **odd**-``L_f`` part of that pair channel, including the
+antisymmetric DMI-like ``L_f = 1`` one, is then identically zero as a function of
+cell-periodic data, while the even-``L_f`` part is untouched. Higher multiplicities remove
+more: for the eight-fold bcc corner tie above, the ``L_f = 2`` harmonic channel dies too and
+only ``L_f = 0`` survives.
+
+Such a coefficient is **unidentifiable, not absent**. The same basis function is in general
+nonzero under [`affine_energy`](@ref) — a uniform strain displaces the tied images by
+different amounts, so the cancellation is incomplete and what survives is the *relative*,
+bond-stretch content (``\mathrm{d}J/\mathrm{d}r``, i.e. exchange magnetostriction) — and
+nonzero in a Monte-Carlo supercell. A fit on this cell simply cannot determine it.
+
+The remedy is a reference cell in which the pair's minimum image is **unique**: break the tie
+in *every* direction whose separation component equals half the cell length. Doubling one
+axis is not automatically enough — describing bcc with a cell doubled along ``z`` only
+reduces the corner tie from eight images to four, and the dead channels stay dead, whereas a
+``2\times2\times2`` cell puts the cross pair strictly inside the WS cell and resolves it.
 
 ## Which interactions the enumeration can represent
 

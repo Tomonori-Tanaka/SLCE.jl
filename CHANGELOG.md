@@ -6,6 +6,27 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — a Wigner–Seitz boundary tie is not independently resolvable
+
+[Periodic resolvability](docs/src/theory/resolvability.md) claimed that the equidistant images
+kept on the WS boundary are "each a genuinely different, independently resolvable geometry".
+The first half is right and the second is backwards: all images of a tie join the *same two
+atoms of the reference cell*, a `TrainingDatum` carries one spin and one displacement per
+reference-cell atom, so every tied member sees identical arguments and whatever content is odd
+under the operations permuting the ties cancels in the orbit sum. Measured: for a pair at half
+a lattice vector (tie 2, images ±d) every odd-`Lf` column of that channel is identically zero
+on cell-periodic data — 4/4 on a spin-dressed Fe–O–Fe chain, 5/5 on the bcc cross pair — while
+the even-`Lf` columns of the same orbit are untouched (0.043, 0.058), and a tie-1 orbit loses
+nothing. Larger ties remove more: the eight-fold bcc corner tie kills `Lf = 2` as well and
+leaves only `Lf = 0`.
+
+Those coefficients are unidentifiable, not absent — the same functions are nonzero under
+`affine_energy` (the relative, bond-stretch content survives a uniform strain) and in a
+Monte-Carlo supercell. The chapter now states the cost, and states the remedy correctly: the
+tie must be broken in *every* direction whose separation component is half the cell length. A
+cell doubled along one axis is not enough — for bcc it only takes the corner tie from eight
+images to four and the dead channels stay dead; `2×2×2` resolves it.
+
 ### Changed — the ASR diagnostics say who can fix them, and say it once
 
 `build_asr` gained a `warn` keyword and both of its *diagnostics* (no translation-invariant
@@ -20,9 +41,13 @@ The dead-column message also named the wrong remedy. It said the partners are "o
 truncation", which invites widening the cutoff — correct for a spin-free displacement
 channel, useless for a spin-dressed one. The sum rule holds separately in each spin sector,
 so a spin-dressed column survives only if some term dresses the *same* spin invariant
-differently (a displaced ligand, say); and where symmetry forbids the channel outright — an
-ε-linear pair coupling on a bond with an inversion centre at its midpoint — no truncation
-revives it and zero is the right answer. Measured while writing this: a spin-dressed
+differently (a displaced ligand, say). A *pair* channel whose exchange parity — the parity of
+its spin factor times `(-1)^Lf` — comes out even can only couple to `u_a + u_b`, and no extra
+pair orbit or wider cutoff changes that parity, so its partner has to come from another
+sector: a displaced third atom. Either way the coefficient is excluded by the sum rule, not by
+crystal symmetry; the basis function itself is generally nonzero (order 0.3 on the
+magnetoelastic fixture in the strain guide, whose `L_S = 1` column is dead in exactly this
+way, and still dead when the cell is doubled). Measured while writing this: a spin-dressed
 `degree = 2` pair sector has 4 structurally dead columns per pair orbit with `sites = 2`
 (12 on a three-orbit fixture) and **none** with `sites = 2:3`, i.e. once the ligand is in.
 
