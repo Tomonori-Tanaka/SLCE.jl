@@ -1,0 +1,213 @@
+# Periodic resolvability: which SALCs a finite reference cell can resolve at all.
+#
+# A SALC's value on training data is its orbit sum, and on a finite cell several
+# members of one orbit can join the SAME atoms of the reference cell — the
+# Wigner–Seitz boundary ties `theory/resolvability.md` describes, where one atom
+# pair carries several equidistant minimum images. A `TrainingDatum` carries one
+# spin and one displacement per reference-cell atom, so all tied members see
+# identical arguments and the orbit sum can annihilate the invariant outright.
+# Those coefficients are UNIDENTIFIABLE, not physically zero: the same basis
+# functions are nonzero under `affine_energy` and in a Monte-Carlo supercell.
+#
+# The fixtures build their space group from HAND-WRITTEN operations (the 48 signed
+# permutation matrices of m-3m, and the 16 of them that keep the z axis) rather
+# than from a symmetry backend: the core test environment has no Spglib, and an
+# explicit group is the better oracle anyway.
+#
+# Gates, none of them the classifier's own output:
+#   (A) INDEPENDENT IMPLEMENTATION — the evaluator. Each SALC's orbit sum is
+#       compared against the sum of its single-member values on the same
+#       configuration, the scale a cancellation must be judged against.
+#       `unresolvable_columns` reaches its verdict through a symbolic monomial
+#       expansion that shares no code with `evaluate_salc`.
+#   (B) THE PROPERTY THE DESIGN RESTS ON — freezing whole COLUMNS is only exact if
+#       the canonical gauge already separates the kernel, i.e. if the basis has no
+#       null COMBINATION beyond its null columns. Gated by the rank deficiency of a
+#       sampled value matrix (again the evaluator, not the symbolic expansion).
+#   (C) PHYSICS — unidentifiable is not zero: a classified column has a nonzero
+#       ε-linear response, exactly linear in ε.
+#   (D) THE REMEDY — a cell in which the pair's minimum image is unique resolves the
+#       channel, and breaking the tie in only one direction does not.
+
+using Test
+using SLCE
+using SLCE: salcs, SALC, SALCScratch, evaluate_salc, _signature_matrix,
+    _assemble_spacegroup, _superset_cutoff, build_neighbor_list, build_clusters,
+    build_salc_basis
+using LinearAlgebra
+using Random
+using StaticArrays
+
+# The 48 signed permutation matrices: the full cubic point group m-3m, written out.
+function _cubic_ops()
+    ops = SMatrix{3,3,Float64,9}[]
+    for perm in ([1, 2, 3], [1, 3, 2], [2, 1, 3], [2, 3, 1], [3, 1, 2], [3, 2, 1]),
+        s1 in (1, -1), s2 in (1, -1), s3 in (1, -1)
+
+        M = zeros(3, 3)
+        sgn = (s1, s2, s3)
+        for (row, col) in enumerate(perm)
+            M[row, col] = sgn[row]
+        end
+        push!(ops, SMatrix{3,3,Float64}(M))
+    end
+    return ops
+end
+# ... and the 16 of them that keep the z axis (up to sign): tetragonal 4/mmm.
+_tetragonal_ops() = [o for o in _cubic_ops() if abs(o[3, 3]) == 1]
+
+function _basis_with_ops(cr::Crystal, spec::BasisSpec, rots)
+    trans = [SVector{3,Float64}(0, 0, 0) for _ in rots]
+    sg = _assemble_spacegroup(cr, rots, trans, "manual", 0; tol = 1e-6)
+    nl = build_neighbor_list(cr, _superset_cutoff(spec), MinimumImage())
+    cl = build_clusters(cr, nl, sg; nbody = spec.nbody, selection = MinimumImage(),
+                        cutoff = spec.cutoff)
+    sb = build_salc_basis(cr, sg, cl, spec; neighbors = nl, selection = MinimumImage())
+    return SLCEBasis(cr, sg, sb, spec)
+end
+
+# Gate (A)/(B) source: the evaluator's own view of the basis. `V` holds each SALC's
+# value over random configurations, column-scaled by the sum of |single-member|
+# values so that a cancelled column sits at roundoff and a surviving one at O(1) —
+# the distinction a global threshold cannot make on a basis mixing spin and
+# high-degree displacement channels.
+function _evaluator_view(b; nprobe = 240, seed = 2024)
+    ss = salcs(b)
+    p = length(ss)
+    nat = n_atoms(b.crystal)
+    rng = MersenneTwister(seed)
+    scratch = SALCScratch()
+    V = zeros(nprobe, p)
+    scale = zeros(p)
+    for i = 1:nprobe
+        e = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:nat])
+        u = 0.05 .* randn(rng, 3, nat)
+        for j = 1:p
+            s = ss[j]
+            V[i, j] = evaluate_salc(s, e, u, scratch)
+            gross = 0.0
+            for mem in s.members
+                gross += abs(evaluate_salc(SALC(s.key, s.body, s.decors, s.L_S, s.Lf,
+                                                [mem]), e, u, scratch))
+            end
+            scale[j] = max(scale[j], gross)
+        end
+    end
+    for j = 1:p
+        scale[j] > 0 && (@views V[:, j] ./= scale[j])
+    end
+    ratio = [maximum(abs, @view V[:, j]) for j = 1:p]
+    return V, ratio
+end
+
+_bcc() = Crystal(Lattice(Matrix(3.0 * I(3))), [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
+_harmonic(cr; degree = 2, cutoff = 2.7) =
+    BasisSpec(cr; lmax = 0, pmax = degree,
+              sectors = [Sector(disp = (degree = degree,), sites = 2, cutoff = cutoff)])
+
+function _fixtures()
+    bcc = _bcc()
+    z2 = Crystal(Lattice([3.0 0 0; 0 3.0 0; 0 0 6.0]),
+                 [0.0 0.5 0.0 0.5; 0.0 0.5 0.0 0.5; 0.0 0.25 0.5 0.75],
+                 [1, 1, 1, 1], ["Fe"])
+    sc = Crystal(Lattice(Matrix(6.0 * I(3))),
+                 reduce(hcat, [[x, y, z] ./ 2 .+ o
+                               for o in ([0.0, 0, 0], [0.25, 0.25, 0.25])
+                               for x = 0:1, y = 0:1, z = 0:1]),
+                 fill(1, 16), ["Fe"])
+    return [
+        ("bcc harmonic", _basis_with_ops(bcc, _harmonic(bcc), _cubic_ops())),
+        ("bcc degree 3", _basis_with_ops(bcc, _harmonic(bcc; degree = 3), _cubic_ops())),
+        ("bcc pure spin soc",
+         _basis_with_ops(bcc, BasisSpec(bcc; lmax = 2, pmax = 0, soc = true,
+                                       sectors = [Sector(spin = (sites = 1:2,),
+                                                         cutoff = 2.7)]), _cubic_ops())),
+        ("bcc spin x disp",
+         _basis_with_ops(bcc, BasisSpec(bcc; lmax = 1, pmax = 2,
+                                       sectors = [Sector(spin = [1, 1],
+                                                         disp = (degree = 1,), sites = 2,
+                                                         cutoff = 2.7)]), _cubic_ops())),
+        ("bcc doubled along z only",
+         _basis_with_ops(z2, _harmonic(z2), _tetragonal_ops())),
+        ("bcc as 2x2x2", _basis_with_ops(sc, _harmonic(sc), _cubic_ops())),
+    ]
+end
+
+@testset "periodic resolvability" begin
+    fixtures = _fixtures()
+
+    @testset "(A) symbolic classification == the evaluator's verdict" begin
+        for (name, b) in fixtures
+            _, ratio = _evaluator_view(b)
+            num = [j for j in eachindex(ratio) if ratio[j] <= 1e-10]
+            @test unresolvable_columns(b) == num
+            # A cancelled column is at roundoff and a surviving one is nowhere near
+            # the cut: the criterion is well posed here, not threshold-tuned.
+            for j in eachindex(ratio)
+                @test ratio[j] <= 1e-12 || ratio[j] >= 1e-3
+            end
+            S, gross = _signature_matrix(b)
+            for j in eachindex(gross)
+                gross[j] == 0.0 && continue
+                r = norm(@view S[:, j]) / gross[j]
+                @test r <= 1e-12 || r >= 1e-3
+            end
+        end
+    end
+
+    @testset "(B) no null combination beyond the null columns" begin
+        # Freezing whole columns is exact only if the kernel is spanned by columns.
+        # Measured through the sampled value matrix, so the gate does not consult the
+        # symbolic expansion the classifier uses.
+        for (name, b) in fixtures
+            V, _ = _evaluator_view(b)
+            p = n_salcs(b)
+            sv = svdvals(V)
+            rank = count(>(1e-10), sv)
+            @test p - rank == length(unresolvable_columns(b))
+        end
+    end
+
+    @testset "(C) unidentifiable, not zero — a uniform strain sees it" begin
+        b = _basis_with_ops(_bcc(), BasisSpec(_bcc(); lmax = 1, pmax = 2,
+                                             sectors = [Sector(spin = [1, 1],
+                                                               disp = (degree = 1,),
+                                                               sites = 2, cutoff = 2.7)]),
+                            _cubic_ops())
+        dead = unresolvable_columns(b)
+        @test !isempty(dead)
+        rng = MersenneTwister(9)
+        e = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:n_atoms(b.crystal)])
+        nonzero = 0
+        for j in dead
+            m = SLCEModel(b, 0.0, [i == j ? 1.0 : 0.0 for i = 1:n_salcs(b)])
+            a1 = affine_energy(m, e, [0 0 0; 0 0 0; 0 0 0.01])
+            a2 = affine_energy(m, e, [0 0 0; 0 0 0; 0 0 0.02])
+            if abs(a1) > 1e-8
+                nonzero += 1
+                @test a2 ≈ 2 * a1 rtol = 1e-10
+            end
+        end
+        @test nonzero > 0
+    end
+
+    @testset "(D) the remedy, and that one direction is not enough" begin
+        byname = Dict(fixtures)
+        # bcc's cross pair sits at all eight WS corners of the cubic cell. Doubling
+        # along z alone leaves a four-fold tie, so the channel stays unresolvable;
+        # 2x2x2 puts the pair strictly inside the WS cell and resolves it.
+        @test !isempty(unresolvable_columns(byname["bcc harmonic"]))
+        @test !isempty(unresolvable_columns(byname["bcc doubled along z only"]))
+        @test isempty(unresolvable_columns(byname["bcc as 2x2x2"]))
+    end
+
+    @testset "the classification is structural, not sampled" begin
+        b = _basis_with_ops(_bcc(), _harmonic(_bcc()), _cubic_ops())
+        first = unresolvable_columns(b)
+        @test !isempty(first)
+        rand(MersenneTwister(1), 100)          # ambient RNG state must not matter
+        Random.seed!(12345)
+        @test unresolvable_columns(b) == first
+        @test unresolvable_columns(b) == first
+    end
+end

@@ -212,8 +212,9 @@ function _warn_unidentified(basis::SLCEBasis, X::AbstractMatrix,
               "real freedom. This is a property of the basis, not of this fit. The " *
               "usual cause is a Wigner-Seitz boundary tie: the pair's minimum image " *
               "is not unique, so its tied images join the same two reference-cell " *
-              "atoms and the part odd under permuting them cancels (for a tie of two, " *
-              "images ±d, that is the whole odd-Lf content, DMI included). They are " *
+              "atoms and the invariant can cancel outright (`unresolvable_columns` " *
+              "reports which; for a tie of two, images ±d, it is typically the " *
+              "odd-Lf content, the DMI-like Lf = 1 one included). They are " *
               "unidentifiable, not physically zero — the same functions are nonzero " *
               "under a uniform strain and in a Monte-Carlo supercell. To determine " *
               "them, describe the crystal with a cell in which the pair's minimum " *

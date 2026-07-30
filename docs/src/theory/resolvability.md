@@ -61,14 +61,30 @@ displacement per reference-cell atom — so all tied members see the identical a
 the orbit sum runs over them with whatever signs the invariant carries. Any content that is
 **odd** under the operations permuting the tied images therefore cancels identically.
 
-For the simplest tie — multiplicity 2, images ``\pm\boldsymbol d``, i.e. a pair whose
-separation is half a lattice vector — that operation is bond reversal
-``\hat{\boldsymbol r} \to -\hat{\boldsymbol r}``, which the invariant carries as
-``(-1)^{L_f}``. The entire **odd**-``L_f`` part of that pair channel, including the
-antisymmetric DMI-like ``L_f = 1`` one, is then identically zero as a function of
-cell-periodic data, while the even-``L_f`` part is untouched. Higher multiplicities remove
-more: for the eight-fold bcc corner tie above, the ``L_f = 2`` harmonic channel dies too and
-only ``L_f = 0`` survives.
+A tie is *necessary* for this to happen — with a unique minimum image every member has its
+own atom content and nothing can cancel — but which content dies depends on how the group
+relates the tied members, not on the tie alone, so the reliable statement is the measured
+one. [`unresolvable_columns`](@ref) reports it exactly for a given basis. Measured examples,
+all under the crystal's own space group:
+
+| basis | tie | columns | identically zero |
+|-------|----:|--------:|-----------------:|
+| bcc cross pair, harmonic (``\Lambda`` degree 2) | 8 | 2 | 1 (the ``L_f = 2`` one) |
+| bcc cross pair, degree 3 | 8 | 8 | 8 |
+| bcc cross pair, pure spin (`soc`, ``l \le 2``) | 8 | 7 | 4 |
+| pair at half a lattice vector, spin ``\times`` degree-1 displacement | 2 | 4 | 4 (all odd ``L_f``) |
+| the same pair, harmonic | 2 | 6 | 0 (all even ``L_f``) |
+| hcp pair, harmonic | 2 | 4 | 1 |
+
+The pattern in the two-fold rows is the one to expect from bond reversal
+``\hat{\boldsymbol r} \to -\hat{\boldsymbol r}``, which an invariant of bond rank ``L_f``
+carries as ``(-1)^{L_f}`` while the site factors — indexed by the same reference-cell atom
+for either image — are unchanged: the odd-``L_f`` content of such a channel goes, the
+antisymmetric DMI-like ``L_f = 1`` one included, and the even-``L_f`` content stays. Treat
+that as a guide to *where to look*, not as a rule: the projection is taken over the
+stabilizer of one member, and whether the transported invariants then cancel is a property of
+the whole group, so a larger tie can remove even-``L_f`` content too (the eight-fold rows
+above) and a smaller group can leave odd-``L_f`` content standing.
 
 Such a coefficient is **unidentifiable, not absent**. The same basis function is in general
 nonzero under [`affine_energy`](@ref) — a uniform strain displaces the tied images by

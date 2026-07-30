@@ -59,6 +59,7 @@ end
         include("unit/test_dftsource.jl")
         include("unit/test_dataset.jl")
         include("unit/test_jointdata.jl")
+        include("unit/test_resolvability.jl")
         include("unit/test_asr.jl")
         include("unit/test_identifiability.jl")
         include("unit/test_staged.jl")

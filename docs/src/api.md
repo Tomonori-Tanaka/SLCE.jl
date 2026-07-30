@@ -169,6 +169,17 @@ SLCE.ASRReparam
 SLCE.build_asr
 ```
 
+## What a finite reference cell can resolve
+
+Some columns are identically zero on every configuration the *reference cell* can
+express, so no amount of training data determines them — the coefficient is
+unidentifiable, not physically zero. The cause is a Wigner–Seitz boundary tie; see
+[Periodic resolvability](theory/resolvability.md) for the mechanism and the remedy.
+
+```@docs
+unresolvable_columns
+```
+
 ## Rotational invariance (a diagnostic, not a constraint)
 
 Translation is the only affine invariance the package *imposes*. Rigid rotation and

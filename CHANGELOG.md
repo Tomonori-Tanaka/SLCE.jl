@@ -13,12 +13,16 @@ kept on the WS boundary are "each a genuinely different, independently resolvabl
 The first half is right and the second is backwards: all images of a tie join the *same two
 atoms of the reference cell*, a `TrainingDatum` carries one spin and one displacement per
 reference-cell atom, so every tied member sees identical arguments and whatever content is odd
-under the operations permuting the ties cancels in the orbit sum. Measured: for a pair at half
-a lattice vector (tie 2, images ±d) every odd-`Lf` column of that channel is identically zero
-on cell-periodic data — 4/4 on a spin-dressed Fe–O–Fe chain, 5/5 on the bcc cross pair — while
-the even-`Lf` columns of the same orbit are untouched (0.043, 0.058), and a tie-1 orbit loses
-nothing. Larger ties remove more: the eight-fold bcc corner tie kills `Lf = 2` as well and
-leaves only `Lf = 0`.
+under the operations permuting the ties can cancel in the orbit sum. A tie is necessary — with
+a unique minimum image nothing can cancel — but which content dies is a property of the whole
+group, not of the tie alone, so the chapter now states the measured table and points at the new
+`unresolvable_columns`. Measured: the bcc cross pair (tie 8) loses 1 of 2 harmonic columns,
+8 of 8 at degree 3, and 4 of 7 pure-spin `soc` columns; a pair at half a lattice vector (tie 2)
+loses all 4 spin × degree-1 columns, which are exactly the odd-`Lf` ones, and none of its 6
+harmonic columns, which are all even-`Lf`; an hcp pair loses 1 of 4. The two-fold pattern is
+what bond reversal `(-1)^Lf` predicts, and the chapter says explicitly that this is a guide to
+where to look rather than a rule — a larger tie removes even-`Lf` content too, and supplying a
+subgroup instead of the crystal's own group leaves odd-`Lf` content standing.
 
 Those coefficients are unidentifiable, not absent — the same functions are nonzero under
 `affine_energy` (the relative, bond-stretch content survives a uniform strain) and in a
