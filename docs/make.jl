@@ -25,9 +25,12 @@ makedocs(;
         "Getting started" => "getting_started.md",
         "Guide" => [
             "guide/basis.md",
-            "guide/fitting.md",
             "guide/io.md",
+            "guide/fitting.md",
+            "guide/joint.md",
             "guide/introspection.md",
+            "guide/lattice_dynamics.md",
+            "guide/strain.md",
             "guide/sunny.md",
         ],
         "Tutorials" => [

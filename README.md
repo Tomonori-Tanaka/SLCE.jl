@@ -72,6 +72,11 @@ From a fitted joint model:
 | `dynamical_matrix(fcs, q)` | `D(q)` for phonons — its `q = 0` acoustic zeros are the ASR, measured |
 | `effective_model(model; u0)` | an exact re-expansion around a displaced structure |
 | `decorated_terms(model)` | the raw term contract for downstream samplers |
+| `strain_derivatives(model; spins, order)` | the response to a homogeneous strain (Biot / Seth–Hill `m = 1`) |
+| `magnetoelastic_constants(model; …)` | `B₁` / `B₂` by projection, with the residual reported |
+| `magnon_phonon_vertices(model; …)` | the ordered `(a, b, R)` spin–displacement vertices |
+| `StrainedModels` / `model_at` | a volume grid of fits, interpolated — magnetovolume coupling |
+| `write_phonopy` / `write_alamode` | force constants in the two external conventions |
 
 `force_constants` is where the joint expansion earns its keep. Its output is
 invariant under the **magnetic space group** of the spin state you evaluate at —
@@ -162,8 +167,9 @@ See [`examples/persist_and_input.jl`](examples/persist_and_input.jl) for the ful
 
 ### Inspecting fitted coefficients
 
-`coeftable(f)` returns a Tables.jl source (one row per SALC: `body`, `orbit_id`, `ls`,
-`Lf`, `block`, `J`), so the coefficients drop into any table / IO package:
+`coeftable(f)` returns a Tables.jl source (one row per SALC: `body`, `orbit_id`,
+`decors`, `L_S`, `Lf`, `block`, `J`), so the coefficients drop into any table / IO
+package:
 
 ```julia
 using DataFrames
@@ -218,6 +224,19 @@ fit(SLCEFit, dataset, AdaptiveLasso())                  # pilot-reweighted Lasso
 `FixedCoefficients` reusing a prior fit) and then a weighted Lasso that spares the columns
 the pilot found large. For an energy+torque co-fit the cross-validation folds are grouped
 by configuration.
+
+### The package family
+
+This package fits models; three siblings consume them through its public surface, and
+none of them re-implements any of its numerics (`KB_EV` and the family generics
+`n_atoms` / `has_disp` are defined here once and extended there):
+
+| Package | Role |
+|---|---|
+| **`SLCE.jl`** | builds the basis and fits the model — energies, torques, forces |
+| [`SLCETools.jl`](https://github.com/Tomonori-Tanaka/SLCETools.jl) | the VASP adapter, mean-field sampling, single-cell configuration MC |
+| [`SLCEMonteCarlo.jl`](https://github.com/Tomonori-Tanaka/SLCEMonteCarlo.jl) | full supercell Monte Carlo: spins, displacements, NPT strain moves, parallel tempering |
+| [`SLCEDynamics.jl`](https://github.com/Tomonori-Tanaka/SLCEDynamics.jl) | spin dynamics (LLG / sLLG, quantum thermostat, `S(q,ω)`) |
 
 ### Reading DFT data
 
@@ -293,7 +312,8 @@ make -C docs serve      # build, then serve at http://localhost:8000 with live r
 ```
 
 The first build resolves `docs/Project.toml` (Documenter + Spglib + the package). The site
-is not yet deployed — add a remote and `deploydocs` when one exists.
+is published from CI to <https://tomonori-tanaka.github.io/SLCE.jl/dev/>; a local build is
+a no-op for deployment and just writes `docs/build/`.
 
 ## Status
 
@@ -311,9 +331,15 @@ oracle), the joint data layer (`TrainingDatum` with per-datum spins / displaceme
 forces / torques), the force design block and three-block co-fit, the exact acoustic
 sum rule with `identifiability` diagnostics, staged (`frozen` / `sector_mask`)
 fitting, and the downstream deliverables — `restrict`, `decorated_terms`,
-`force_constants`, `dynamical_matrix`, `effective_model` — are implemented. Strain
-and finite-temperature utilities are in progress; the strain measure is pinned
-(Biot / Seth–Hill `m = 1`) in [`docs/specs/`](docs/specs/).
+`force_constants`, `dynamical_matrix`, `effective_model` — are implemented.
+
+**Strain and lattice-dynamics readouts:** `strain_derivatives` (measure pinned to
+Biot / Seth–Hill `m = 1`, with origin independence measured on every `order ≥ 2`
+call), the magnetoelastic tier (`magnetoelastic_constants`,
+`exchange_strain_derivatives`), `magnon_phonon_vertices`, the volume grid
+(`StrainedModels` / `model_at` / `grid_strain_derivative`) and the external writers
+`write_phonopy` / `write_alamode` are implemented. Finite-temperature sampling is
+not this package's job — see the family table above.
 
 **Fit-side tooling:** cost-weighted group selection (`GroupAdaptiveRidge`,
 `select_fit`, `select_support`), `gcv` / `effective_dof`, and grouped

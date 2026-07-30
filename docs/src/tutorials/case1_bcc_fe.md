@@ -160,8 +160,9 @@ using Printf
 ```
 
 The torque — the fit's primary target — is reproduced to high accuracy (``R^2_\tau \approx 0.998``),
-and the energy, now a secondary observable, is still captured across the 128-atom cell to
-``R^2_E \approx 0.986`` (a few meV per atom). Parity plots make the agreement visual —
+and the energy, now a secondary observable, is captured across the 128-atom cell to
+``R^2_E \approx 0.986`` — an RMSE of ``\approx 14`` meV for the whole cell, i.e.
+``\approx 0.1`` meV/atom. Parity plots make the agreement visual —
 observed (DFT) against predicted (SLCE), for both energies and torques:
 
 ```@example case1

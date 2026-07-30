@@ -545,7 +545,10 @@ directly at a fixed fit: each point is one cheap de-biasing `refit`, scored on a
 held-out slice, with the same "cheapest within (1+δ)" rule — `select_support`. On
 l044 this front offered 38 % of the Monte-Carlo cost at a held-out torque RMSE
 *better* than the full model (de-biasing beats the interpolating tail) and 3 % of the
-cost at +19 %. The λ path (`select_fit`) remains the tool that *shapes* coefficients
+cost at +19 %. **Those two figures predate the 2026-07-28 cost-metric correction** (an
+entry is now priced by its slot count, not by its nonzero count, since the sweep walks
+one site program per member site position); the front's shape is unaffected but the
+percentages have not been re-derived. The λ path (`select_fit`) remains the tool that *shapes* coefficients
 group-wise before thresholding; the threshold front is where the cost is actually
 harvested.
 

@@ -7,20 +7,31 @@ CurrentModule = SLCE
 A clean, extensible, Julia-native rebuild of [Magesty.jl](https://github.com/Tomonori-Tanaka/Magesty.jl) —
 fitting **spin–lattice cluster expansion (SLCE)** models to noncollinear DFT data.
 
-Given a crystal and a set of noncollinear spin configurations with their DFT energies
-(and, optionally, torques), the package fits
+Given a crystal and DFT data on it, the package fits
 
 ```math
-E\bigl(\{\hat{\boldsymbol e}_a\}\bigr) = j_0 + \sum_{\varphi} J_\varphi\,\Phi_\varphi\bigl(\{\hat{\boldsymbol e}_a\}\bigr),
+E\bigl(\{\hat{\boldsymbol e}_a\},\{\boldsymbol u_a\}\bigr)
+  = j_0 + \sum_{\varphi} J_\varphi\,\Phi_\varphi\bigl(\{\hat{\boldsymbol e}_a\},\{\boldsymbol u_a\}\bigr),
 ```
 
-where the spins ``\hat{\boldsymbol e}_a`` are unit vectors and the ``\Phi_\varphi`` are
-symmetry-adapted, time-reversal-even scalar invariants built from real tesseral
-spherical harmonics over clusters of spins. Fitting recovers the cluster coefficients
-``J_\varphi``; the same coefficients fix the per-atom **torque**
-``\boldsymbol\tau_a = -\hat{\boldsymbol e}_a \times \partial E/\partial\hat{\boldsymbol e}_a``
-(the Landau–Lifshitz / physical torque ``\boldsymbol m_a \times \boldsymbol B_{\mathrm{eff},a}``),
-the SLCE's other DFT observable.
+a linear model in symmetry-adapted invariants ``\Phi_\varphi`` over clusters of atoms. Each
+cluster site is *decorated*: a spin factor built from real tesseral spherical harmonics of
+the unit direction ``\hat{\boldsymbol e}_a``, a displacement factor built from solid
+harmonics of ``\boldsymbol u_a``, or both. A pure-spin model — the Drautz–Fähnle
+spin-cluster expansion — is the sub-case where every site carries a spin factor and nothing
+else, and it is still the most common one.
+
+Three DFT observables train it, and all three are derivatives of that one surface:
+
+| observable | what it is |
+|---|---|
+| energy ``E`` | the fitted quantity |
+| torque ``\boldsymbol\tau_a = -\hat{\boldsymbol e}_a \times \partial E/\partial\hat{\boldsymbol e}_a`` | the Landau–Lifshitz torque ``\boldsymbol m_a \times \boldsymbol B_{\mathrm{eff},a}`` |
+| force ``\boldsymbol F_a = -\partial E/\partial \boldsymbol u_a`` | the lattice channel's target |
+
+Translation invariance is not a space-group symmetry, so it enters as an exact linear
+**acoustic sum rule** on the coefficients (on by default) rather than as a correction
+afterwards.
 
 !!! note "Status — an architectural exploration (v0)"
     This is a from-scratch re-architecture of Magesty.jl's SLCE fitting, written as a
@@ -28,7 +39,8 @@ the SLCE's other DFT observable.
     coupling, the symmetry-adapted basis, design matrices, regression) is reimplemented
     independently and validated against Magesty.jl as a *pinned numerical oracle*.
     Bit-for-bit agreement with Magesty is **not** a goal — refining methods so results
-    differ slightly is allowed and is the point. For production use, see Magesty.jl.
+    differ slightly is allowed and is the point. For production **pure-spin** work, see
+    Magesty.jl; the joint spin–lattice channel exists only here.
 
 ## What it does
 
@@ -36,42 +48,54 @@ The pipeline is one straight line, each stage a small, typed object:
 
 ```
 Crystal + BasisSpec ──▶ SLCEBasis ──▶ SLCEDataset ──▶ fit ──▶ SLCEModel
-   (geometry, range)      (symmetry,    (DFT data:     (OLS / Ridge /   (predict_energy,
-                           SALC basis)   E, τ)          Lasso / …)        predict_torque,
-                                                                          to_sunny, save)
+  (geometry, range,     (symmetry,     (DFT data:      (OLS / Ridge /  (predict_energy/torque/force,
+   sector table)         SALC basis)    E, τ, F;        Lasso / …,      restrict, decorated_terms,
+                                        the ASR)        staged)         force_constants, dynamical_matrix,
+                                                                        strain_derivatives, to_sunny, save)
 ```
 
 - **`SLCEBasis`** analyzes symmetry, enumerates cluster orbits, and builds the
-  symmetry-adapted SALC basis for a `Crystal` and a `BasisSpec` (body order, cutoff,
-  per-species `l`, SOC selection).
-- **`SLCEDataset`** pairs the basis with training data and materializes the energy
-  (and torque) design matrices.
-- **`fit`** solves for the coefficients with a pluggable estimator, optionally co-fitting
-  energy and torque.
-- **`SLCEModel`** predicts energies and torques, tabulates coefficients, persists to a
-  human-readable TOML, and exports to [Sunny.jl](https://sunnysuite.github.io/Sunny/) for
-  spin-wave theory.
+  symmetry-adapted SALC basis for a `Crystal` and a `BasisSpec` — body order, cutoffs,
+  per-species `l`/`p` caps, per-sector SOC selection, or a full `Sector` table for a
+  joint model.
+- **`SLCEDataset`** pairs the basis with training data, materializes the energy, torque
+  and force design matrices, and builds the acoustic sum rule's null space.
+- **`fit`** solves for the coefficients with a pluggable estimator, co-fitting the three
+  blocks under chosen weights, in one shot or in physical stages.
+- **`SLCEModel`** predicts all three observables, tabulates coefficients, persists to a
+  human-readable TOML, and is the input to the derivative readouts — force constants and
+  dynamical matrices, strain and magnetoelastic response, magnon–phonon vertices, volume
+  grids — plus export to [Sunny.jl](https://sunnysuite.github.io/Sunny/), phonopy and
+  ALAMODE.
 
-!!! tip "Sampling and active learning live in SLCETools.jl"
-    This package is focused on **building and fitting** SLCE models. To *generate* spin
-    configurations from a fitted model — finite-temperature mean-field (MFA) sampling, and
-    (planned) active-learning model construction — use the companion package
-    [SLCETools.jl](https://github.com/Tomonori-Tanaka/SLCETools.jl). It depends on
-    SLCE and reads a fitted model only through the public
-    [introspection surface](api.md#Fitted-model-introspection)
-    (`spin_multipole_terms`, `bilinear_terms`, `SLCE.Harmonics`).
+## The package family
+
+This package builds and fits models. Three siblings consume them, each through the public
+introspection surface only — and `KB_EV`, `resolve_kt` and the generics `n_atoms` /
+`has_disp` are defined here once and extended there, never copied.
+
+| Package | Role |
+|---|---|
+| **`SLCE.jl`** | the basis and the fit |
+| [`SLCETools.jl`](https://github.com/Tomonori-Tanaka/SLCETools.jl) | the VASP adapter, mean-field sampling, single-cell configuration MC |
+| [`SLCEMonteCarlo.jl`](https://github.com/Tomonori-Tanaka/SLCEMonteCarlo.jl) | full supercell Monte Carlo — spins, displacements, NPT strain moves, parallel tempering |
+| [`SLCEDynamics.jl`](https://github.com/Tomonori-Tanaka/SLCEDynamics.jl) | spin dynamics: LLG / sLLG, quantum thermostat, ``S(q,\omega)`` |
 
 ## Documentation
 
 | Page | What's there |
 |------|--------------|
 | [Getting started](getting_started.md) | Install, then fit and recover a Heisenberg coupling in a dozen lines |
-| [Guide: building the basis](guide/basis.md) | `Crystal`, `BasisSpec`, periodic resolvability, symmetry, body order |
-| [Guide: data and fitting](guide/fitting.md) | Datasets, the energy + torque co-fit, estimators (OLS / Ridge / Lasso / elastic-net), diagnostics |
-| [Guide: persistence and I/O](guide/io.md) | Save/reload models, human-authored `input.toml`, the DFT-source (VASP) seam |
+| [Guide: building the basis](guide/basis.md) | `Crystal`, `BasisSpec`, the `Sector` table, periodic resolvability, symmetry, body order |
+| [Guide: persistence and I/O](guide/io.md) | Training data (`TrainingDatum`), save/reload, human-authored `input.toml`, the DFT-source seam |
+| [Guide: data and fitting](guide/fitting.md) | Datasets, the three-block co-fit, the acoustic sum rule, identifiability, estimators, staged fits, selection, diagnostics |
+| [Guide: a joint model end to end](guide/joint.md) | The five decisions a spin–lattice fit needs, and which page settles each |
+| [Guide: reading a fitted model](guide/introspection.md) | `decorated_terms`, the scale rule, `restrict` — the surface downstream packages read |
+| [Guide: force constants and phonons](guide/lattice_dynamics.md) | `force_constants`, `dynamical_matrix`, the magnetic space group, phonopy / ALAMODE export |
+| [Guide: strain and volume grids](guide/strain.md) | `strain_derivatives`, magnetoelastic constants, magnon–phonon vertices, `StrainedModels` |
 | [Guide: Sunny export](guide/sunny.md) | Turn a fitted model into a `Sunny.System` for linear spin-wave theory |
-| [Tutorials](tutorials/index.md) | Narrated end-to-end runs (Heisenberg chain, kagome three-body) |
-| [Theory](theory/index.md) | The SLCE formalism, minimum-image/Wigner–Seitz resolvability, the rebuild's architecture |
+| [Tutorials](tutorials/index.md) | Narrated end-to-end runs (Heisenberg chain, kagome three-body, bcc Fe from real DFT data) |
+| [Theory](theory/index.md) | The spin-channel formalism, minimum-image/Wigner–Seitz resolvability, the rebuild's architecture |
 | [Verification](verification/angular_momentum.md) | Human-readable numerical checks, recomputed at every docs build (Clebsch–Gordan, Wigner-D) |
 | [API reference](api.md) | The exported and public (qualified) types and functions |
 
@@ -87,8 +111,20 @@ Crystal + BasisSpec ──▶ SLCEBasis ──▶ SLCEDataset ──▶ fit ─�
 - **Minimum-image / Wigner–Seitz resolvability** — the default enumerates exactly the
   pairs (and N-body clusters) a finite supercell can resolve, so no aliased, collinear
   interactions enter the fit. See [Periodic resolvability](theory/resolvability.md).
-- **Energy + torque co-fit** — the torque is the analytic derivative of the same energy
-  surface, so the two are consistent by construction.
+- **Energy + torque + force co-fit** — all three are analytic derivatives of the same
+  energy surface, so they cannot drift apart, and translation invariance is imposed
+  exactly rather than corrected.
+- **Joint spin–lattice channel** — a `Sector` table declares which decorated cluster
+  families exist; the mixed projector carries the paramagnetic grey group, so evaluating a
+  derivative at a fixed magnetic state reduces it to that state's **magnetic** space group
+  without the group ever being declared.
+- **Lattice-dynamics and strain readouts** — force constants and dynamical matrices,
+  elastic and magnetoelastic response with the strain measure pinned, magnon–phonon
+  vertices, re-expanded effective models, and volume grids for magnetovolume coupling;
+  phonopy and ALAMODE export are pinned against those codes themselves.
+- **It says when it cannot answer** — `identifiability` reports what the data determine,
+  `asr_residual` and the origin-independence check refuse a description-dependent elastic
+  constant, and unrepresentable channels are reported as skipped rather than dropped.
 - **Sunny.jl export** — bilinear exchange + single-ion, on the training supercell or
   unfolded onto the chemical primitive cell.
 

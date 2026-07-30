@@ -105,4 +105,12 @@ surface `predict_energy(fc, config)` evaluates — the two are consistent by con
   resolvability, symmetry backends, body order beyond pairs.
 - [Data and fitting](guide/fitting.md) — the co-fit objective, the estimators
   (`OLS`/`Ridge`/`Lasso`/`ElasticNet`), and the fit diagnostics.
-- [Tutorials](tutorials/index.md) — fuller, narrated runs.
+- **[A joint spin–lattice model, end to end](guide/joint.md)** — everything above was the
+  spin channel. Adding atomic displacements brings a third observable (forces), a
+  constraint (the acoustic sum rule), and the lattice-dynamics readouts
+  ([force constants and phonons](guide/lattice_dynamics.md),
+  [strain and magnetoelasticity](guide/strain.md)). Start here for that path.
+- [Reading a fitted model](guide/introspection.md) — the term-level surface downstream
+  samplers consume.
+- [Tutorials](tutorials/index.md) — fuller, narrated runs, including one on real bcc Fe
+  DFT data.

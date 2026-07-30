@@ -44,7 +44,10 @@ assembly in the extension) is the template for future exporters.
 
 A design-matrix column must mean a fixed interaction regardless of the order in which the
 basis happened to be built. Every SALC is therefore addressed by a canonical
-[`SALCKey`](@ref) — `(body, orbit_id, sorted l-multiset, Lf, block)` — that is injective
+[`SALCKey`](@ref) — `(body, orbit_id, decors, L_S, Lf, block)`, where `decors` is the
+sorted multiset of per-site decorations (which generalizes the pure-spin sorted
+`l`-multiset to spin and displacement factors) and `L_S` is the total coupled spin rank —
+that is injective
 across the basis. The columns of the design matrix, the coefficients written by
 [`coeftable`](@ref), and the per-key coefficients in a persisted document all key off it, so
 a reloaded model re-pairs its coefficients to a freshly built basis **by key**, not by
@@ -60,7 +63,11 @@ longer express the invariant. The rebuild runs the SALC projection over the comb
 **(ordering × coupling-path × ``L_f``)** space: it builds the action of each stabilizer
 operation by contracting against the package's own orthonormal coupled tensors (no
 ``6j``/``9j`` symbols, the same spirit as deriving the Wigner-``D`` from ``Z_{l,m}``), forms
-the projector as the average over the stabilizer, and reads its eigenvalue-1 subspace. A
+the projector as the average over the stabilizer, and reads its eigenvalue-1 subspace. On a
+joint basis that space also spans the per-site **decoration assignments**, and the
+construction runs as two engines under one contract — a pure-spin one, pinned bitwise
+against the oracle, and a mixed-channel one that must reproduce its enumeration order
+exactly, or `block` indices and the canonical gauge move under key-addressed coefficients. A
 SALC is consequently **multi-term**: it can carry several ``l``-orderings, one *term* each,
 and [`evaluate_salc`](@ref) and the torque-gradient kernel both loop over them. This is what the
 [kagome three-body tutorial](../tutorials/kagome_threebody.md) exercises. Cross-validated

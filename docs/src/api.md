@@ -153,16 +153,18 @@ predict_torque
 predict_force
 has_torque
 has_force
-asr_residual
 ```
 
 ## Acoustic sum rule (translation invariance)
 
 `fit` enforces the ASR by default on displacement-decorated bases (see the
-[fitting guide](guide/fitting.md#The-acoustic-sum-rule-(translation-invariance)));
-the machinery is public but unexported.
+[fitting guide](guide/fitting.md#The-acoustic-sum-rule-(translation-invariance))).
+`asr_residual` recomputes the achieved residual from any model — including a
+hand-built or reloaded one — and is what the physical consumers gate on; the
+reparameterization machinery behind the constraint is public but unexported.
 
 ```@docs
+asr_residual
 SLCE.ASRReparam
 SLCE.build_asr
 ```
@@ -297,6 +299,14 @@ fitted model **at a given spin configuration** (that dependence is the point of 
 spin–lattice expansion), and their reciprocal-space form. An acoustic sum rule the
 model actually satisfies shows up here as three zero eigenvalues of `D(0)` — see
 [`asr_residual`](@ref).
+
+`write_phonopy` and `write_alamode` hand the result to the established phonon codes.
+Both write an **external** convention — supercell atom ordering for phonopy, and for
+ALAMODE a positional triple of primitive/supercell atom indices, a translation table
+that must match our supercell order, and a fixed 27-entry shift table in Rydberg
+atomic units. Neither can be gated by a self-contained round trip (a permuted export
+still diagonalizes and still has three acoustic modes at Γ), so each is pinned against
+the code itself in a separate test environment.
 
 ```@docs
 ForceConstantSet

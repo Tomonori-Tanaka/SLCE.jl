@@ -47,9 +47,14 @@ more = SLCEDataset(basis2, new_configs, new_energies)
 dataset = vcat(dataset, more)     # basis2 must be the same basis (fingerprint-checked)
 ```
 
-`vcat` accepts parts built on a persisted-and-reloaded basis (the check is the
-SALC-basis fingerprint, not object identity); mixing torque-bearing and
-energy-only datasets is an error.
+`vcat` accepts parts built on a persisted-and-reloaded basis (the check is the SALC-basis
+fingerprint, not object identity), and a torque-bearing part concatenates with an
+energy-only one into a **mixed** dataset — each torque row keeps its own configuration
+through the re-offset `torque_config`. What the parts must agree on is (1) their
+provenance, i.e. one computational setup and one clamped-ion reference, (2) whether they
+carry displacements at all, (3) their force columns, and (4) their ASR reparameterization.
+Each disagreement is a hard error, because each would otherwise reintroduce the bias the
+invariant exists to prevent — a fabricated geometry, or a family-correlated energy offset.
 
 ## The fit and the analytic intercept
 
@@ -217,8 +222,10 @@ response *transfers* to the spin channel rather than vanishing (`𝓡_U E = −�
 The statement that holds in every sector is [`rotation_transfer_residual`](@ref),
 which rotates spins and lattice together and reports how much of the two halves fails
 to cancel. On a pseudo-dipolar model — invariant under the joint rotation and under
-neither half alone — the lattice-only residual is `≈ 1.7` while the joint one is
-`≈ 10⁻³`.
+neither half alone — the lattice-only residual is `1.67` while the joint one falls to
+`1.5·10⁻⁴`, so the cancellation is not two small numbers agreeing. The gate pins the
+two sides separately (`> 1.0` and `< 10⁻²`) and checks that a random ASR-feasible model
+of the same basis shows no such cancellation.
 
 Two things worth knowing before reading a number:
 
@@ -298,12 +305,22 @@ fit(SLCEFit, dataset, AdaptiveLasso(pilot = FixedCoefficients(coef(prior)), lamb
 It shares `lambda` / `standardize` / CV behavior with [`ElasticNet`](@ref) (`lambda =
 nothing` selects λ by configuration-grouped CV with the adaptive weights held fixed).
 
-Implementing your own estimator is one method:
+Implementing your own estimator is one method, and it must accept both optional
+keywords — [`fit`](@ref) passes them unconditionally:
 
 ```julia
 struct MyEstimator <: AbstractEstimator end
-SLCE.solve_coefficients(::MyEstimator, X, y; row_groups = nothing) = X \ y  # centered (X, y)
+SLCE.solve_coefficients(::MyEstimator, X, y;
+                        row_groups = nothing, nullspace = nothing) = X \ y  # centered (X, y)
 ```
+
+`row_groups` labels rows belonging to one physical sample (only a resampling estimator
+needs it). `nullspace` is the ASR reparameterization: when it is not `nothing`, `X` is
+already the compressed design ``X_\beta Z`` and the returned vector is ``\gamma``, with
+``\beta = Z\gamma`` lifted by the caller. Penalties stay defined on ``\beta`` — an
+estimator whose weights depend on the coefficients must evaluate them at ``Z\gamma``,
+which is what `AdaptiveRidge` / `GroupAdaptiveRidge` do. Ignoring the keyword is fine for
+an unpenalized solve like the one above, since ``Z`` is orthonormal.
 
 ## Staged (hierarchical) fits
 
@@ -423,9 +440,19 @@ front.fit                                           # the selected de-biased ref
 ```
 
 Pass a held-out `evalset` for an honest error axis (the default is the in-sample
-training set). On a production Nd₂Fe₁₄B model this front offered, e.g., 38 % of the
-Monte-Carlo cost at a held-out torque RMSE *better* than the full model, and 3 % of
-the cost at +19 % — trades the λ path alone cannot see.
+training set). On a production Nd₂Fe₁₄B model the front exposed trades the λ path alone
+cannot see: a large fraction of the Monte-Carlo cost removed at a held-out torque RMSE
+*better* than the full model (de-biasing beats the interpolating tail), and an
+order-of-magnitude cheaper model at a modest error penalty.
+
+!!! note "The published figures predate the current cost metric"
+    The specific percentages recorded for that run (38 % of the cost at better holdout,
+    3 % at +19 %) were measured when `group_costs` priced a group by its nonzero
+    contraction entries. It now prices each entry by its **slot count**, because the
+    sweep walks one site program per member site position — the old metric priced the
+    once-per-run energy program and mis-ranked groups by a factor of the body order. The
+    shape of the front is unchanged; the numbers have not been re-derived, so treat them
+    as illustrative rather than as a benchmark.
 
 ## Cross-validation
 
@@ -458,19 +485,26 @@ A fitted [`SLCEFit`](@ref) answers the usual questions:
 ```julia
 r2_energy(f);  rmse_energy(f)        # in-sample energy R² / RMSE
 r2_torque(f);  rmse_torque(f)        # torque equivalents (need a co-fit dataset)
+r2_force(f);   rmse_force(f)         # force equivalents (need a force block)
 nobs(f)                              # number of energy observations
-dof(f)                               # degrees of freedom: length(coef(f)) + 1
-rss_energy(f);  rss_torque(f)        # residual sums of squares
-residuals_energy(f);  residuals_torque(f)   # the raw residual vectors
+dof(f)                               # FREE parameters + 1 (see below)
+rss_energy(f);  rss_torque(f);  rss_force(f)        # residual sums of squares
+residuals_energy(f);  residuals_torque(f);  residuals_force(f)   # residual vectors
 effective_dof(f)                     # hat-matrix trace + 1 (linear estimators)
 gcv(f)                               # generalized cross-validation score
 ```
+
+[`dof`](@ref) counts the parameters the fit was actually **free** to move, plus `j0`:
+`length(coef(f)) + 1` for an unconstrained fit, `p − rank(A) + 1` under the ASR (the
+default on a joint basis, where `rank(A)` equalities are enforced exactly rather than
+fitted), and a stage's own free-column count for a staged fit. All three are one
+expression — the column count of the reparameterization the fit solved under.
 
 For a *linear* estimator (`islinear`: `OLS` / `Ridge` / `AdaptiveRidge` /
 `GroupAdaptiveRidge`) two closed-form model-selection diagnostics come for free:
 [`effective_dof`](@ref) is the trace of the hat matrix plus the intercept — the
 *effective* parameter count a penalized fit actually spends, as opposed to
-[`dof`](@ref)'s raw count — and [`gcv`](@ref) is the generalized cross-validation
+[`dof`](@ref)'s parametric count — and [`gcv`](@ref) is the generalized cross-validation
 score `n·RSS/(n − df)²` built on it, the fast λ-selection criterion used by
 [`select_fit`](@ref).
 

@@ -4,9 +4,9 @@
 CurrentModule = SLCE
 ```
 
-The SALC projection rests on three pieces of angular-momentum machinery, all
-implemented from scratch in the public (unexported) [`AngularMomentum`](@ref)
-submodule: the Clebsch–Gordan coefficients (Racah single-sum formula,
+The **spin** channel's SALC projection rests on three pieces of angular-momentum
+machinery, all implemented from scratch in the public (unexported)
+[`AngularMomentum`](@ref) submodule: the Clebsch–Gordan coefficients (Racah single-sum formula,
 Condon–Shortley phase), the real Wigner-``D`` matrices in the tesseral basis, and
 the complex→real unitary ``U^{(l)}``. This page renders the checks of
 `test/unit/test_angmom.jl` in human-readable form — every table and summary below
@@ -14,6 +14,13 @@ is **computed when the documentation is built**, and each section ends in an
 assertion, so a regression fails the (strict) docs build just as it fails the test
 suite. The unit tests remain the machine gate; this page is the same evidence,
 made readable.
+
+!!! note "Scope: the spin channel's kernels only"
+    The displacement channel's own machinery — the ``4\pi``-free solid harmonics and the
+    monomial-coefficient function four consumers share (the ASR builder,
+    `force_constants`, `strain_derivatives`, `effective_model`), the mixed-channel
+    counting oracle, and the ASR rank identity — is gated in the test suite but has no
+    readable chapter here yet.
 
 ## Clebsch–Gordan coefficients: known values
 
@@ -335,9 +342,15 @@ vectors:
   Heisenberg invariant ``\hat{\boldsymbol e}_1 \cdot \hat{\boldsymbol e}_2 / \sqrt{3}``.
 - ``L = 1``: the three slices are the Levi-Civita tensor, ``\tilde{C}^{(1)}
   = \varepsilon / \sqrt{2}`` — the cross product
-  ``(\hat{\boldsymbol e}_1 \times \hat{\boldsymbol e}_2) / \sqrt{2}``, an **axial** vector
-  (parity ``(-1)^{l_1 + l_2} = +1``, not ``(-1)^L``), which is why the SALC
-  projector must treat proper and improper operations differently.
+  ``(\hat{\boldsymbol e}_1 \times \hat{\boldsymbol e}_2) / \sqrt{2}``, an **axial** vector:
+  its parity is ``(-1)^{l_1 + l_2} = +1``, not ``(-1)^L``. That mismatch is what the
+  even-``\sum_i l_i`` time-reversal screen buys back. The SALC projector never forms
+  ``\Delta^{(L)}(R)`` at all: it rotates each *site* axis with the full matrix (improper
+  operations included) and reads the ``L_f`` action off by contraction, and because the
+  screen makes ``\det(R)^{\sum_i l_i} \equiv +1``, the axial spin action equals the polar
+  one. So one polar Wigner-``D`` cache is exact for both channels and **no proper /
+  improper case distinction exists anywhere in the projector** — the same cache also
+  serves the polar displacement axes of a joint basis.
 - ``L = 2``: the five quadrupole combinations — reading ``\tilde{M} = -2 \dots 2``:
   ``xy``-, ``yz``-type, ``(2 z_1 z_2 - x_1 x_2 - y_1 y_2)/\sqrt{6}``, ``zx``-type,
   and ``(x_1 x_2 - y_1 y_2)/\sqrt{2}``.

@@ -194,12 +194,16 @@ what [`rotation_transfer_residual`](@ref) measures. `symmetrize = false` returns
 derivative with respect to a general affine map `M`, whose contraction with an arbitrary
 `M` reproduces [`affine_energy`](@ref) — the finite-difference gate.
 
-!!! note "One `ε`, one meaning — for now"
-    At `ε = 0` there is a single strain derivative. On a volume grid there will be two
-    that must agree: this **intra-model incremental** one, taken inside the model fitted
-    at a grid point, and the **grid finite difference** between neighbouring points.
-    Their agreement is the acceptance gate of `StrainedModels` (design record §14, M5-3);
-    it cannot be run until a grid exists.
+!!! note "Two `ε` derivatives, and their agreement is a gate"
+    At `ε = 0` in a single model there is one strain derivative. On a
+    [`StrainedModels`](@ref) grid there are two, and they must agree: this
+    **intra-model incremental** one, taken inside the model fitted at a grid point with
+    its coefficients held fixed, and the **grid finite difference**
+    ([`grid_strain_derivative`](@ref)) between neighbouring points, which also carries
+    the drift of those coefficients. Their agreement is the grid's acceptance gate
+    (design record §14) and says the expansion captures the strain response through its
+    displacement channel rather than through coefficient drift. Mind the measure:
+    `dE/dη = s·dE/ds`.
 
 See also [`affine_energy`](@ref), [`force_constants`](@ref), [`asr_residual`](@ref).
 """

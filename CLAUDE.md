@@ -347,8 +347,9 @@ Easy to break silently — confirm before touching the algorithm.
   executable tutorials (`docs/make.jl` runs them; README snippets run nowhere — review
   them by hand).
 - **`coeftable` columns ↔ `SALCKey` fields** (`slce/coeftable.jl`): each result row is
-  read straight off a `SALCKey` (`body` / `orbit_id` / `ls`→comma string / `Lf` /
-  `block`) plus `jphi`; the `J` column pairs with `basis.salc_basis.keys` **positionally**
+  read straight off a `SALCKey` (`body` / `orbit_id` / `decors`→comma string via
+  `_decor_string` / `L_S` / `Lf` / `block`) plus `jphi`; the `J` column pairs with
+  `basis.salc_basis.keys` **positionally**
   (same order as the design matrix). Add or rename a `SALCKey` field → update the row
   builder, the `Tables.Schema`, and `test/unit/test_coeftable.jl`.
 - **DFT training-torque target ↔ the model torque convention** (`io/dftsource.jl`): the
@@ -708,7 +709,8 @@ Easy to break silently — confirm before touching the algorithm.
   (`slce/introspect.jl`, `test/unit/test_introspect.jl`): the scale a consumer applies
   is `(4π)^{n_spin_slots/2}` — one `√(4π)` per SPIN slot, defined ONCE in
   `_slot_scale` and shipped as `DecoratedTerm.scale`. It is NOT `(4π)^{body/2}`: the
-  two agree only when every site carries exactly one spin factor and nothing else, so
+  two agree exactly when the SPIN-slot count equals the body order (every site carrying a
+  spin factor, alone or beside a displacement one), so
   a force-constant term (sites with no spin factor at all) is where the pure-spin-era
   shortcut invents a factor out of nothing — that is the case the gate must contain, and
   a fixture whose sites all happen to carry spin makes the whole check vacuous (the

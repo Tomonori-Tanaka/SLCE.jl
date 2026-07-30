@@ -80,7 +80,8 @@ The dense form above describes a pure-spin (clamped-ion) basis. The joint
 spin–lattice expansion is specified as a **sector table** — a union of
 [`Sector`](@ref) rows, each declaring one family of decorated clusters: its
 spin content (an explicit rank multiset like `[1, 1]`, or a
-`(nbody, lmax, lsum)` truncation), its displacement content (a total-degree
+`(sites, lmax, lsum)` truncation — `sites` counts **spin-decorated** sites, and the
+NamedTuple accepts no other keys), its displacement content (a total-degree
 budget; the `(k, l)` harmonic labels realizing each degree are derived), a
 per-sector SOC switch, and a per-sector cutoff:
 
@@ -91,6 +92,17 @@ spec = BasisSpec(crystal; lmax = 2, pmax = ["*" => 0, "Fe" => 3], sectors = [
     Sector(spin = [1, 1], disp = (degree = 1,), soc = false, cutoff = 5.0)])  # dJ/dr
 basis = SLCEBasis(crystal, spec)
 ```
+
+A row's own `sites` keyword caps the **total** decorated-site count (spin and
+displacement sites together, and one site may carry both factors). It defaults to every
+body order the row's content can realize.
+
+!!! warning "`Sector(; sites = …)` is a count, not [`BasisSpec`](@ref)'s `nbody` cap"
+    An `Int` here means **exactly** that many decorated sites: `sites = 3` is a 3-body
+    sector, not "up to 3-body". `BasisSpec(; nbody = 3)` means the opposite, `1:3`. Write
+    a range (`sites = 1:3`) when you want the inclusive reading. Carrying the `BasisSpec`
+    habit into a sector row silently drops every lower-body term, and the fit still runs
+    and still reports a good ``R^2`` on a basis that cannot express exchange.
 
 The admitted labels are the union of the rows, intersected with the global
 per-species `lmax`/`pmax` caps (a ligand species is `lmax = 0, pmax > 0`) and
@@ -187,8 +199,11 @@ consumers pay for each instance exactly once.
 [`SLCEBasis`](@ref) bundles the crystal, the space group, the SALC basis, and the
 spec it was built from (the `spec` field). Each basis function is a [`SALC`](@ref)
 addressed by a canonical
-[`SALCKey`](@ref) — a stable identity (body order, orbit, sorted `l`-multiset, `Lf`,
-block) that names a fixed interaction independent of construction order. The design-matrix
+[`SALCKey`](@ref) — a stable identity `(body, orbit_id, decors, L_S, Lf, block)` that
+names a fixed interaction independent of construction order. `decors` is the sorted
+multiset of per-site decorations (a pure-spin key's is exactly its old sorted
+`l`-multiset, readable back with `spin_ls`) and `L_S` is the total coupled spin rank —
+the label the SOC switch and the staged-fit selectors read. The design-matrix
 columns, the persisted coefficients, and [`coeftable`](@ref) all key off it.
 
 You can also build a basis from a human-authored `input.toml` instead of constructing the

@@ -16,8 +16,9 @@
 # THE SCALE RULE (design record §7). A term's energy contribution carries
 # `(4π)^{n_spin_slots/2}` — one `√(4π)` per SPIN slot, because the 4π is an artifact of
 # the spin-sphere measure and the displacement kernel is normalized 4π-free (§3). It is
-# NOT `(4π)^{body/2}`: those agree only when every site carries exactly one spin factor
-# and nothing else, which is precisely the pure-spin case `spin_multipole_terms` covers. Both
+# NOT `(4π)^{body/2}`: those agree exactly when the SPIN-slot count equals the body order
+# — every site carrying a spin factor, with or without a displacement one alongside, which
+# covers the pure-spin case `spin_multipole_terms` is restricted to. Both
 # existing consumers derive it from `length(atoms)`, which is why a joint model must not
 # reach them. `DecoratedTerm` therefore ships the scale as a field: derive it from slot
 # channels, never from the cluster shape.
@@ -133,9 +134,10 @@ may share a site: a site is not an axis.
 !!! warning "Take `scale` from the field, never from the cluster shape"
     The scale is `(4π)` to the half-power of the **`SPIN` slot count** — the 4π is an
     artifact of the spin-sphere measure and the displacement kernel carries none. It
-    coincides with `(4π)^(body/2)` only when every site holds exactly one spin factor
-    and nothing else. Deriving it from `body` or `length(atoms)` (as the pure-spin-era
-    consumers do) silently mis-scales every mixed term.
+    coincides with `(4π)^(body/2)` exactly when the spin-slot count equals the body
+    order — every site holding a spin factor, alone or beside a displacement one — and
+    parts ways as soon as one site is pure displacement. Deriving it from `body` or
+    `length(atoms)` (as the pure-spin-era consumers do) silently mis-scales those terms.
 
 See [`decorated_terms`](@ref).
 """

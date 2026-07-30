@@ -5,7 +5,7 @@ CurrentModule = SLCE
 ```
 
 Building a SALC basis is the expensive step, and a fitted model is worth keeping. This
-page covers three I/O seams: saving and reloading models, building a basis from a
+page covers four I/O seams: saving and reloading models, building a basis from a
 human-authored `input.toml`, tabulating coefficients, and reading DFT training data
 through the code-agnostic source interface.
 
@@ -28,6 +28,15 @@ not by position — so a reloaded model predicts identically even if the basis w
 in a different order. TOML is chosen over JSON deliberately: stdlib `TOML` round-trips
 `Float64` exactly and expresses the deep nested SALC document, so input and dump share one
 zero-dependency format.
+
+The document carries a **schema version** (currently 6) and the reader accepts every
+version from 2 up, including files written under the package's former name. Older
+layouts are converted on load — a v2 scalar `pair_cutoff` expands into the dense
+per-body form, pre-v4 SALC members are folded to the canonical duplicate-free one, and a
+v5 sector key `nbody` is read as `sites` — while an unknown version is refused rather
+than guessed at. A persisted-document rename is deliberately not treated like an API
+rename: breaking the API costs a call-site edit, breaking the format strands saved
+models, so the read path keeps compatibility even where the write path does not.
 
 ## A human-authored `input.toml`
 
@@ -85,8 +94,15 @@ B   = 0
 "*-*"  = 8.0
 ```
 
-[`read_setup`](@ref) returns the parsed setup (including the image selection) if you want
-to inspect it before building.
+[`read_setup`](@ref) returns the parsed setup (including the image selection, which
+`[interaction].images` sets) if you want to inspect it before building.
+
+!!! warning "The TOML path builds **pure-spin** bases only"
+    `[interaction]` mirrors the sector-less [`BasisSpec`](@ref) form — `nbody`, `lmax`,
+    `cutoff`, `lsum`, `soc` — and that form explicitly refuses `pmax`. There is no TOML
+    spelling for a `Sector` table, for `pmax`, or for `disp_scale`, so a joint
+    spin–lattice basis has to be constructed in Julia (see
+    [Building the basis](basis.md#Sector-tables:-the-joint-spin–lattice-truncation)).
 
 ## Tabular coefficients
 
@@ -98,9 +114,10 @@ design-matrix-column identity), plus the fitted coefficient:
 |---|---|
 | `body` | body order ``N`` of the cluster (2 = pair, 3 = triplet, …) |
 | `orbit_id` | index of the cluster symmetry orbit at that body order |
-| `ls` | per-site angular momenta ``(l_1,\dots,l_N)``, as a comma-joined string |
+| `decors` | the per-site decoration multiset, as a comma-joined string. A pure-spin site renders as its bare ``l``, a displacement factor as `u(k,l)`, a site carrying both as `l+u(k,l)` — so a pure-spin key still reads `"1,1,2"` exactly as it did before the joint channel existed |
+| `L_S` | total coupled **spin** rank of the label; `0` marks a SOC-free invariant |
 | `Lf` | final coupled angular momentum ``L_f`` of the invariant |
-| `block` | disambiguates independent ``l``-orderings / coupling paths sharing the same `(body, orbit_id, ls, Lf)` |
+| `block` | disambiguates independent ``l``-orderings / coupling paths sharing the same `(body, orbit_id, decors, L_S, Lf)` |
 | `J` | the fitted coefficient ``j_\varphi`` for this SALC (DFT energy unit, e.g. eV) |
 
 The rows are in design-matrix column order, the same order as [`coef`](@ref) and
@@ -148,7 +165,9 @@ setup — the torque design keeps rows exactly for the qualified ones.
 Against a **displacement-decorated basis** the same `TrainingDatum` path is the
 joint entry point: designs are evaluated at each configuration's ``(e, u)`` (a datum
 without displacements contributes ``u = 0`` exactly — atoms at the pinned
-reference), and with `use_force = true` (the default, mirroring `use_torque`) the
+reference), and with `use_force = true` (the default — unconditionally `true`, unlike
+`use_torque`, which defaults to `nothing` and resolves from whether the *basis* has spin
+content; passing `use_force = true` with no force-carrying datum is an error) the
 per-atom forces ``\boldsymbol f_a = -\partial E/\partial \boldsymbol u_a`` of every
 force-carrying configuration enter the force design block for a three-block co-fit
 (`fit(...; torque_weight, force_weight)` — see the

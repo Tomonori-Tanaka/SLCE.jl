@@ -1,8 +1,12 @@
 # Tutorials
 
-Narrated, end-to-end runs of the full workflow. Each is self-contained and executable, and
-each is also available as a script under [`examples/`](https://github.com/Tomonori-Tanaka/SLCE.jl)
-in the repository.
+Narrated, end-to-end runs of the full workflow, all executed when this site is built. The
+first two also exist as standalone scripts under
+[`examples/`](https://github.com/Tomonori-Tanaka/SLCE.jl) in the repository, each with its
+own `@assert` gate on the coupling it recovers; the bcc Fe case study runs only here.
+
+All three are **pure-spin**. For the joint spin–lattice path, follow [a joint model end to
+end](../guide/joint.md).
 
 ```@contents
 Pages = ["heisenberg_chain.md", "kagome_threebody.md", "case1_bcc_fe.md"]

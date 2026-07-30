@@ -53,11 +53,23 @@ product of one harmonic per atom,
 ```
 
 and the design matrix carries a factor ``(4\pi)^{n/2}`` so an ``n``-body term is ``O(1)``.
+
+!!! note "Both rules below are rules about the SPIN channel"
+    On this page every cluster site carries exactly one spin harmonic, so the ``4\pi``
+    count and the parity screen can be written per *site*. In the full expansion they are
+    per **spin slot**: the scale is ``(4\pi)^{n_{\mathrm{spin\,slots}}/2}`` (the
+    displacement kernel is normalized ``4\pi``-free, so displacement axes contribute
+    none), and the time-reversal screen applies to ``\sum_i l_i`` over the spin slots
+    only, leaving displacement ranks unconstrained. The two readings coincide exactly
+    when the spin-slot count equals the body order. A consumer must read the scale off
+    [`DecoratedTerm`](@ref)'s `scale` field rather than re-derive it from the cluster
+    shape — see [Reading a fitted model](../guide/introspection.md).
+
 Two requirements turn these products into physical basis functions:
 
 1. **Time-reversal symmetry.** Reversing all spins, ``\hat{\boldsymbol e}_a \to
    -\hat{\boldsymbol e}_a``, must leave the energy unchanged. Since ``Z_{l,m}(-\hat{\boldsymbol e})
-   = (-1)^l Z_{l,m}(\hat{\boldsymbol e})``, only products with even total degree
+   = (-1)^l Z_{l,m}(\hat{\boldsymbol e})``, only products with even total spin degree
    ``\sum_i l_i`` survive — so only those ``l``-assignments are enumerated.
 
 2. **Space-group invariance.** The energy must be invariant under the crystal's symmetry.
@@ -118,6 +130,12 @@ sign of the energy-rotation-gradient ``+\hat{\boldsymbol e}\times\nabla E``.
 Torques carry their own design matrix ``X_T``; an energy + torque co-fit minimizes
 ``(1-w)\,\mathrm{MSE}_E + w\,\mathrm{MSE}_T`` by whitening and stacking the two blocks (see
 [Data and fitting](../guide/fitting.md)).
+
+Both blocks above are the spin channel's. A joint fit adds a **third** block, the forces
+``X_F`` (``\boldsymbol f = -\partial E/\partial \boldsymbol u``), and — because translation
+invariance is a constraint on coefficients rather than a symmetry the basis can project out
+— solves in the acoustic sum rule's null space by default (`fit(...; asr = true)`). Both are
+in [Data and fitting](../guide/fitting.md).
 
 ## References
 

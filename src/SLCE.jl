@@ -5,8 +5,15 @@ Clean, extensible, Julia-native rebuild of `Magesty.jl`: fit spin–lattice clus
 (SLCE) models to noncollinear DFT data. The numerical core is reimplemented from
 scratch; `Magesty.jl` serves only as a pinned numerical oracle in `test/oracle/`.
 
-The v0 feature set (geometry, symmetry, cluster/SALC basis, fitting, prediction,
-diagnostics, persistence, Sunny export, introspection) is realized; see `SPEC.md`.
+Two channels are fitted. The **spin** channel (Drautz–Fähnle, tesseral harmonics over
+clusters of spin directions) trains on energies and per-atom torques; the **displacement**
+channel decorates the same clusters with solid-harmonic factors and trains on forces as
+well, under the acoustic sum rule. Realized: geometry, symmetry, cluster/SALC basis with a
+`Sector` truncation table, the three-block (energy / torque / force) fit with staged and
+cost-weighted selection, prediction, diagnostics and identifiability, persistence, Sunny
+export, and the derivative readouts — force constants and dynamical matrices, strain
+derivatives, magnetoelastic constants, magnon–phonon vertices, re-expanded effective
+models, volume grids, and phonopy / ALAMODE export. See `SPEC.md`.
 """
 module SLCE
 
