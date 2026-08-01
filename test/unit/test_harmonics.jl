@@ -61,6 +61,38 @@ const gZ = Harmonics.grad_Zlm
         end
     end
 
+    # Convention-independent anchor #3: tangency is an IDENTITY in the input, not a
+    # consequence of the input being nearly unit. The projection subtracts
+    # `û(û·∂Z)`, so `û·∇Z = 0` analytically for every `u ≠ 0` — scaling `u` scales
+    # `∂Z` and `û` is unchanged, so the removed component is the whole radial part
+    # at any radius. Nothing here is read off the implementation: the expected
+    # value is exact zero from that identity, and the bound is the float rounding
+    # floor with headroom.
+    #
+    # This is the gate on the `/ r²` in `_grad_zlm_assemble`. Dropping it (the
+    # `u(u·∂Z)` form) leaves a radial residue `≈ 2·C_l·δ` with
+    # `C_l = √((2l+1)/4π)·l(l+1)/2`, i.e. 1.7e-7 at `δ = 1e-8` and 1.7e-5 at
+    # `δ = 1e-6` — the mutation is resolved by 7 to 10 orders against this bound,
+    # and the `δ = 0` row alone would NOT resolve it (both forms agree there).
+    #
+    # `δ` is bounded by the OTHER precondition rather than by the projection: the
+    # polar recursion reaches `dnPl`, whose domain is `|z| ≤ 1`, so a scaled
+    # direction must keep `|z|(1 + δ) ≤ 1`. The fixture therefore holds `|z|` away
+    # from the pole instead of sampling the sphere uniformly.
+    @testset "gradient tangency is independent of ‖u‖" begin
+        dirs = SVector{3,Float64}[]
+        while length(dirs) < 12
+            v = normalize(SVector{3,Float64}(randn(rng), randn(rng), randn(rng)))
+            abs(v[3]) <= 0.9 && push!(dirs, v)   # room for the largest δ below
+        end
+        for δ in (0.0, 1e-12, 1e-8, 1e-6, 1e-4, 1e-2), u0 in dirs
+            u = (1 + δ) * u0
+            for l = 0:4, m = -l:l
+                @test abs(dot(u0, Harmonics.grad_Zlm_unsafe(l, m, u))) < 1e-12
+            end
+        end
+    end
+
     @testset "validation" begin
         u = SVector{3,Float64}(0.0, 0.0, 1.0)
         @test_throws ArgumentError Z(-1, 0, u)

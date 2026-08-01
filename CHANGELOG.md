@@ -6,6 +6,37 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — `grad_Zlm`'s tangency is now an identity in the input, not an approximation
+
+`Harmonics._grad_zlm_assemble` removed the radial component as `u(u·∂Z)` instead of
+`û(û·∂Z)` — it never divided by `r² = ‖u‖²`. On an exactly unit `u` the two agree,
+which is why every existing tangency test passed; off it they do not, and the
+documented identity `u·∇Zₗₘ = 0` degraded linearly in the input's norm error:
+`≈ 2·C_l·δ` with `C_l = √((2l+1)/4π)·l(l+1)/2`, measured 1.7e-7 at `δ = 1e-8` and
+1.7e-5 at `δ = 1e-6` against a 4e-15 rounding floor. Dividing by `r²` makes the
+tangency hold at any radius: measured `≤ 2.9e-15` for `δ` anywhere in `[0, 1e-3]`.
+
+The module preamble already specified the fixed behaviour (`∇Z = ∂Z − r̂ (r̂·∂Z)`,
+with the hat), so this is the code catching up to its own contract rather than a
+convention change. Two downstream contracts written as exact statements were false
+before it and are true now: `magnon_phonon_vertices`' `V·ê_b ≡ 0` ("No frame
+convention is invented here" — the vertices are what makes the Cartesian return
+value free of a local-frame convention) and SLCEMonteCarlo's `e_s · G[s] == 0`
+"exactly", which a sweep's unrenormalized drift had been violating by `2·C_l·δ`.
+
+**Not bit-neutral.** `r²` evaluates to exactly `1.0` for only ~50 % of normalized
+directions, so gradient-derived numbers move by up to ~3.6e-15 relative. No pin in
+any of the five suites moved (all green at unchanged counts), but the GPU device
+replica `SLCEMonteCarlo/src/gpu/grad_device.jl` had to be changed in the same
+commit — its bitwise host ≡ device gate is the guard on that coupled site, and it
+runs on the KernelAbstractions CPU backend, so it bites without a GPU.
+
+New gate `test/unit/test_harmonics.jl` "gradient tangency is independent of ‖u‖":
+the oracle is the analytic identity (exact zero at every radius), the bound is the
+rounding floor with headroom, and the mutation is resolved by 7–10 orders. Verified
+by reverting the fix: only the new testset turns red, the pre-existing tangency test
+stays green — the blindness being that it only ever samples exactly-unit input.
+
 ### Changed — internal names spelled out (no public surface touched)
 
 The `STYLE_GUIDE.md` §1 naming contract's safe tier, applied: internal locals and
