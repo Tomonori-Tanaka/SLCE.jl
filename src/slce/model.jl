@@ -802,7 +802,9 @@ end
 #
 # Two distinct conditions, and conflating them is what let a bad config through. The
 # `atol` band is a TOLERANCE — a column off unit norm by `δ` evaluates a factor that is
-# not homogeneous of degree 0, biasing its design entry by `O(l·δ)`; that is the error
+# not homogeneous of degree 0, biasing its design entry by `C_l·δ` with
+# `C_l = √((2l+1)/4π)·l(l+1)/2` — superlinear in `l`, measured 8.46 at `l = 4` and
+# 21.4 at `l = 6`, NOT the `O(l·δ)` this comment used to claim; that is the error
 # the caller declares acceptable by using this boundary. The component bound is a HARD
 # PRECONDITION of the kernel: `Zlm` reaches `LegendrePolynomials.dnPl`, whose domain is
 # `|z| ≤ 1`, so a column with `|e_z| > 1` throws a `DomainError` from inside the

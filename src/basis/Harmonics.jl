@@ -107,6 +107,14 @@ allocation-free; the returned value is identical with or without it.
     normalization divides by zero), so a caller looping `m` over a table wider than
     `2l + 1` poisons its whole accumulation rather than adding nothing. Use the checked
     [`Zlm`](@ref) when the indices are not yours to guarantee.
+
+    `‖u‖ = 1` fails differently, and the checked entry does NOT cover all of it: the
+    polar recursion reaches `LegendrePolynomials.dnPl`, whose domain is `|z| ≤ 1`, so
+    `|u_z| > 1` throws a **`DomainError`** from inside the recursion — from either
+    entry point, since `Zlm`'s norm band cannot exclude it (a direction `5e-9` off
+    unit norm at the pole clears a `1e-8` band and still throws). Establish the
+    precondition by constructing a `SLCE.UnitVector3` instead of by choosing a
+    tolerance.
 """
 @inline function Zlm_unsafe(l::Integer, m::Integer, u::AbstractVector{<:Real},
                             cache::Vector{Float64})::Float64
@@ -149,7 +157,7 @@ end
 """
     grad_Zlm_unsafe(l, m, u[, cache]) -> SVector{3,Float64}
 
-Tangent-projected Cartesian gradient `∇Zₗₘ(u) = ∂Z − u (u·∂Z)`, without
+Tangent-projected Cartesian gradient `∇Zₗₘ(u) = ∂Z − û (û·∂Z)`, without
 validation. The optional `cache` is the same allocation-free recursion workspace
 as in [`Zlm_unsafe`](@ref) (length ≥ `l + 1`; the value is identical either way).
 """
