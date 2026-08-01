@@ -218,6 +218,7 @@ function strain_derivatives(model::SLCEModel;
         throw(DimensionMismatch("origin has length $(length(origin)); expected 3"))
     all(isfinite, origin) || throw(ArgumentError("origin has non-finite entries"))
     e = _resolve_spins(model, spins, "the strain derivatives")
+    espin = _spin_kernel_matrix(e, n_atoms(model.basis.crystal))
     _require_asr(model, "strain_derivatives")
     n = Int(order)
     _warn_strain_spin_blind(model.basis, n)
@@ -245,7 +246,7 @@ function strain_derivatives(model::SLCEModel;
                                                   frac[3, a] + sh[3]) - o
             end
             for t in mem.terms
-                _accumulate_strain!(out, tbuf, weight, t, mem, dvecs, e, n, polycache)
+                _accumulate_strain!(out, tbuf, weight, t, mem, dvecs, espin, n, polycache)
             end
         end
     end
@@ -258,7 +259,8 @@ end
 # order 1 is origin-independent under the ASR alone (the affine field is zero there, hence
 # periodic, hence covered by the constraint), and paying 2× for a guaranteed identity
 # would be a tax on the deliverable that actually gets used.
-function _check_strain_origin(model::SLCEModel, e::Matrix{Float64}, n::Int,
+function _check_strain_origin(model::SLCEModel,
+                              e::Union{SpinConfiguration,Nothing}, n::Int,
                               o::SVector{3,Float64}, symmetrize::Bool,
                               out::Array{Float64}, A)
     probe = o + A * _STRAIN_ORIGIN_PROBE

@@ -811,7 +811,7 @@ end
 # throws — because any `δ > 0` can push `e_z` past 1 near a pole. Only the component
 # bound does, and it rejects nothing harmless: a column off norm by `1e-7` whose
 # largest component is `0.8` is still accepted.
-function _validate_config(c::AbstractMatrix{<:Real}, nat::Int; atol::Real = 1e-6,
+function _validate_config(c::AbstractMatrix{<:Real}, nat::Int; atol::Real = _DIRECTION_ATOL,
                           label::AbstractString = "spin config")
     size(c, 1) == 3 ||
         throw(ArgumentError("$label must have 3 rows (got $(size(c, 1)))"))
@@ -824,28 +824,7 @@ function _validate_config(c::AbstractMatrix{<:Real}, nat::Int; atol::Real = 1e-6
     return nothing
 end
 
-# One direction's three checks, factored out of `_validate_config` so that the
-# doors taking a SINGLE direction rather than a whole configuration — `site_rows!`,
-# the readout entry `_resolve_spins` funnels through — state the same rule instead
-# of restating two thirds of it. `what` names the offending thing (an argument, or
-# a column of one) and is interpolated as written; every message below is
-# character-identical to the per-column form this replaced.
-function _validate_direction(u::SVector{3,Float64}, what::AbstractString;
-                             atol::Real = 1e-6)
-    all(isfinite, u) ||
-        throw(ArgumentError("$what is not finite ($(Tuple(u)))"))
-    abs(norm(u) - 1) <= atol ||
-        throw(ArgumentError("$what is not a unit vector (‖e‖ = $(norm(u)))"))
-    maximum(abs, u) <= 1 || throw(ArgumentError(
-        "$what has a component outside [-1, 1] " *
-        "($(Tuple(u)), ‖e‖ = $(norm(u))) — the harmonic kernel's Legendre " *
-        "recursion is defined only for |e_z| ≤ 1, so this would throw from inside " *
-        "the design assembly. Normalize the column (`u ./= norm(u)`) rather than " *
-        "widening `atol`, which cannot fix it"))
-    return nothing
-end
-
-function _validate_configs(basis::SLCEBasis, configs::Vector{Matrix{Float64}}; atol::Real = 1e-6)
+function _validate_configs(basis::SLCEBasis, configs::Vector{Matrix{Float64}}; atol::Real = _DIRECTION_ATOL)
     nat = n_atoms(basis.crystal)
     for (i, c) in enumerate(configs)
         _validate_config(c, nat; atol = atol, label = "config $i")
@@ -905,7 +884,7 @@ function _disp_referenced_atoms(basis::SLCEBasis)::BitVector
 end
 
 function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::AbstractVector;
-                   atol::Real = 1e-6,
+                   atol::Real = _DIRECTION_ATOL,
                    provenance::DatumProvenance = DatumProvenance())::SLCEDataset
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
@@ -933,7 +912,7 @@ SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::AbstractVector,
 
 function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::AbstractVector,
                    torques::AbstractVector, torque_sel::AbstractVector{<:Integer};
-                   atol::Real = 1e-6,
+                   atol::Real = _DIRECTION_ATOL,
                    provenance::DatumProvenance = DatumProvenance())::SLCEDataset
     isempty(configs) && throw(ArgumentError("no training configurations"))
     length(configs) == length(energies) ||

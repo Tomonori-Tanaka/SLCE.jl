@@ -54,7 +54,8 @@ end
         e = _mp_cfg(rng, nat)
         v = magnon_phonon_vertices(model; spins = e)
         @test length(v) > 0
-        @test v.spins == e
+        @test v.spins isa SLCE.SpinConfiguration
+        @test isapprox(Matrix(v.spins), e; rtol = 1e-14)
         G = _mp_gamma(v, nat)
         h, s = 1e-5, 1e-5
         for a = 1:nat, b = 1:nat, α = 1:3

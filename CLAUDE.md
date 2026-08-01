@@ -126,14 +126,26 @@ Easy to break silently — confirm before touching the algorithm.
 - `basis/Harmonics.jl` (`Zlm`, `grad_Zlm`) ↔ the on-sphere central-difference and
   closed-form agreement tests (`test/unit/test_harmonics.jl`). Normalization / sign
   drift silently biases `X`.
-- **Unit-norm validation is a DOOR's job, never a kernel's** (`slce/model.jl`
-  `_validate_direction`/`_validate_config` ↔ `slce/forceconstants.jl`
+- **Unit-norm validation is a DOOR's job, never a kernel's** (`direction.jl`
+  `UnitVector3`/`SpinConfiguration`/`_validate_direction` ↔ `slce/model.jl`
+  `_validate_config` ↔ `slce/forceconstants.jl`
   `_resolve_spins` ↔ `slce/rowlayout.jl` `site_rows!` ↔ `slce/effective.jl`
   `predict_energy(::EffectiveModel, …)` ↔ `fitting/fit.jl` `_validate_config_pair` ↔
   `io/dftsource.jl` `TrainingDatum`): "this is a unit vector" is an invariant with no
   representation — it lives only as a rule each door must remember — so the rule is
   stated ONCE (`_validate_direction`: finite, `|‖e‖ − 1| ≤ atol` at the package's
-  `1e-6`, and `max|component| ≤ 1`) and every door calls it. Below a door, kernels
+  `1e-6`, and `max|component| ≤ 1`) and every door calls it — increasingly by
+  constructing a `SpinConfiguration`, which cannot exist without it. **The two
+  constructors are not a convenience pair**: the projecting one is for data entering
+  the package, the `Trusted` one for a value an evolution already placed on the
+  sphere, and conflating them breaks a bit-identical resume, because `normalize` is
+  not bitwise idempotent (~38 % of already-unit directions move) and SLCEDynamics'
+  default integrator preserves `|e| = 1` by construction with no renormalization step.
+  **Validation order is load-bearing**: ask "is this a direction?" before projecting
+  (that is what still rejects a moment-scaled vector), and ask the component bound of
+  the PROJECTED value (that is a precondition on what the kernels see) — asking it
+  first would refuse the near-pole case projection exists to repair. Below a door,
+  kernels
   use `Zlm_unsafe`/`grad_Zlm_unsafe`; the checked entries exist for callers who
   cannot guarantee `(l, m)`, which is a SEPARATE hazard (`|m| > l` reaches
   `_plm_norm`'s zero division and returns `NaN`) that no door discharges.

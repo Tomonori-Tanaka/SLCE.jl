@@ -99,7 +99,7 @@ struct TrainingDatum
             e = SVector{3,Float64}(directions[1, a], directions[2, a], directions[3, a])
             all(isfinite, e) ||
                 throw(ArgumentError("`directions` column $a is not finite"))
-            abs(norm(e) - 1) <= 1e-6 ||
+            abs(norm(e) - 1) <= _DIRECTION_ATOL ||
                 throw(ArgumentError("`directions` column $a is not a unit vector " *
                                     "(‖e‖ = $(norm(e))); the direction carries the " *
                                     "spin sign, `magmoms` the magnitude"))

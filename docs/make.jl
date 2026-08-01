@@ -18,7 +18,11 @@ makedocs(;
         footer = "Built with [Documenter.jl](https://documenter.juliadocs.org).",
         # api.md is one deliberate flat reference page; it crossed the default
         # 200 KiB HTML threshold with the joint/ASR docstrings.
-        size_threshold = 400 * 2^10,
+        # api.md is one page listing the whole public surface, so it grows with the
+        # API and periodically crosses this. Raised rather than split: the index at the
+        # top is what makes a single page navigable, and splitting it would scatter the
+        # cross-references every docstring uses.
+        size_threshold = 512 * 2^10,
     ),
     pages = [
         "Home" => "index.md",

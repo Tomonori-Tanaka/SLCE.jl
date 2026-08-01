@@ -156,7 +156,7 @@ end
     end
     good = _gauge_model(1 / 3, 4)
     bad = _gauge_model(2 / 3, 4)
-    e = zeros(3, 2)
+    e = nothing        # lattice-only fixture: the absence of a magnetic state, not zeros
     @test asr_residual(good) < 1e-13 && asr_residual(bad) < 1e-13   # both conform
 
     # order 1: identical treatment, and the gauge cannot reach it
@@ -259,9 +259,11 @@ end
     @test err isa ArgumentError
     @test occursin("`spins` is required", err.msg)
 
-    # a lattice-only model may omit it, and the answer is the same one it gets by
-    # passing the zeros marker explicitly
+    # a lattice-only model may omit it, and `nothing` is the only spelling of the
+    # omission — the all-zero matrix that used to double as a marker is now refused,
+    # because it is not a set of directions and the type says so
     _, _, latt = _strain_model(MersenneTwister(5); degrees = (1, 2), spin = false)
     @test strain_derivatives(latt; order = 1) ==
-          strain_derivatives(latt; spins = zeros(3, 2), order = 1)
+          strain_derivatives(latt; spins = nothing, order = 1)
+    @test_throws ArgumentError strain_derivatives(latt; spins = zeros(3, 2), order = 1)
 end

@@ -44,7 +44,7 @@ See [`dynamical_matrix`](@ref) for the order-2 reciprocal-space form.
 struct ForceConstantSet
     order::Int
     crystal::Crystal
-    spins::Matrix{Float64}
+    spins::Union{SpinConfiguration,Nothing}
     constants::Dict{Tuple{Vector{Int},Vector{SVector{3,Int}}},Array{Float64}}
 end
 
@@ -65,17 +65,20 @@ end
 # at the all-zero state.
 function _resolve_spins(model::SLCEModel,
                         spins::Union{AbstractMatrix{<:Real},Nothing},
-                        what::AbstractString)::Matrix{Float64}
+                        what::AbstractString)::Union{SpinConfiguration,Nothing}
     nat = n_atoms(model.basis.crystal)
     if spins === nothing
         _basis_has_spin(model.basis) && throw(ArgumentError(
             "`spins` is required: this model's basis carries spin content, so $what " *
             "depend on the magnetic state. Pass the 3 × $nat unit directions to " *
             "evaluate at."))
-        # Zeros, not a fabricated ferromagnet: nothing reads them, and a marker that
-        # is obviously not a spin configuration cannot be mistaken for one if it
-        # surfaces through `ForceConstantSet.spins`.
-        return zeros(Float64, 3, nat)
+        # `nothing`, not a fabricated all-zero matrix. The zero marker existed only
+        # because the field's type was `Matrix{Float64}` and there was no way to SAY
+        # "no magnetic state"; with `Union{SpinConfiguration,Nothing}` there is, so
+        # the absence is representable instead of encoded. That is what makes
+        # `write_alamode`'s cross-set key honest: two lattice-only sets now agree
+        # because both carry `nothing`, not because both fabricated the same zeros.
+        return nothing
     end
     size(spins) == (3, nat) || throw(DimensionMismatch(
         "spins is $(size(spins)); expected (3, $nat) — one unit column per atom"))
@@ -96,15 +99,20 @@ function _resolve_spins(model::SLCEModel,
     # `5e-9` off norm passes a `1e-8` band and still throws a `DomainError` from
     # inside the accumulation), so tightening a tolerance was never the fix.
     #
-    # Conditioned on `_basis_has_spin`, exactly like `_validate_config_pair`
-    # (fitting/fit.jl): a lattice-only model reads no spin, and the all-zero
-    # omission marker this function returns above is deliberately NOT a unit
-    # matrix — validating it unconditionally would reject the package's own
-    # spin-free entry path.
-    _basis_has_spin(model.basis) &&
-        _validate_config(e, nat; label = "`spins` (evaluating $what)")
-    return e
+    # Unconditional, unlike `_validate_config_pair`'s `_basis_has_spin` guard: the
+    # spin-free entry path now returns `nothing` above rather than an all-zero matrix,
+    # so there is no longer a legal non-unit configuration to make an exception for.
+    # Passing a REAL magnetic state to a lattice-only model stays legal — it is simply
+    # not read — and it is a genuine configuration, so it validates.
+    return SpinConfiguration(e; label = "`spins` (evaluating $what)")
 end
+
+# The kernels take a plain `3 × n_atoms` array. A spin-free model has no spin slot for
+# them to read, so this filler is unreachable by construction — it exists to keep the
+# accumulation monomorphic, and it is a LOCAL: nothing stores it, and the result
+# struct records the absence as `nothing`.
+_spin_kernel_matrix(e::SpinConfiguration, ::Int)::Matrix{Float64} = Matrix(e)
+_spin_kernel_matrix(::Nothing, nat::Int)::Matrix{Float64} = zeros(Float64, 3, nat)
 
 # Derivative of one site's displacement factor at u = 0: the site factor is the
 # homogeneous polynomial `|u|^{2k} R_{lm}(u)` of degree `2k + l`, so differentiating
@@ -219,6 +227,7 @@ function force_constants(model::SLCEModel;
                          order::Integer = 2)::ForceConstantSet
     order >= 1 || throw(ArgumentError("order must be ≥ 1; got $order"))
     e = _resolve_spins(model, spins, "the force constants")
+    espin = _spin_kernel_matrix(e, n_atoms(model.basis.crystal))
     _warn_spin_blind(model.basis, Int(order))
     _warn_unresolvable(model, "force_constants")
     out = Dict{Tuple{Vector{Int},Vector{SVector{3,Int}}},Array{Float64}}()
@@ -231,7 +240,7 @@ function force_constants(model::SLCEModel;
         scale = (4π)^(count(has_spin, salc.decors) / 2)
         for mem in salc.members
             for t in mem.terms
-                _accumulate_fcs!(out, jphi * scale, t, mem, e, Int(order), polycache)
+                _accumulate_fcs!(out, jphi * scale, t, mem, espin, Int(order), polycache)
             end
         end
     end

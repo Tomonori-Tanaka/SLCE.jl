@@ -50,7 +50,7 @@ directions are dimensionless unit vectors).
 """
 struct MagnonPhononVertices
     crystal::Crystal
-    spins::Matrix{Float64}
+    spins::SpinConfiguration
     vertices::Dict{Tuple{Int,Int,SVector{3,Int}},Matrix{Float64}}
 end
 
@@ -104,11 +104,15 @@ See also [`force_constants`](@ref), [`bilinear_terms`](@ref),
 """
 function magnon_phonon_vertices(model::SLCEModel;
                                 spins::Union{AbstractMatrix{<:Real},Nothing} = nothing)
-    e = _resolve_spins(model, spins, "the magnon–phonon vertices")
+    # Refuse BEFORE resolving: this deliverable is undefined without spin content, so
+    # the spin-free branch of `_resolve_spins` (which returns `nothing`) is
+    # unreachable here and `e` is a `SpinConfiguration` for the rest of the function.
     _basis_has_spin(model.basis) || throw(ArgumentError(
         "magnon_phonon_vertices needs a model with spin content: this basis has none, so " *
         "every derivative with respect to a spin direction is zero. Use " *
         "`force_constants` for the lattice-only response."))
+    e = _resolve_spins(model, spins, "the magnon–phonon vertices")::SpinConfiguration
+    espin = Matrix(e)
     _warn_unresolvable(model, "magnon_phonon_vertices")
     out = Dict{Tuple{Int,Int,SVector{3,Int}},Matrix{Float64}}()
     polycache = Dict{NTuple{3,Int},SolidHarmonics._Poly}()
@@ -120,7 +124,7 @@ function magnon_phonon_vertices(model::SLCEModel;
         weight = jphi * (4π)^(count(has_spin, salc.decors) / 2)
         for mem in salc.members
             for t in mem.terms
-                _accumulate_mpv!(out, weight, t, mem, e, polycache)
+                _accumulate_mpv!(out, weight, t, mem, espin, polycache)
             end
         end
     end

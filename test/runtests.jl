@@ -32,6 +32,7 @@ end
     if TEST_MODE in ("default", "all", "unit")
         include("unit/testutils.jl")     # shared helpers (rand_unit / randcfg /
                                          # canonical-member gates)
+        include("unit/test_direction.jl")
         include("unit/test_geometry.jl")
         include("unit/test_harmonics.jl")
         include("unit/test_solidharmonics.jl")

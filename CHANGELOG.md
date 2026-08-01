@@ -6,6 +6,64 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — `UnitVector3` / `SpinConfiguration`: the unit-norm invariant is now a type
+
+**Breaking**: `ForceConstantSet.spins` is `Union{SpinConfiguration,Nothing}` and
+`MagnonPhononVertices.spins` is `SpinConfiguration`; the all-zero omission marker is
+gone, and an all-zero matrix is refused wherever a magnetic state is expected.
+
+Validating at every door (the entry above) fixes the audited defect but leaves the
+shape that produced it: "this is a unit vector" is an invariant with no
+representation, so it lives as a rule each entry point must remember, and the next
+door added is free to forget it again. Nothing downstream would catch that — measured,
+the acoustic modes of `D(0)` and `asr_residual` are completely blind to an off-unit
+spin state, because the ASR's rows are keyed per spin monomial and `Aβ = 0` is an
+identity in `e` that a wrong `e` satisfies too. So the invariant is now carried by a
+type that cannot be obtained without establishing it.
+
+**Two constructors, and the split is the design.** `UnitVector3(v)` validates and then
+projects; `UnitVector3(v, Trusted())` validates and preserves the caller's bits. The
+second is a correctness requirement, not an optimization: `normalize` is not bitwise
+idempotent (measured, ~38 % of already-unit directions move by up to 4.4e-16 under a
+second application), and SLCEDynamics' default integrator advances spins by a rigid
+Rodrigues rotation with no renormalization step — so re-projecting a restored
+checkpoint applies an operation the uninterrupted run never applied, which forks a
+chaotic trajectory. That is exactly why `_config_verbatim` refuses to normalize, and
+the refusal now has a door of its own instead of being a bypass around the rule.
+
+**Validation order matters and changed a behaviour.** The projecting constructor asks
+"is this a direction?" (finite, `|‖v‖ − 1| ≤ atol`) *before* projecting — that is the
+half projection must not paper over, and it is what still rejects a moment-scaled
+vector loudly — and asks the component bound of the *projected* result, because that
+bound is a precondition on the value the kernels see. Consequence: a direction `5e-9`
+off unit norm at the pole, which no tolerance could ever accept (`|z| > 1` breaks
+`dnPl`'s domain), is now **repaired** rather than refused — projection lands `z`
+exactly on `1.0`. It was the remedy the old error message told the caller to apply by
+hand.
+
+`atol` stays a public keyword and gains a hard cap of `1e-2`. With the projection in
+place, widening it no longer degrades any number — the harmonics error budget it used
+to buy is zero once the stored value is exactly unit — so it is now purely "how far
+from unit may a thing be and still be called this direction", and there is real demand
+for widening it (a MAGMOM written to four decimals is ~2e-5 off unit, which is a file
+format, not a bug). The cap is what keeps that from becoming "accept a different
+vector and silently project it onto the sphere".
+
+`write_alamode`'s cross-set consistency key becomes honest as a side effect: two
+lattice-only sets now agree because both carry `nothing`, not because both fabricated
+the same zeros, and two sets at the same state agree because the constructor
+canonicalized them rather than by luck of the caller's last ulp.
+
+**Scope, stated plainly.** The guarantee is established at construction, and the
+sampling packages mutate working state in place at a granularity no wrapper reaches
+without entering their hot loops. Working buffers stay raw; the type sits at the
+transport boundary. This reduces the places that must know the policy from ~40 kernel
+call sites to a handful of named doors and makes "no magnetic state" type-checkable —
+it does not make the invariant true by construction family-wide. `predict_energy` /
+`predict_torque` / `predict_force` still take a bare matrix and still accept an
+all-zero one on a lattice-only model; converting them, and promoting
+SLCEMonteCarlo's `SpinConfig` alias to the same nominal type, is follow-on work.
+
 ### Fixed — the derivative readouts validate `spins` at the door, by the package's own rule
 
 `_resolve_spins` — the funnel for `force_constants`, `strain_derivatives`,

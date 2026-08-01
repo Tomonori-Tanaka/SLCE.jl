@@ -33,6 +33,11 @@ import StatsAPI: coef, fit, nobs, dof, coeftable, islinear, residuals, predict, 
 # --- units: the kelvin ↔ model-energy boundary the family's samplers share ---
 include("units.jl")
 
+# --- spin directions: the unit-norm invariant, carried by a type rather than by a
+# rule each entry point re-states. Deliberately BELOW `basis/Harmonics.jl`, so the
+# harmonic kernels can name the type their preconditions are about.
+include("direction.jl")
+
 # --- geometry ---
 include("geometry/lattice.jl")
 include("geometry/crystal.jl")
@@ -138,6 +143,7 @@ include("io/alamode.jl")   # harmonic + anharmonic -> ALAMODE FCSXML for anphon 
 # SALC builders, symmetry analysis) are *public but unexported* — see the block below.
 
 # geometry the user builds
+export UnitVector3, SpinConfiguration, Trusted
 export Lattice, Crystal, n_atoms, cartesian_positions
 # how periodic images / symmetry are chosen (passed into `SLCEBasis`)
 export AbstractImageSelection, MinimumImage, AllImages

@@ -179,10 +179,11 @@ end
         u = 0.05 .* randn(rng, 3, nat)
         ez = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:nat])
 
-        # omission is exactly equivalent to passing the all-zero marker, and the spin
-        # state genuinely cannot matter: two different states give the same numbers
+        # omission is `nothing`, and the spin state genuinely cannot matter: a real
+        # magnetic state gives the same numbers as no state at all
         @test force_constants(ml; order = 2).constants ==
-              force_constants(ml; spins = zeros(3, nat), order = 2).constants
+              force_constants(ml; spins = ez, order = 2).constants
+        @test force_constants(ml; order = 2).spins === nothing
         @test predict_energy(ml, nothing, u) == predict_energy(ml, ez, u)
         @test predict_force(ml, nothing, u) == predict_force(ml, ez, u)
         # a lattice-only model takes a non-unit spin matrix without complaint (nothing
@@ -357,7 +358,7 @@ end
                         ["Fe", "Ni"])
         @test SLCE._species_grouped_perm(inter) == [1, 3, 2]
         mktempdir() do dir
-            fake = ForceConstantSet(2, inter, zeros(3, 3),
+            fake = ForceConstantSet(2, inter, nothing,
                 Dict(([1, 2], [SVector{3,Int}(0, 0, 0), SVector{3,Int}(0, 0, 0)]) =>
                      ones(3, 3)))
             write_phonopy(dir, fake)

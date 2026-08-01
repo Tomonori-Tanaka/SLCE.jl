@@ -287,7 +287,15 @@ end
         # and each is exact for ITS configuration
         @test maximum(abs, _gamma_sum(f2, nat) .- _fd_hessian(model, e2, nat)) < 1e-3
         # the configuration is recorded on the set
-        @test f2.spins == e2 && fcs.spins == e
+        # The set records the magnetic state as a `SpinConfiguration`, i.e. the
+        # projected value, not the caller's bits — the constructor establishes the
+        # invariant rather than trusting it, and projection is not bitwise identity
+        # (~38 % of already-unit directions move by up to 4.4e-16). So pin what is
+        # actually promised: it IS that state, to rounding, and its columns are unit.
+        @test f2.spins isa SLCE.SpinConfiguration
+        @test isapprox(Matrix(f2.spins), e2; rtol = 1e-14)
+        @test isapprox(Matrix(fcs.spins), e; rtol = 1e-14)
+        @test all(a -> abs(norm(f2.spins[:, a]) - 1) < 4eps(), 1:nat)
     end
 
     # `_resolve_spins` is the funnel for `force_constants` / `strain_derivatives` /
@@ -324,14 +332,21 @@ end
         @test occursin("spins", err.msg) && occursin("column 1", err.msg) &&
               occursin("force constants", err.msg)
 
-        # (3) The POLE hazard, which no tolerance can close: `|e_z| > 1` is a hard
+        # (3) The POLE hazard, which no TOLERANCE can close: `|e_z| > 1` is a hard
         # precondition of the Legendre recursion, and a column `5e-9` off norm clears
         # any sane band and still throws a bare `DomainError` from inside the
-        # accumulation. The component bound is what makes it an ArgumentError here.
+        # accumulation. What closes it is the projection this door performs — the
+        # remedy the old error message told the caller to apply by hand — so the
+        # readout now SUCCEEDS here and the stored state is exactly on the pole.
         pole = copy(e)
         pole[:, 1] = [0.0, 0.0, 1 + 5e-9]
         @test abs(norm(pole[:, 1]) - 1) < 1e-8       # inside the harmonics' own band
-        @test_throws ArgumentError force_constants(model; spins = pole, order = 2)
+        @test maximum(abs, pole[:, 1]) > 1           # ... and outside the kernel domain
+        fpole = force_constants(model; spins = pole, order = 2)
+        @test fpole.spins[3, 1] == 1.0 && fpole.spins[1, 1] == 0.0
+        # a state that is NOT near the sphere is still refused rather than projected
+        @test_throws ArgumentError force_constants(model; spins = 1.7 .* pole,
+                                                   order = 2)
 
         # (4) The spin-free entry path is untouched: the all-zero omission marker is
         # deliberately not a unit matrix, so the validation must be conditioned on
@@ -340,10 +355,18 @@ end
             Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)])), 0.0,
             randn(rng, n_salcs(SLCEBasis(cr, BasisSpec(cr; lmax = 0, pmax = 2,
                 sectors = [Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)])))))
-        @test force_constants(lattice; spins = zeros(3, nat), order = 2) isa
-              SLCE.ForceConstantSet
+        # The absence of a magnetic state is `nothing` — representable, so no longer
+        # encoded as an all-zero matrix that only convention distinguished from a
+        # configuration. An all-zero matrix is now what it looks like: not a set of
+        # directions, and refused as such.
         @test force_constants(lattice; spins = nothing, order = 2) isa
               SLCE.ForceConstantSet
+        @test force_constants(lattice; spins = nothing, order = 2).spins === nothing
+        @test_throws ArgumentError force_constants(lattice; spins = zeros(3, nat),
+                                                   order = 2)
+        # ... while a REAL magnetic state handed to a lattice-only model stays legal:
+        # it is simply not read.
+        @test force_constants(lattice; spins = e, order = 2) isa SLCE.ForceConstantSet
     end
 
     @testset "order 3 against a third derivative" begin

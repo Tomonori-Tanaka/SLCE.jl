@@ -19,6 +19,21 @@ built from `Crystal` + `BasisSpec` → [`SLCEBasis`](@ref) → [`SLCEDataset`](@
 ```@index
 ```
 
+## Spin directions
+
+The unit-norm invariant, carried by a type instead of by a rule each entry point
+re-states. [`UnitVector3`](@ref) and [`SpinConfiguration`](@ref) each offer two
+constructors: the plain one validates and then projects onto the sphere, and the
+[`Trusted`](@ref) one validates and preserves the caller's bits — for a value an
+evolution has already placed there, where re-projecting would break a bit-identical
+resume.
+
+```@docs
+UnitVector3
+SpinConfiguration
+Trusted
+```
+
 ## Geometry
 
 ```@docs
