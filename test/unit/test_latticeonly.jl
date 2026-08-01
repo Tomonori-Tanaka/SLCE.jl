@@ -186,10 +186,20 @@ end
         @test force_constants(ml; order = 2).spins === nothing
         @test predict_energy(ml, nothing, u) == predict_energy(ml, ez, u)
         @test predict_force(ml, nothing, u) == predict_force(ml, ez, u)
-        # a lattice-only model takes a non-unit spin matrix without complaint (nothing
-        # reads it) but still checks the shape
-        @test predict_energy(ml, zeros(3, nat), u) == predict_energy(ml, nothing, u)
+        # ...and the omission is `nothing` and ONLY `nothing`: passing a matrix is a
+        # claim that it is a magnetic state, so the all-zero placeholder is refused
+        # even here, where nothing would read it. The door states one rule for every
+        # caller — it used to make an exception for a lattice-only basis precisely so
+        # that this placeholder could pass, which is what made the marker legal enough
+        # to leak into a spin-carrying path. Shape is still checked, first.
+        @test_throws ArgumentError predict_energy(ml, zeros(3, nat), u)
+        @test_throws ArgumentError predict_force(ml, zeros(3, nat), u)
+        @test_throws ArgumentError affine_energy(ml, zeros(3, nat), zeros(3, 3))
         @test_throws DimensionMismatch predict_energy(ml, zeros(3, nat + 1), u)
+        # a REAL magnetic state stays legal on a lattice-only model (it is simply not
+        # read), so the refusal is about the placeholder, not about carrying spins
+        @test predict_energy(ml, ez, u) == predict_energy(ml, nothing, u)
+        @test affine_energy(ml, ez, zeros(3, 3)) == affine_energy(ml, nothing, zeros(3, 3))
 
         # against a spin-carrying basis omission is an error, never a default state
         @test_throws ArgumentError force_constants(mj; order = 2)

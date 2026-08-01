@@ -347,7 +347,9 @@ clamped-ion one.
 [`predict_energy(model, nothing, u)`](@ref predict_energy): it is accepted exactly when no
 term carries a spin factor, so a lattice-only effective model does not have to be handed a
 fabricated `3 × n_atoms` matrix. It refuses on a spin-carrying one rather than assuming a
-direction.
+direction — and it is the *only* way to say "no magnetic state", because a spin argument
+that is a matrix is validated as one (unit columns, `|component| ≤ 1`) whether or not a
+term reads it.
 """
 function predict_energy(em::EffectiveModel, e::AbstractMatrix{<:Real},
                         du::AbstractMatrix{<:Real})::Float64
@@ -358,13 +360,20 @@ function predict_energy(em::EffectiveModel, e::AbstractMatrix{<:Real},
         "displacement increment du has size $(size(du)); expected $(size(e)) " *
         "(same 3 × n_atoms column convention as the spin configuration)"))
     # `EffectiveModel` is not a `SLCEModel`, so it does not funnel through
-    # `_resolve_spins`; it is its own door and needs the same rule. Conditioned on
-    # the terms rather than on a basis predicate, because a re-expansion carries no
-    # `SALCKey`s — the question "does anything here read a spin?" is answerable only
-    # from the term list. Below this line every spin factor reaches the CHECKED
-    # `Zlm`, i.e. the harmonics' `1e-8` band with no component bound at all.
-    any(t -> !isempty(t.spins), em.terms) &&
-        _validate_config(e, nat; label = "spin configuration")
+    # `_resolve_spins`; it is its own door and needs the same rule. The refusal below
+    # is conditioned on the terms rather than on a basis predicate, because a
+    # re-expansion carries no `SALCKey`s — "does anything here read a spin?" is
+    # answerable only from the term list — but the VALIDATION is unconditional, like
+    # every other door: a caller with no magnetic state passes `nothing`, and a caller
+    # who passes a matrix is asserting that it is one. Below this line the spin factors
+    # reach `Zlm_unsafe`, whose `‖e‖ = 1` precondition this call is what discharges.
+    _validate_config(e, nat; label = "spin configuration")
+    return _effective_energy(em, e, du)
+end
+
+# Unvalidated: both doors are immediately above and below.
+function _effective_energy(em::EffectiveModel, e::AbstractMatrix{<:Real},
+                           du::AbstractMatrix{<:Real})::Float64
     total = em.j0
     @inbounds for t in em.terms
         w = t.scaled_coef
@@ -394,5 +403,9 @@ function predict_energy(em::EffectiveModel, ::Nothing,
     nat = n_atoms(em.crystal)
     size(du) == (3, nat) || throw(DimensionMismatch(
         "displacement increment du is $(size(du)); expected (3, $nat)"))
-    return predict_energy(em, zeros(3, nat), du)
+    # The all-zero matrix is a LOCAL filler that keeps the accumulation monomorphic,
+    # and it goes straight to the unvalidated kernel — never back through the door
+    # above, which validates unconditionally and would (correctly) refuse it. The
+    # refusal just above is what makes it unreachable: no term reads a spin slot.
+    return _effective_energy(em, zeros(Float64, 3, nat), du)
 end

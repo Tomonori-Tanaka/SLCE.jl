@@ -628,6 +628,7 @@ end
 """
     predict_energy(model, data) -> Float64 or Vector{Float64}
     predict_energy(model, e, u) -> Float64
+    predict_energy(model, nothing, u) -> Float64
 
 Predict the energy of a spin configuration (`3 × n_atoms` matrix) or a vector of
 configurations. The vector form is evaluated in parallel over `Threads.nthreads()`
@@ -636,6 +637,13 @@ threads (set `julia -t` / `JULIA_NUM_THREADS`); the result is thread-count-indep
 For a displacement-decorated (joint) model the displacement field `u` (`3 × n_atoms`,
 Å from the clamped-ion reference, same column convention) must be passed explicitly —
 the two-argument form refuses rather than silently assume `u = 0`.
+
+`e = nothing` is the **lattice-only entry**, accepted exactly when the basis carries no
+spin content. It is the only way to say "there is no magnetic state": every spin
+argument that *is* a matrix is validated as one (unit columns, `|component| ≤ 1`),
+including on a lattice-only model where nothing reads it, so an all-zero placeholder is
+refused rather than quietly evaluated. Passing a real magnetic state to a lattice-only
+model stays legal and gives the same number as `nothing`.
 """
 function predict_energy(model::SLCEModel, config::AbstractMatrix{<:Real})::Float64
     _require_pure_spin_predict(model, "predict_energy")
@@ -713,49 +721,61 @@ predict_torque(f::SLCEFit, data) = predict_torque(SLCEModel(f), data)
 
 # --- joint (spin + displacement) prediction ---------------------------------------
 
-# Shared validation for the joint predict forms: unit spin columns and a finite
-# 3 × n_atoms displacement field. Works on pure-spin models too (u is then inert —
-# the joint kernels reduce to the spin-only values).
-function _validate_config_pair(model::SLCEModel, e::AbstractMatrix{<:Real},
-                               u::AbstractMatrix{<:Real})
-    nat = n_atoms(model.basis.crystal)
-    if _basis_has_spin(model.basis)
-        _validate_config(e, nat)
-    else
-        # A lattice-only model reads no spin factor, so there is no unit-vector
-        # postcondition to protect — only the shape has to line up. This is what lets
-        # a caller pass `nothing` (below) or an all-zero placeholder without the
-        # package pretending the placeholder is a magnetic state.
-        size(e) == (3, nat) ||
-            throw(DimensionMismatch("spin configuration is $(size(e, 1)) × " *
-                                    "$(size(e, 2)), model expects 3 × $nat"))
-    end
+# The displacement half of the joint doors' validation, shared so the `nothing`-spin
+# entry and the matrix one cannot drift.
+function _validate_disp(u::AbstractMatrix{<:Real}, nat::Int)
     size(u) == (3, nat) ||
         throw(DimensionMismatch("displacement field u is $(size(u, 1)) × " *
                                 "$(size(u, 2)), model expects 3 × $nat"))
     all(isfinite, u) ||
         throw(ArgumentError("displacement field u contains non-finite entries"))
+    return nothing
+end
+
+# Shared validation for the joint predict forms: unit spin columns and a finite
+# 3 × n_atoms displacement field. Works on pure-spin models too (u is then inert —
+# the joint kernels reduce to the spin-only values).
+#
+# The spin columns are validated UNCONDITIONALLY, including on a lattice-only model
+# where nothing reads them. It used to be conditioned on `_basis_has_spin` so that the
+# omission marker — an all-ZERO matrix — could pass; that marker is gone (the `nothing`
+# doors below hand the kernels a local filler and never enter here), so the door states
+# one rule for every caller. A caller with no magnetic state says `nothing`; a caller
+# who passes a matrix is asserting that it is one.
+function _validate_config_pair(model::SLCEModel, e::AbstractMatrix{<:Real},
+                               u::AbstractMatrix{<:Real})
+    nat = n_atoms(model.basis.crystal)
+    _validate_config(e, nat)
+    _validate_disp(u, nat)
     return nat
 end
 
 # `nothing` in the spin slot: the lattice-only caller has no magnetic state, and the
 # alternative — inventing one — is how a placeholder becomes a fabricated ferromagnet
-# the moment the model does carry spin content. Legal exactly when there is no spin
-# factor to evaluate; the predicate is `_basis_has_spin`, never `is_soc_free`.
-function _no_spins(model::SLCEModel)::Matrix{Float64}
-    _basis_has_spin(model.basis) && throw(ArgumentError(
-        "the spin configuration is required: this model's basis carries spin " *
-        "content, so the prediction depends on the magnetic state. `nothing` is " *
-        "accepted only for a lattice-only model."))
-    return zeros(Float64, 3, n_atoms(model.basis.crystal))
+# the moment the model does carry spin content. The rule is `_require_spin_free`
+# (`slce/model.jl`), shared with every derivative readout, and the all-zero matrix the
+# kernels then walk is a LOCAL filler: it goes straight to the unvalidated kernel
+# below, never back through a door that would have to make an exception for it.
+function _spin_free_pair(model::SLCEModel, u::AbstractMatrix{<:Real},
+                         what::AbstractString)::Matrix{Float64}
+    nat = n_atoms(model.basis.crystal)
+    _require_spin_free(model, what, "the spin configuration")
+    _validate_disp(u, nat)
+    return _spin_kernel_matrix(nothing, nat)
 end
 
 predict_energy(model::SLCEModel, ::Nothing, u::AbstractMatrix{<:Real})::Float64 =
-    predict_energy(model, _no_spins(model), u)
+    _joint_energy(model, _spin_free_pair(model, u, "the predicted energy"), u)
 
 function predict_energy(model::SLCEModel, e::AbstractMatrix{<:Real},
                         u::AbstractMatrix{<:Real})::Float64
     _validate_config_pair(model, e, u)
+    return _joint_energy(model, e, u)
+end
+
+# Unvalidated: every caller is a door immediately above.
+function _joint_energy(model::SLCEModel, e::AbstractMatrix{<:Real},
+                       u::AbstractMatrix{<:Real})::Float64
     salcs = model.basis.salc_basis.salcs
     val = model.j0
     scratch = SALCScratch()                 # reused workspace (dnPl + harmonic tables)
@@ -783,6 +803,7 @@ end
 
 """
     predict_force(model, e, u) -> Matrix{Float64}
+    predict_force(model, nothing, u) -> Matrix{Float64}
 
 Predict the per-atom force `f_a = −∂E/∂u_a` (eV/Å; the Euclidean displacement
 gradient, sign pinned in the design record §6 and [`TrainingDatum`](@ref)) of the
@@ -791,14 +812,26 @@ derivative of the same surface [`predict_energy`](@ref)`(model, e, u)` evaluates
 the two are consistent by construction. On a pure-spin model (or on atoms no SALC
 displacement slot reads) the force is exactly zero — the energy does not depend on
 those displacements.
+
+`e = nothing` is the lattice-only entry; see [`predict_energy`](@ref) for why it is the
+only accepted way to say "there is no magnetic state".
 """
 predict_force(model::SLCEModel, ::Nothing,
               u::AbstractMatrix{<:Real})::Matrix{Float64} =
-    predict_force(model, _no_spins(model), u)
+    _joint_force(model, _spin_free_pair(model, u, "the predicted force"), u,
+                 n_atoms(model.basis.crystal))
 
 function predict_force(model::SLCEModel, e::AbstractMatrix{<:Real},
                        u::AbstractMatrix{<:Real})::Matrix{Float64}
     nat = _validate_config_pair(model, e, u)
+    return _joint_force(model, e, u, nat)
+end
+
+# Unvalidated, and the ONLY place besides `_design_force` that applies the force sign
+# (see the coupled-site note in CLAUDE.md) — which is why the `nothing` entry routes
+# here rather than repeating the negation.
+function _joint_force(model::SLCEModel, e::AbstractMatrix{<:Real},
+                      u::AbstractMatrix{<:Real}, nat::Int)::Matrix{Float64}
     _, Gu = _accumulate_joint_grads(model, e, u, nat)
     Gu .= .-Gu                           # f = −∂E/∂u
     return Gu

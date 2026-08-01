@@ -6,6 +6,43 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — the lattice-only entry is `nothing`, and only `nothing`
+
+**Breaking**: `predict_energy` / `predict_force` / `affine_energy` / the
+`EffectiveModel` energy no longer accept an all-zero `3 × n_atoms` matrix in the spin
+slot. Callers who mean "there is no magnetic state" pass `nothing`, which they could
+already do; callers who pass a matrix now have it validated as a magnetic state — unit
+columns and `max|component| ≤ 1` — even on a lattice-only model where nothing reads it.
+
+This closes the asymmetry the `SpinConfiguration` entry above left behind.
+`_resolve_spins` (the derivative readouts) validated unconditionally and represented
+the absence as `nothing`, while `_validate_config_pair` (the joint predictors and
+`affine_energy`) still made an exception — shape only, no unit check — *so that* the
+omission marker, an all-zero matrix, could pass through it. That exception is what made
+the marker legal enough to travel: `_no_spins` handed a fabricated all-zero
+configuration to a public door, and the door had to be weakened to let it back in. It
+is now a LOCAL filler built at the `::Nothing` method itself
+(`_spin_kernel_matrix(nothing, nat)`) and passed to an unvalidated kernel
+(`_joint_energy` / `_joint_force` / `_affine_energy` / `_effective_energy`); nothing
+stores it and no door ever sees it, so no door needs an exception for it.
+
+The refusal and its message are one definition, `_require_spin_free` /
+`_refuse_missing_spins` beside the `_basis_has_spin` predicate they turn on
+(`slce/model.jl`, moved there from `slce/forceconstants.jl` so the predictors can read
+it). Before this there were two, with two different messages and two spellings of the
+same argument, and only one of them validated. `EffectiveModel` keeps its own copy of
+the *question* — a re-expansion carries no `SALCKey`s, so "does anything here read a
+spin?" is answerable only from its term list — but now shares the answer's shape.
+
+Also fixes a JET failure introduced with the door validation: `magnon_phonon_vertices`
+discharged the spin-free branch with a `::SpinConfiguration` typeassert, which
+inference cannot discharge on the `spins = nothing` method. It now throws the shared
+refusal directly, which infers as `Union{}` and narrows the argument.
+
+Gates: `test_latticeonly.jl` "`spins` / `e` may be omitted only when there is none"
+(the three all-zero refusals go red under a mutation restoring the `_basis_has_spin`
+exception, verified) and `test_effective.jl`'s door test.
+
 ### Added — `UnitVector3` / `SpinConfiguration`: the unit-norm invariant is now a type
 
 **Breaking**: `ForceConstantSet.spins` is `Union{SpinConfiguration,Nothing}` and

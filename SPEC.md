@@ -335,7 +335,13 @@ capability consumed by both the introspection and the Sunny interop.
   (`has_force`, `residuals_force`, `rss_force`, `r2_force`, `rmse_force`)
   mirror the torque block with uncentered baselines. Joint predicts
   `predict_energy/torque/force(model, e, u)`; the 2-arg forms refuse a joint
-  model (no silent `u = 0`). The selection layer is force-aware: `select_fit` /
+  model (no silent `u = 0`). `e = nothing` is the **lattice-only entry** on the
+  energy and force forms, accepted exactly when `_basis_has_spin` is false, and it
+  is the only accepted way to say "no magnetic state": a spin argument that is a
+  matrix is validated as one (unit columns, `|component| ≤ 1`) even on a
+  lattice-only model, so an all-zero placeholder is refused. The refusal is one
+  definition, `_require_spin_free` / `_refuse_missing_spins` (`slce/model.jl`),
+  shared with `affine_energy` and every derivative readout. The selection layer is force-aware: `select_fit` /
   `cross_validate` take `force_weight`, `select_support` reads it off the fit, and
   all three score `(1−w_T−w_F)·MSE_E + w_T·MSE_T + w_F·MSE_F`. Fold strata pack
   both derivative channels (`2·torque + force`, dealt in descending class order,

@@ -191,6 +191,10 @@ end
         @test_throws DimensionMismatch predict_energy(em, zeros(3, nat + 1),
                                                       zeros(3, nat + 1))
         @test_throws ArgumentError predict_energy(em, e, zeros(3, nat + 1))
+        # the spin argument is validated unconditionally, like every other door in the
+        # package: omission is `nothing`, never an all-zero placeholder. The `::Nothing`
+        # method's own filler never comes back through here — it goes to the kernel.
+        @test_throws ArgumentError predict_energy(em, zeros(3, nat), zeros(3, nat))
     end
 
     @testset "show reports the shape a reader needs" begin

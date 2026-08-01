@@ -995,6 +995,89 @@ function SLCEModel(basis::SLCEBasis, j0::Real, jphi::AbstractVector{<:Real})::SL
     return SLCEModel(basis, Float64(j0), collect(Float64, jphi), basis.salc_basis.keys)
 end
 
+# --- the spin-free entry rule -------------------------------------------------------
+#
+# Omitting the magnetic state is legal exactly when no spin factor exists to evaluate.
+# Stated ONCE, here, beside the predicate it turns on, and read by every door that
+# offers the omission: the joint predictors and `affine_energy` (`fitting/fit.jl`,
+# `slce/affine.jl`), the derivative readouts (`slce/forceconstants.jl`,
+# `slce/strain.jl`, `slce/magnonphonon.jl`, `slce/strainedmodels.jl`). The predicate is
+# `_basis_has_spin` (spec ∪ surviving SALCs) and NOT `is_soc_free`, which asks whether
+# `L_S == 0` — true for most ordinary `soc = false` spin labels, so it would wave a
+# spin-carrying model through and silently evaluate it at a fabricated state.
+function _require_spin_free(model::SLCEModel, what::AbstractString,
+                            argname::AbstractString)
+    _basis_has_spin(model.basis) && _refuse_missing_spins(model, what, argname)
+    return nothing
+end
+
+# The refusal on its own, so a caller that has ALREADY established the model carries
+# spin content can throw it directly instead of re-asking. Split out for inference as
+# much as for reuse: a function that always throws infers as `Union{}`, which is what
+# lets `spins === nothing && _refuse_missing_spins(...)` narrow `spins` away from
+# `Nothing` for the code below it (`magnon_phonon_vertices`). The alternative — a
+# `::SpinConfiguration` typeassert on the resolve — is an assert inference can never
+# discharge on the `spins = nothing` method, and JET reports it as an error.
+function _refuse_missing_spins(model::SLCEModel, what::AbstractString,
+                               argname::AbstractString)
+    throw(ArgumentError(
+        "$argname is required: this model's basis carries spin content, so $what " *
+        "cannot be evaluated without a magnetic state. Pass the 3 × " *
+        "$(n_atoms(model.basis.crystal)) unit directions to evaluate at."))
+end
+
+# Resolve the magnetic state a derivative deliverable is evaluated at: `nothing` when
+# there is none, otherwise a validated `SpinConfiguration`.
+function _resolve_spins(model::SLCEModel,
+                        spins::Union{AbstractMatrix{<:Real},Nothing},
+                        what::AbstractString;
+                        argname::AbstractString = "`spins`")::Union{SpinConfiguration,
+                                                                    Nothing}
+    nat = n_atoms(model.basis.crystal)
+    if spins === nothing
+        _require_spin_free(model, what, argname)
+        # `nothing`, not a fabricated all-zero matrix. The zero marker existed only
+        # because the field's type was `Matrix{Float64}` and there was no way to SAY
+        # "no magnetic state"; with `Union{SpinConfiguration,Nothing}` there is, so
+        # the absence is representable instead of encoded. That is what makes
+        # `write_alamode`'s cross-set key honest: two lattice-only sets now agree
+        # because both carry `nothing`, not because both fabricated the same zeros.
+        return nothing
+    end
+    size(spins) == (3, nat) || throw(DimensionMismatch(
+        "spins is $(size(spins)); expected (3, $nat) — one unit column per atom"))
+    e = Matrix{Float64}(spins)
+    # Validate through the SAME rule the dataset boundary uses, at the SAME `atol`, so
+    # a magnetic state that builds a dataset and fits also evaluates the readouts. This
+    # used to check the shape and nothing else, which broke in both directions. Too
+    # strict: everything behind here calls the CHECKED `Zlm` / `grad_Zlm`, whose band is
+    # `1e-8`, so a column off unit norm by `5e-7` passed `_validate_config`, fitted,
+    # predicted — and then died inside the readout with "direction must be a unit
+    # vector", naming neither the argument nor the atom. Too lax: `‖e‖ = 1.7` succeeded
+    # silently whenever the requested order carried no spin-dressed term, and the bogus
+    # vector was stored in `ForceConstantSet.spins`, which `write_alamode` uses as its
+    # cross-set key. The component bound is the half that matters most here: the norm
+    # band CANNOT establish the kernel's hard precondition (`dnPl` needs `|e_z| ≤ 1`,
+    # and near a pole any `δ > 0` can push past it — measured, a column `5e-9` off norm
+    # passes a `1e-8` band and still throws a `DomainError` from inside the
+    # accumulation), so tightening a tolerance was never the fix.
+    #
+    # Unconditional: the spin-free entry path returns `nothing` above rather than an
+    # all-zero matrix, so there is no longer a legal non-unit configuration to make an
+    # exception for. Passing a REAL magnetic state to a lattice-only model stays legal —
+    # it is simply not read — and it is a genuine configuration, so it validates.
+    return SpinConfiguration(e; label = "$argname (evaluating $what)")
+end
+
+# The kernels take a plain `3 × n_atoms` array. A spin-free model has no spin slot for
+# them to read, so this filler is unreachable by construction — it exists to keep the
+# accumulation monomorphic, and it is a LOCAL: nothing stores it, no door ever sees it,
+# and every result struct records the absence as `nothing`. Handing it to a door
+# instead would be the fabricated-ferromagnet bug this whole rule exists to prevent,
+# which is why the doors below a `nothing` entry point call the kernels directly.
+_spin_kernel_matrix(e::SpinConfiguration, ::Int)::Matrix{Float64} = Matrix(e)
+_spin_kernel_matrix(::Nothing, nat::Int)::Matrix{Float64} = zeros(Float64, 3, nat)
+
 """
     SLCEFit
 

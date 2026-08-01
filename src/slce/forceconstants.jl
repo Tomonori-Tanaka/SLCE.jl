@@ -56,63 +56,9 @@ function Base.show(io::IO, fcs::ForceConstantSet)
           n_atoms(fcs.crystal), " atoms)")
 end
 
-# Resolve the magnetic state a derivative deliverable is evaluated at. Shared by
-# `force_constants` and `strain_derivatives` (`slce/strain.jl`) because the rule is one
-# rule: omitting the spin state is legal exactly when no spin factor exists to
-# evaluate. The predicate is `_basis_has_spin` (spec ∪ surviving SALCs) and NOT
-# `is_soc_free`, which asks whether `L_S == 0` — true for most ordinary `soc = false`
-# spin labels, so it would wave a spin-carrying model through and silently evaluate it
-# at the all-zero state.
-function _resolve_spins(model::SLCEModel,
-                        spins::Union{AbstractMatrix{<:Real},Nothing},
-                        what::AbstractString)::Union{SpinConfiguration,Nothing}
-    nat = n_atoms(model.basis.crystal)
-    if spins === nothing
-        _basis_has_spin(model.basis) && throw(ArgumentError(
-            "`spins` is required: this model's basis carries spin content, so $what " *
-            "depend on the magnetic state. Pass the 3 × $nat unit directions to " *
-            "evaluate at."))
-        # `nothing`, not a fabricated all-zero matrix. The zero marker existed only
-        # because the field's type was `Matrix{Float64}` and there was no way to SAY
-        # "no magnetic state"; with `Union{SpinConfiguration,Nothing}` there is, so
-        # the absence is representable instead of encoded. That is what makes
-        # `write_alamode`'s cross-set key honest: two lattice-only sets now agree
-        # because both carry `nothing`, not because both fabricated the same zeros.
-        return nothing
-    end
-    size(spins) == (3, nat) || throw(DimensionMismatch(
-        "spins is $(size(spins)); expected (3, $nat) — one unit column per atom"))
-    e = Matrix{Float64}(spins)
-    # Validate through the SAME function the dataset boundary uses, at the SAME
-    # `atol`, so a magnetic state that builds a dataset and fits also evaluates the
-    # readouts. This used to check the shape and nothing else, which broke in both
-    # directions. Too strict: everything behind here calls the CHECKED `Zlm` /
-    # `grad_Zlm`, whose band is `1e-8`, so a column off unit norm by `5e-7` passed
-    # `_validate_config`, fitted, predicted — and then died inside the readout with
-    # "direction must be a unit vector", naming neither the argument nor the atom.
-    # Too lax: `‖e‖ = 1.7` succeeded silently whenever the requested order carried
-    # no spin-dressed term, and the bogus vector was stored in
-    # `ForceConstantSet.spins`, which `write_alamode` uses as its cross-set key.
-    # `_validate_config`'s component bound is the half that matters most here: the
-    # norm band CANNOT establish the kernel's hard precondition (`dnPl` needs
-    # `|e_z| ≤ 1`, and near a pole any `δ > 0` can push past it — measured, a column
-    # `5e-9` off norm passes a `1e-8` band and still throws a `DomainError` from
-    # inside the accumulation), so tightening a tolerance was never the fix.
-    #
-    # Unconditional, unlike `_validate_config_pair`'s `_basis_has_spin` guard: the
-    # spin-free entry path now returns `nothing` above rather than an all-zero matrix,
-    # so there is no longer a legal non-unit configuration to make an exception for.
-    # Passing a REAL magnetic state to a lattice-only model stays legal — it is simply
-    # not read — and it is a genuine configuration, so it validates.
-    return SpinConfiguration(e; label = "`spins` (evaluating $what)")
-end
-
-# The kernels take a plain `3 × n_atoms` array. A spin-free model has no spin slot for
-# them to read, so this filler is unreachable by construction — it exists to keep the
-# accumulation monomorphic, and it is a LOCAL: nothing stores it, and the result
-# struct records the absence as `nothing`.
-_spin_kernel_matrix(e::SpinConfiguration, ::Int)::Matrix{Float64} = Matrix(e)
-_spin_kernel_matrix(::Nothing, nat::Int)::Matrix{Float64} = zeros(Float64, 3, nat)
+# The spin-free entry rule (`_resolve_spins` / `_spin_kernel_matrix`) lives in
+# `slce/model.jl`, beside the `_basis_has_spin` predicate it turns on, because the
+# joint predictors and `affine_energy` read it too.
 
 # Derivative of one site's displacement factor at u = 0: the site factor is the
 # homogeneous polynomial `|u|^{2k} R_{lm}(u)` of degree `2k + l`, so differentiating

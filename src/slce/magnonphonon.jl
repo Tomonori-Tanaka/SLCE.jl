@@ -111,7 +111,15 @@ function magnon_phonon_vertices(model::SLCEModel;
         "magnon_phonon_vertices needs a model with spin content: this basis has none, so " *
         "every derivative with respect to a spin direction is zero. Use " *
         "`force_constants` for the lattice-only response."))
-    e = _resolve_spins(model, spins, "the magnon–phonon vertices")::SpinConfiguration
+    # ... so the spin-free branch of `_resolve_spins` is unreachable here and `e` is a
+    # `SpinConfiguration` for the rest of the function. Said by throwing the shared
+    # refusal directly rather than by asserting the resolve's result: `_refuse_missing_spins`
+    # always throws, so inference reads it as `Union{}` and narrows `spins` past this
+    # line — a `::SpinConfiguration` typeassert instead is an assert inference cannot
+    # discharge on the `spins = nothing` method, and JET reports it as an error.
+    spins === nothing &&
+        _refuse_missing_spins(model, "the magnon–phonon vertices", "`spins`")
+    e = _resolve_spins(model, spins, "the magnon–phonon vertices")
     espin = Matrix(e)
     _warn_unresolvable(model, "magnon_phonon_vertices")
     out = Dict{Tuple{Int,Int,SVector{3,Int}},Matrix{Float64}}()

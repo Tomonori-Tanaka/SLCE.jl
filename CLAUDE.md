@@ -155,9 +155,16 @@ Easy to break silently — confirm before touching the algorithm.
   a bare `DomainError` from inside the accumulation. Tightening `atol` therefore
   cannot establish the precondition; only the component bound can, and it rejects
   nothing harmless (a column off norm by `1e-7` whose largest component is `0.8`
-  passes). `_resolve_spins`'s validation is conditioned on `_basis_has_spin` for the
-  same reason `_validate_config_pair`'s is: the spin-free entry path's omission
-  marker is deliberately an all-ZERO matrix, which is not a unit configuration.
+  passes). **Every door validates unconditionally, including on a lattice-only model
+  where nothing reads the columns**: the omission is `nothing` and only `nothing`, so
+  passing a matrix is a claim that it IS a magnetic state. `_validate_config_pair` and
+  `predict_energy(::EffectiveModel, …)` used to make an exception (shape only) so that
+  the spin-free path's all-ZERO marker could pass through them, and that exception was
+  what made the marker legal enough to reach a spin-carrying path. The marker is now
+  a LOCAL filler produced at the `::Nothing` method itself
+  (`_spin_kernel_matrix(nothing, nat)`, `slce/model.jl`) and handed to an unvalidated
+  kernel (`_joint_energy` / `_joint_force` / `_affine_energy` / `_effective_energy`) —
+  it never re-enters a door, so no door needs to know it exists.
   Adding a new entry point that reaches a spin factor means adding a door — the
   audited defect was exactly a door added without one, and NOTHING downstream can
   catch it: measured, the acoustic modes of `D(0)` and `asr_residual` are completely
@@ -312,11 +319,21 @@ Easy to break silently — confirm before touching the algorithm.
   block rides the same code path. **`anphon` uses `boost::lexical_cast`, which rejects
   leading whitespace**: a padded `%25.15e` in the value field aborts the reader, so
   the core suite checks every value parses bare.
-- **The spin-free entry path shares ONE predicate** (`slce/model.jl`
-  `_basis_has_spin` ↔ `io/dftsource.jl` `SLCEDataset`'s `use_torque = nothing` ↔
-  `slce/forceconstants.jl` `force_constants(; spins = nothing)` ↔ `fitting/fit.jl`
-  `_no_spins` / `_validate_config_pair`): every place that lets a lattice-only caller
+- **The spin-free entry path shares ONE predicate AND one refusal** (`slce/model.jl`
+  `_basis_has_spin` / `_require_spin_free` / `_resolve_spins` /
+  `_spin_kernel_matrix` ↔ `io/dftsource.jl` `SLCEDataset`'s `use_torque = nothing` ↔
+  the derivative readouts `force_constants` / `strain_derivatives` /
+  `magnon_phonon_vertices` / `grid_strain_derivative` ↔ `fitting/fit.jl`
+  `predict_energy`/`predict_force(model, nothing, u)` ↔ `slce/affine.jl`
+  `affine_energy` / `rotational_residual` / `rotation_transfer_residual`): every place
+  that lets a lattice-only caller
   omit a magnetic state asks the same question, and it is **not** `is_soc_free`.
+  The rule and its message live beside the predicate in `model.jl` rather than at any
+  one consumer — they were two copies with two different messages (and two spellings
+  of the same argument) until the doors were unified. `EffectiveModel` is the one
+  entry that cannot read it: a re-expansion carries no `SALCKey`s, so the question
+  "does anything here read a spin?" is answerable only from its own term list, and
+  `slce/effective.jl` states it there.
   `is_soc_free` asks whether a label's total spin rank `L_S` vanishes — true for most
   ordinary `soc = false` spin labels — so a "has no spin content" test built on it
   waves a spin-carrying model through and evaluates it at a fabricated state. The two

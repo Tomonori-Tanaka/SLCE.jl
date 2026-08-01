@@ -76,6 +76,29 @@ function affine_energy(model::SLCEModel, e::AbstractMatrix{<:Real},
     nat = n_atoms(model.basis.crystal)
     u0 = base === nothing ? zeros(Float64, 3, nat) : base
     _validate_config_pair(model, e, u0)
+    return _affine_energy(model, e, M, origin, u0)
+end
+
+# `nothing` in the spin slot: the lattice-only entry, sharing `_require_spin_free`
+# (`slce/model.jl`) with the joint predictors and the derivative readouts. The filler
+# goes to the unvalidated kernel, never back through the door above — which validates
+# spin columns unconditionally and would (correctly) refuse an all-zero matrix.
+function affine_energy(model::SLCEModel, ::Nothing, M::AbstractMatrix{<:Real};
+                       origin::AbstractVector{<:Real} = SVector(0.0, 0.0, 0.0),
+                       base::Union{Nothing,AbstractMatrix{<:Real}} = nothing)::Float64
+    nat = n_atoms(model.basis.crystal)
+    u0 = base === nothing ? zeros(Float64, 3, nat) : base
+    e = _spin_free_pair(model, u0, "the affine energy")
+    return _affine_energy(model, e, M, origin, u0)
+end
+
+# The evaluation itself. `e` / `u0` are pre-validated by the door above; `M` and
+# `origin` are this function's own arguments and it checks them (they are cheap, and
+# `_rotation_pieces` builds a fresh `M` for every one of its ten calls).
+function _affine_energy(model::SLCEModel, e::AbstractMatrix{<:Real},
+                        M::AbstractMatrix{<:Real},
+                        origin::AbstractVector{<:Real},
+                        u0::AbstractMatrix{<:Real})::Float64
     size(M) == (3, 3) ||
         throw(DimensionMismatch("affine map M is $(size(M, 1)) × $(size(M, 2)); " *
                                 "expected 3 × 3"))
@@ -129,9 +152,6 @@ function affine_energy(model::SLCEModel, e::AbstractMatrix{<:Real},
     return val
 end
 
-affine_energy(model::SLCEModel, ::Nothing, M::AbstractMatrix{<:Real}; kwargs...) =
-    affine_energy(model, _no_spins(model), M; kwargs...)
-
 # The generator of a right-handed rotation about the unit axis `n`: `W·v = n × v`,
 # and `exp(ω W) = I + sin(ω) W + (1 − cos(ω)) W²` (Rodrigues, exact because
 # `W³ = −W`). Written out rather than deferred to the matrix `exp` so the axis
@@ -164,7 +184,8 @@ end
 # lattice half (displacements only), the spin half (directions only), and the joint
 # operation. `E0` and the reference scale come along because every caller needs them.
 # One place resolves the geometry so the two public diagnostics cannot drift apart.
-function _rotation_pieces(model::SLCEModel, e::AbstractMatrix{<:Real}, omega::Real,
+function _rotation_pieces(model::SLCEModel,
+                          e::Union{AbstractMatrix{<:Real},Nothing}, omega::Real,
                           axis, origin::AbstractVector{<:Real},
                           u0::Union{Nothing,AbstractMatrix{<:Real}})
     isfinite(omega) || throw(ArgumentError("omega must be finite; got $omega"))
@@ -173,10 +194,20 @@ function _rotation_pieces(model::SLCEModel, e::AbstractMatrix{<:Real}, omega::Re
     Mrot = O - SMatrix{3,3,Float64,9}(I)
     nat = n_atoms(model.basis.crystal)
     base = u0 === nothing ? zeros(Float64, 3, nat) : Matrix{Float64}(u0)
-    E0 = affine_energy(model, e, zero(SMatrix{3,3,Float64,9}); origin, base)
-    dU = affine_energy(model, e, Mrot; origin, base = O * base) - E0
-    dS = affine_energy(model, O * e, zero(SMatrix{3,3,Float64,9}); origin, base) - E0
-    dJ = affine_energy(model, O * e, Mrot; origin, base = O * base) - E0
+    # One door for ten evaluations, and it carries the `nothing` (lattice-only) entry
+    # for both public diagnostics — `O * e` on the spin-free filler is the filler, so
+    # the rotated-spin halves stay well defined and identically zero.
+    ec = e === nothing ? _spin_free_pair(model, base, "the rotational residual") :
+         (_validate_config_pair(model, e, base); e)
+    eR = O * ec
+    # The rotated state is an argument the caller never saw, so it gets the same door:
+    # `O` preserves `‖e‖` only to rounding, and near a pole an ulp of overshoot is the
+    # component bound's case. Skipped on the spin-free filler, which is not a state.
+    e === nothing || _validate_config(eR, nat; label = "the rotated spin config")
+    E0 = _affine_energy(model, ec, zero(SMatrix{3,3,Float64,9}), origin, base)
+    dU = _affine_energy(model, ec, Mrot, origin, O * base) - E0
+    dS = _affine_energy(model, eR, zero(SMatrix{3,3,Float64,9}), origin, base) - E0
+    dJ = _affine_energy(model, eR, Mrot, origin, O * base) - E0
     # Reference: affine fields of the SAME Frobenius size that are real deformations.
     # RMS over the six strain directions rather than one of them, so a model that
     # happens to be soft along the compared direction cannot flatter or inflate the
@@ -184,7 +215,7 @@ function _rotation_pieces(model::SLCEModel, e::AbstractMatrix{<:Real}, omega::Re
     nrm = norm(Mrot)
     acc = 0.0
     for S in _STRAIN_DIRECTIONS
-        d = affine_energy(model, e, nrm * S; origin, base) - E0
+        d = _affine_energy(model, ec, nrm * S, origin, base) - E0
         acc += d * d
     end
     return (dU = dU, dS = dS, dJ = dJ, ref = sqrt(acc / length(_STRAIN_DIRECTIONS)))
@@ -271,8 +302,14 @@ function rotational_residual(model::SLCEModel, e::AbstractMatrix{<:Real};
     return abs(p.dU) / p.ref
 end
 
-rotational_residual(model::SLCEModel, ::Nothing; kwargs...) =
-    rotational_residual(model, _no_spins(model); kwargs...)
+function rotational_residual(model::SLCEModel, ::Nothing;
+                             omega::Real = 0.05, axis = (0, 0, 1),
+                             origin::AbstractVector{<:Real} = SVector(0.0, 0.0, 0.0),
+                             u0::Union{Nothing,AbstractMatrix{<:Real}} = nothing)::Float64
+    p = _rotation_pieces(model, nothing, omega, axis, origin, u0)
+    p.ref == 0.0 && return p.dU == 0.0 ? 0.0 : Inf
+    return abs(p.dU) / p.ref
+end
 
 """
     rotation_transfer_residual(model, e; omega = 0.05, axis = (0, 0, 1),
@@ -321,5 +358,13 @@ function rotation_transfer_residual(model::SLCEModel, e::AbstractMatrix{<:Real};
     return abs(p.dJ) / scale
 end
 
-rotation_transfer_residual(model::SLCEModel, ::Nothing; kwargs...) =
-    rotation_transfer_residual(model, _no_spins(model); kwargs...)
+function rotation_transfer_residual(model::SLCEModel, ::Nothing;
+                                    omega::Real = 0.05, axis = (0, 0, 1),
+                                    origin::AbstractVector{<:Real} = SVector(0.0, 0.0,
+                                                                             0.0),
+                                    u0::Union{Nothing,AbstractMatrix{<:Real}} = nothing)::Float64
+    p = _rotation_pieces(model, nothing, omega, axis, origin, u0)
+    scale = abs(p.dU) + abs(p.dS)
+    scale == 0.0 && return p.dJ == 0.0 ? 0.0 : Inf
+    return abs(p.dJ) / scale
+end
