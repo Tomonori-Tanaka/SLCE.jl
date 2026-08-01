@@ -72,6 +72,17 @@ function write_phonopy(dir::AbstractString, fcs::ForceConstantSet;
     fcs.order == 2 || throw(ArgumentError(
         "phonopy's FORCE_CONSTANTS is the harmonic matrix; got order = $(fcs.order). " *
         "Export order 2 (higher orders would need the ALAMODE or ShengBTE formats)."))
+    # An EMPTY set writes a valid, all-zero FORCE_CONSTANTS that phonopy reads happily
+    # and turns into an all-zero band structure. That is the package's own
+    # "plausible-looking output from an empty computation" failure — `force_constants`
+    # documents that a pure-spin model yields an empty set, and `_warn_spin_blind`
+    # deliberately stays silent there (no displacement content at this order at all),
+    # so nothing else in the chain says a word.
+    isempty(fcs.constants) && @warn(
+        "write_phonopy: this force-constant set is EMPTY, so the file will be an " *
+        "all-zero matrix — phonopy will read it and produce an all-zero band " *
+        "structure. A pure-spin model, or a basis with no displacement term at " *
+        "order $(fcs.order), yields an empty set.")
     crystal = fcs.crystal
     nat = n_atoms(crystal)
     d = dim === nothing ? _phonopy_auto_dim(fcs) : NTuple{3,Int}(Tuple(dim))

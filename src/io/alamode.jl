@@ -74,6 +74,14 @@ function write_alamode(path::AbstractString, fcs::ForceConstantSet...;
         "Data.ForceConstants.HARMONIC first and exits without it. Got orders $orders."))
     allunique(orders) ||
         throw(ArgumentError("write_alamode: duplicate orders $orders"))
+    # Same reason as `write_phonopy`: an empty set is a valid file describing no
+    # interaction at all, and `anphon` will read it without complaint.
+    for f in fcs
+        isempty(f.constants) && @warn(
+            "write_alamode: the order-$(f.order) force-constant set is EMPTY, so the " *
+            "file will describe no interaction at that order. A pure-spin model, or " *
+            "a basis with no displacement term at that order, yields an empty set.")
+    end
     for f in fcs[2:end]
         f.crystal === fcs[1].crystal || f.crystal == fcs[1].crystal ||
             throw(ArgumentError("write_alamode: the sets are from different crystals"))

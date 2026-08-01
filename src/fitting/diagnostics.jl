@@ -36,6 +36,13 @@ equalities are not free, so `dof = p − rank(A) + 1`; a staged fit
 constraints binding them. All three are one expression — the column count of the
 reparameterization the fit actually solved under. This is the parametric count,
 not an effective / selected count, even for a sparse estimator.
+
+!!! note "On a `refit` result this is the PRE-refit count"
+    [`refit`](@ref) solves on a support sub-matrix under its own sub-stage
+    reparameterization, but stores the original one on the returned fit, so
+    `dof(refit(f)) == dof(f)` however many columns the support dropped. The same
+    caveat applies to [`identifiability`](@ref), which states it for itself. Count a
+    refit's free parameters from its support (`count(!iszero, coef(f))`) instead.
 """
 dof(f::SLCEFit)::Int =
     (f.reparam === nothing ? length(f.jphi) : size((f.reparam::ASRReparam).Z, 2)) + 1

@@ -6,6 +6,24 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — writing an EMPTY force-constant set no longer does so in silence
+
+`write_phonopy` on an empty `ForceConstantSet` produced a valid, all-zero
+`FORCE_CONSTANTS` that phonopy reads happily and turns into an all-zero band structure.
+`force_constants` documents that a pure-spin model yields an empty set and
+`_warn_spin_blind` deliberately stays silent there (no displacement content at the order
+at all), so nothing in the chain said a word — the package's own "plausible-looking
+output from an empty computation" failure, which it refuses elsewhere. Both writers now
+warn, naming the two ways to get an empty set. `write_alamode` checks per order.
+
+### Changed — `dof` documents that a `refit` result reports the pre-refit count
+
+`refit` solves on a support sub-matrix under its own sub-stage reparameterization but
+stores the original one on the returned fit, so `dof(refit(f)) == dof(f)` however many
+columns the support dropped. `identifiability` already states this caveat for itself;
+`dof` promised "the column count of the reparameterization the fit actually solved
+under" and did not. No number changes — the docstring now says which count it is.
+
 ### Changed — `residual_flat` is computed whenever the expansion ran
 
 `_unresolvable_split` used to compute its leftover-flat-direction count only when tie
