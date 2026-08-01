@@ -5,6 +5,8 @@
 
 **Documentation:** <https://tomonori-tanaka.github.io/SLCE.jl/dev/>
 
+**Reading the source:** [`ARCHITECTURE.md`](ARCHITECTURE.md) — dependency graph, include layering, and an ordered reading path through `src/`.
+
 A clean, extensible, Julia-native rebuild of **Magesty.jl**, extended into a
 **spin–lattice cluster expansion** — one symmetry-adapted basis over spin
 *and* displacement degrees of freedom, fitted to noncollinear DFT data.
