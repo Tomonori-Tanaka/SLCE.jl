@@ -251,15 +251,15 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
     end
 
     @testset "ragged force bookkeeping: slicing and vcat" begin
-        idx = [2, 31, 35, 45, 41]          # mixed torque/force presence, unsorted
-        sub = ds[idx]
+        index = [2, 31, 35, 45, 41]          # mixed torque/force presence, unsorted
+        sub = ds[index]
         @test length(sub) == 5
-        @test sub.disps == ds.disps[idx]
+        @test sub.disps == ds.disps[index]
         @test sub.force_cols == ds.force_cols
         # per-row bit-identity against the stored parent rows
         krows = Int[]
         kfc = Int[]
-        for (k, i) in enumerate(idx)
+        for (k, i) in enumerate(index)
             r = searchsorted(ds.force_config, i)
             append!(krows, r)
             append!(kfc, fill(k, length(r)))
@@ -305,11 +305,11 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
     end
 
     @testset "constructor invariants" begin
-        cfgs = ds.configs[1:2]
+        configs = ds.configs[1:2]
         Xe = ds.X_E[1:2, :]
         ye = ds.y_E[1:2]
         eT = Matrix{Float64}(undef, 0, m)
-        mk(; kw...) = SLCEDataset(basis, cfgs, Xe, ye, eT, Float64[], Int[],
+        mk(; kw...) = SLCEDataset(basis, configs, Xe, ye, eT, Float64[], Int[],
                                  ds.provenance; disps = ds.disps[1:2], kw...)
         k = length(fcols)
         Xf = zeros(2 * 3 * nat, k)
@@ -327,12 +327,12 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
         @test_throws DimensionMismatch mk(; X_F = Xf, y_F = yf[1:3],
                                           force_config = fc, force_cols = fcols)
         # force rows without stored displacement fields are meaningless
-        @test_throws ArgumentError SLCEDataset(basis, cfgs, Xe, ye, eT, Float64[],
+        @test_throws ArgumentError SLCEDataset(basis, configs, Xe, ye, eT, Float64[],
                                                Int[], ds.provenance; X_F = Xf,
                                                y_F = yf, force_config = fc,
                                                force_cols = fcols)
         # disps length mismatch
-        @test_throws DimensionMismatch SLCEDataset(basis, cfgs, Xe, ye, eT,
+        @test_throws DimensionMismatch SLCEDataset(basis, configs, Xe, ye, eT,
                                                    Float64[], Int[], ds.provenance;
                                                    disps = ds.disps[1:1])
     end

@@ -385,8 +385,8 @@ end
         @test !isempty(sfrozen)
         rng = MersenneTwister(5)
         st = SLCEModel(bs, 0.0, 0.1 .* randn(rng, n_salcs(bs)))
-        cfgs = [reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:2]) for _ = 1:150]
-        dss = SLCEDataset(bs, cfgs, [predict_energy(st, e) for e in cfgs])
+        configs = [reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:2]) for _ = 1:150]
+        dss = SLCEDataset(bs, configs, [predict_energy(st, e) for e in configs])
         @test dss.asr !== nothing
         @test dss.asr.free == setdiff(1:n_salcs(bs), sfrozen)
         # `asr = true` and `asr = false` must agree: the freeze is a property of the

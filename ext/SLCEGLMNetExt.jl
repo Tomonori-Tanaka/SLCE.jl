@@ -28,29 +28,29 @@ function _reject_nullspace(nullspace)
     return nothing
 end
 
-function solve_coefficients(est::ElasticNet, X::AbstractMatrix, y::AbstractVector;
+function solve_coefficients(estimator::ElasticNet, X::AbstractMatrix, y::AbstractVector;
                             row_groups = nothing, nullspace = nothing)::Vector{Float64}
     _reject_nullspace(nullspace)
     Xf = Matrix{Float64}(X)
     yf = Vector{Float64}(y)
-    return _glmnet_solve(Xf, yf, est.alpha, est.lambda, est.standardize, est.nfolds,
-                         est.select, est.seed, est.nlambda, row_groups, nothing)
+    return _glmnet_solve(Xf, yf, estimator.alpha, estimator.lambda, estimator.standardize, estimator.nfolds,
+                         estimator.select, estimator.seed, estimator.nlambda, row_groups, nothing)
 end
 
-function solve_coefficients(est::AdaptiveLasso, X::AbstractMatrix, y::AbstractVector;
+function solve_coefficients(estimator::AdaptiveLasso, X::AbstractMatrix, y::AbstractVector;
                             row_groups = nothing, nullspace = nothing)::Vector{Float64}
     _reject_nullspace(nullspace)
     Xf = Matrix{Float64}(X)
     yf = Vector{Float64}(y)
     # First stage: the pilot fit (any estimator) supplies the adaptive weights. Its own
     # solve honors `groups`, so e.g. an ElasticNet pilot CV-groups by configuration too.
-    beta_pilot = solve_coefficients(est.pilot, Xf, yf; row_groups = row_groups)
+    beta_pilot = solve_coefficients(estimator.pilot, Xf, yf; row_groups = row_groups)
     # Per-column penalty factor wⱼ = 1 / max(|β̂_pilotⱼ|, ε)^γ (Zou 2006): GLMNet rescales
     # the vector to sum to nvars internally. The weights are independent of λ, so they are
     # held fixed across the whole (fixed-λ or CV) path below.
-    pf = inv.(max.(abs.(beta_pilot), est.epsilon) .^ est.gamma)
-    return _glmnet_solve(Xf, yf, 1.0, est.lambda, est.standardize, est.nfolds,
-                         est.select, est.seed, est.nlambda, row_groups, pf)
+    pf = inv.(max.(abs.(beta_pilot), estimator.epsilon) .^ estimator.gamma)
+    return _glmnet_solve(Xf, yf, 1.0, estimator.lambda, estimator.standardize, estimator.nfolds,
+                         estimator.select, estimator.seed, estimator.nlambda, row_groups, pf)
 end
 
 # Shared GLMNet plumbing for ElasticNet and AdaptiveLasso. `pf` is the optional
@@ -94,8 +94,8 @@ function _solve_cv(Xf::Matrix{Float64}, yf::Vector{Float64}, alpha::Float64,
                  intercept = false, nlambda = nlambda) :
         glmnetcv(Xf, yf; alpha = alpha, folds = folds, standardize = standardize,
                  intercept = false, nlambda = nlambda, penalty_factor = pf)
-    idx = _select_lambda(cv, select)
-    return collect(Float64, cv.path.betas[:, idx])
+    index = _select_lambda(cv, select)
+    return collect(Float64, cv.path.betas[:, index])
 end
 
 # Deterministic, balanced, seed-controlled fold assignment (no RNG dependency): rank

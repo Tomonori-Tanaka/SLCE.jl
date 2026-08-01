@@ -71,14 +71,14 @@ function prepare(row::Row; seed::Integer = 20260730)
                            reference_fingerprint = crystal_fingerprint(row.crystal),
                            setup_id = "integration")
     ncfg = max(48, 4q)
-    cfgs = Vector{Matrix{Float64}}(undef, ncfg)
+    configs = Vector{Matrix{Float64}}(undef, ncfg)
     disps = Vector{Matrix{Float64}}(undef, ncfg)
     data = Vector{TrainingDatum}(undef, ncfg)
     for i = 1:ncfg
         e = randcfg(rng, nat)
         u = 0.04 * randn(rng, 3, nat)
         u .-= mean(u; dims = 2)                 # centre-of-mass free
-        cfgs[i] = e
+        configs[i] = e
         disps[i] = u
         s = spinful ? e : nothing
         data[i] = TrainingDatum(; energy = predict_energy(model, s, u),
@@ -94,7 +94,7 @@ function prepare(row::Row; seed::Integer = 20260730)
     fitted = SLCEModel(f)
     e0 = randcfg(rng, nat)
     return (; basis, nat, m, rep, q, beta, model, fitted, dataset, fit = f, rng,
-            spinful, cfgs, disps, prov, e0, spins = spinful ? e0 : nothing,
+            spinful, configs, disps, prov, e0, spins = spinful ? e0 : nothing,
             frozen = unresolvable_columns(basis), wT)
 end
 
@@ -184,7 +184,7 @@ function check_resolvability(row::Row, ctx)
             unit[c] = 1.0
             probe = SLCEModel(ctx.basis, 0.0, unit)
             for i = 1:6
-                s = ctx.spinful ? ctx.cfgs[i] : nothing
+                s = ctx.spinful ? ctx.configs[i] : nothing
                 @test abs(predict_energy(probe, s, ctx.disps[i])) < 1e-12
             end
         end
@@ -219,7 +219,7 @@ function check_invariance(row::Row, ctx)
         sg = analyze_symmetry(SpglibBackend(), row.crystal)
         model = ctx.model
         for i = 1:3
-            s = ctx.spinful ? ctx.cfgs[i] : nothing
+            s = ctx.spinful ? ctx.configs[i] : nothing
             u = ctx.disps[i]
             ref = predict_energy(model, s, u)
             scale = max(abs(ref), 1e-3)
@@ -233,7 +233,7 @@ function check_invariance(row::Row, ctx)
         # and the invariance is not vacuous: a random rotation that is NOT in the
         # group moves the energy (otherwise the test above would pass on a
         # constant model)
-        s = ctx.spinful ? ctx.cfgs[1] : nothing
+        s = ctx.spinful ? ctx.configs[1] : nothing
         u = ctx.disps[1]
         ref = predict_energy(model, s, u)
         R = rand_rotation(MersenneTwister(5))
@@ -319,10 +319,10 @@ function check_asr(row::Row, ctx)
         bad_beta[ctx.frozen] .= 0.0            # frozen columns move no energy
         if norm(ctx.rep.Z * (ctx.rep.Z' * bad_beta) .- bad_beta) > 1e-8
             bad = SLCEModel(ctx.basis, 0.1, bad_beta)
-            mkdata(us) = map(eachindex(ctx.cfgs)) do i
-                s = ctx.spinful ? ctx.cfgs[i] : nothing
+            mkdata(us) = map(eachindex(ctx.configs)) do i
+                s = ctx.spinful ? ctx.configs[i] : nothing
                 TrainingDatum(; energy = predict_energy(bad, s, us[i]),
-                              directions = ctx.cfgs[i],
+                              directions = ctx.configs[i],
                               magmoms = ctx.spinful ? ones(ctx.nat) : zeros(ctx.nat),
                               displacements = us[i],
                               forces = predict_force(bad, s, us[i]),
@@ -354,7 +354,7 @@ function check_asr(row::Row, ctx)
             # 0.69. What IS general is that a sample allowed to drift makes the
             # disagreement observable in every row.
             rngd = MersenneTwister(99)
-            drift = [0.04 * randn(rngd, 3, ctx.nat) for _ in eachindex(ctx.cfgs)]
+            drift = [0.04 * randn(rngd, 3, ctx.nat) for _ in eachindex(ctx.configs)]
             dsd = SLCEDataset(ctx.basis, mkdata(drift))
             freed, heldd = both(dsd)
             @test rss_energy(heldd) > 10 * rss_energy(freed)
@@ -451,8 +451,8 @@ function _gamma_sum(fcs, nat)
     S = zeros(ntuple(_ -> 3nat, fcs.order))
     for ((atoms, _), T) in fcs.constants
         for cidx in CartesianIndices(T)
-            idx = ntuple(i -> 3 * (atoms[i] - 1) + cidx[i], fcs.order)
-            S[idx...] += T[cidx]
+            index = ntuple(i -> 3 * (atoms[i] - 1) + cidx[i], fcs.order)
+            S[index...] += T[cidx]
         end
     end
     return S
@@ -507,17 +507,17 @@ function check_restrict(row::Row, ctx)
             for i = 1:5
                 # bitwise, not approximately: the clamped-ion sub-model IS the
                 # joint model at u = 0
-                @test predict_energy(sub, ctx.cfgs[i]) ==
-                      predict_energy(ctx.fitted, ctx.cfgs[i], z)
-                @test predict_torque(sub, ctx.cfgs[i]) ==
-                      predict_torque(ctx.fitted, ctx.cfgs[i], z)
+                @test predict_energy(sub, ctx.configs[i]) ==
+                      predict_energy(ctx.fitted, ctx.configs[i], z)
+                @test predict_torque(sub, ctx.configs[i]) ==
+                      predict_torque(ctx.fitted, ctx.configs[i], z)
             end
         else
             # a lattice-only model has no spin content to keep: the clamped-ion
             # sub-model is the empty one, whose energy is j0 alone — and that is
             # still exactly the joint model at u = 0
             @test n_salcs(sub.basis) == 0
-            @test predict_energy(sub, ctx.cfgs[1]) ==
+            @test predict_energy(sub, ctx.configs[1]) ==
                   predict_energy(ctx.fitted, nothing, z)
         end
         mark(row, :restrict)
@@ -541,7 +541,7 @@ function check_persist(row::Row, ctx)
             # observables — the round trip has to survive the DECORATED keys, not
             # only the pure-spin ones
             for i = 1:4
-                s = ctx.spinful ? ctx.cfgs[i] : nothing
+                s = ctx.spinful ? ctx.configs[i] : nothing
                 u = ctx.disps[i]
                 @test predict_energy(back, s, u) == predict_energy(ctx.fitted, s, u)
                 @test predict_force(back, s, u) == predict_force(ctx.fitted, s, u)
@@ -581,12 +581,12 @@ function _energy_from_terms(terms, e, u)
     tot = 0.0
     for t in terms
         s = 0.0
-        for idx in CartesianIndices(t.folded)
-            w = t.folded[idx]
+        for index in CartesianIndices(t.folded)
+            w = t.folded[index]
             w == 0.0 && continue
             for (i, sl) in enumerate(t.slots)
                 l = sl.factor.l
-                μ = idx[i] - l - 1
+                μ = index[i] - l - 1
                 a = t.atoms[sl.site]
                 if sl.factor.channel === SLCE.SPIN
                     w *= Zlm(l, μ, SVector{3,Float64}(e[1, a], e[2, a], e[3, a]))
@@ -610,7 +610,7 @@ function check_terms(row::Row, ctx)
         # coefficient, and the zeros are EXACT (`coef != 0.0`, not a tolerance)
         @test all(t -> t.coef != 0.0, terms)
         for i = 1:4
-            ee = ctx.spinful ? ctx.cfgs[i] : zeros(3, ctx.nat)
+            ee = ctx.spinful ? ctx.configs[i] : zeros(3, ctx.nat)
             u = ctx.disps[i]
             ref = predict_energy(ctx.fitted, ctx.spinful ? ee : nothing, u) -
                   ctx.fitted.j0

@@ -50,15 +50,15 @@ b = SLCEBasis(cr, spec; backend = SpglibBackend(), tol = inp.tol)
 println("→ n_salcs = $(n_salcs(b))")
 
 # Design matrices + fit, sized like the real l044 training set.
-cfgs = rand_configs(cr, m)
+configs = rand_configs(cr, m)
 rng  = MersenneTwister(2)
 tqs  = [randn(rng, 3, n_atoms(cr)) for _ = 1:m]  # random targets — timing only
 
-bench_one("_design_energy", () -> SLCE._design_energy(b, cfgs))
-bench_one("_design_torque", () -> SLCE._design_torque(b, cfgs))
+bench_one("_design_energy", () -> SLCE._design_energy(b, configs))
+bench_one("_design_torque", () -> SLCE._design_torque(b, configs))
 
-ds  = SLCEDataset(b, cfgs, randn(rng, m))
-dst = SLCEDataset(b, cfgs, randn(rng, m), tqs)
+ds  = SLCEDataset(b, configs, randn(rng, m))
+dst = SLCEDataset(b, configs, randn(rng, m), tqs)
 println("energy rows = $m   torque rows = $(length(dst.y_T))")
 
 bench_one("fit (OLS, energy)", () -> fit(SLCEFit, ds, OLS()))

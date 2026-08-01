@@ -139,12 +139,12 @@ function _solid_harmonics_impl!(
         for l = n:lmax
             K = _racah_norm(l, n)
             if n == 0
-                idx = solid_harmonic_index(l, 0)
-                vals[idx] = K * A
+                index = solid_harmonic_index(l, 0)
+                vals[index] = K * A
                 if grads !== nothing
-                    grads[1, idx] = K * 2.0 * x * Ar
-                    grads[2, idx] = K * 2.0 * y * Ar
-                    grads[3, idx] = K * (Az + 2.0 * z * Ar)
+                    grads[1, index] = K * 2.0 * x * Ar
+                    grads[2, index] = K * 2.0 * y * Ar
+                    grads[3, index] = K * (Az + 2.0 * z * Ar)
                 end
             else
                 idxp = solid_harmonic_index(l, n)
@@ -340,8 +340,8 @@ Convenience accessor: internally evaluates the full batch up to degree `l`
 function grad_Rlm(l::Integer, m::Integer, u::AbstractVector{<:Real})::SVector{3, Float64}
     _validate_lm(l, m)
     _, grads = solid_harmonics_grad(l, u)
-    idx = solid_harmonic_index(l, m)
-    return SVector{3, Float64}(grads[1, idx], grads[2, idx], grads[3, idx])
+    index = solid_harmonic_index(l, m)
+    return SVector{3, Float64}(grads[1, index], grads[2, index], grads[3, index])
 end
 
 # ---------------------------------------------------------------------------

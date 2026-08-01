@@ -34,11 +34,11 @@ function _energy_from_terms(terms, e)
     for t in terms
         N = t.body
         s = 0.0
-        for idx in CartesianIndices(t.folded)
-            w = t.folded[idx]
+        for index in CartesianIndices(t.folded)
+            w = t.folded[index]
             w == 0.0 && continue
             for i = 1:N
-                μ = idx[i] - t.ls[i] - 1
+                μ = index[i] - t.ls[i] - 1
                 ei = SVector{3,Float64}(e[1, t.atoms[i]], e[2, t.atoms[i]], e[3, t.atoms[i]])
                 w *= Zlm(t.ls[i], μ, ei)
             end
@@ -57,12 +57,12 @@ function _energy_from_decorated(terms, e, u)
     tot = 0.0
     for t in terms
         s = 0.0
-        for idx in CartesianIndices(t.folded)
-            w = t.folded[idx]
+        for index in CartesianIndices(t.folded)
+            w = t.folded[index]
             w == 0.0 && continue
             for (i, sl) in enumerate(t.slots)
                 l = sl.factor.l
-                μ = idx[i] - l - 1
+                μ = index[i] - l - 1
                 a = t.atoms[sl.site]
                 if sl.factor.channel === SLCE.SPIN
                     w *= Zlm(l, μ, SVector{3,Float64}(e[1, a], e[2, a], e[3, a]))

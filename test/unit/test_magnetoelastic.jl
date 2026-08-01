@@ -296,7 +296,7 @@ end
 # displacement — the magnetoelastic pair content — plus a pure-lattice `degree = 2` sector
 # so the ASR constraint matrix is nonzero. The degree-2 content is `O(ε²)` and cannot
 # appear in a first derivative, which is exactly what makes it a useful passenger.
-function _ex_chain(rng; extra = Sector[], j0 = 0.0)
+function _exchange_chain(rng; extra = Sector[], j0 = 0.0)
     cr = Crystal(Lattice(Matrix(3.0 * I(3))), [0.0 1/3; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     spec = BasisSpec(cr; lmax = 2, pmax = 2,
                      sectors = vcat([Sector(spin = [1, 1], disp = (degree = 1,),
@@ -310,7 +310,7 @@ end
 # The total ε-linear response rebuilt from the per-bond derivatives — `_reconstruct_energy`
 # written for a derivative instead of an energy, and by hand rather than through any
 # package function.
-function _ex_reconstruct(x, e)
+function _exchange_reconstruct(x, e)
     D = zeros(3, 3)
     for ((a, b, _), T) in x.pairs, γ = 1:3, δ = 1:3
         D[γ, δ] += dot(e[:, a], T[:, :, γ, δ] * e[:, b])
@@ -325,7 +325,7 @@ end
 
     @testset "the bonds rebuild the cell's ε-linear response" begin
         rng = MersenneTwister(0x6578)
-        _, basis, model = _ex_chain(rng)
+        _, basis, model = _exchange_chain(rng)
         x = exchange_strain_derivatives(model)
         @test !isempty(x.pairs)
         @test isempty(x.skipped)                     # nothing magnetoelastic is missing
@@ -336,13 +336,13 @@ end
             # UNSYMMETRIZED: the per-bond derivative is with respect to a general affine
             # map, so the comparison has to be against the same convention
             D = strain_derivatives(model; spins = e, order = 1, symmetrize = false)
-            @test _ex_reconstruct(x, e) ≈ D rtol = 1e-11
+            @test _exchange_reconstruct(x, e) ≈ D rtol = 1e-11
         end
     end
 
     @testset "the per-bond split is origin-free here, and that is measured" begin
         rng = MersenneTwister(0x6579)
-        _, _, model = _ex_chain(rng)
+        _, _, model = _exchange_chain(rng)
         base = exchange_strain_derivatives(model)                 # check_origin = true
         for o in ([0.7, -1.1, 0.4], [-3.0, 3.0, 12.0])
             other = exchange_strain_derivatives(model; origin = o)
@@ -361,7 +361,7 @@ end
         rng = MersenneTwister(0x657a)
         # `ls = [2,2]` pair content is real magnetoelastic coupling that the bilinear view
         # cannot express — it must be NAMED, not silently dropped
-        _, _, model = _ex_chain(rng; extra = [Sector(spin = [2, 2], disp = (degree = 1,),
+        _, _, model = _exchange_chain(rng; extra = [Sector(spin = [2, 2], disp = (degree = 1,),
                                                      sites = 1:2, cutoff = 1.1)])
         x = exchange_strain_derivatives(model)
         @test !isempty(x.skipped)
@@ -370,13 +370,13 @@ end
         # factors (which are O(ε²)) are absent from a first derivative by definition and
         # are not reported as losses
         rng2 = MersenneTwister(0x657b)
-        _, _, plain = _ex_chain(rng2; extra = [Sector(spin = (sites = 1:2,), cutoff = 1.1)])
+        _, _, plain = _exchange_chain(rng2; extra = [Sector(spin = (sites = 1:2,), cutoff = 1.1)])
         @test isempty(exchange_strain_derivatives(plain).skipped)
     end
 
     @testset "error surface" begin
         rng = MersenneTwister(0x657c)
-        _, basis, model = _ex_chain(rng)
+        _, basis, model = _exchange_chain(rng)
         @test_throws DimensionMismatch exchange_strain_derivatives(model;
                                                                     origin = [0.0, 0.0])
         @test_throws ArgumentError exchange_strain_derivatives(model; origin = [NaN, 0, 0])

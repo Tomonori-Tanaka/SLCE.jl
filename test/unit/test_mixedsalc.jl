@@ -90,11 +90,11 @@ function _ls_block_stats(crystal, sg, O, label, wcache)
             for k = 1:D
                 (ai, ci, Mf) = cols[k]
                 slots = slotlists[ai]
-                v = SLCE._mfslice(cbs[ai][ci][3], Mf)
+                v = SLCE._mf_slice(cbs[ai][ci][3], Mf)
                 for j in eachindex(slots)
                     slots[j].factor.l == 0 && continue
                     v = SLCE.AngularMomentum.nmode_mul(
-                        v, SLCE._wig(wcache, slots[j].factor.l, g), j)
+                        v, SLCE._wigner_d(wcache, slots[j].factor.l, g), j)
                 end
                 a2 = SLCE._assignment_image(assignments[ai], perm)
                 ai2 = findfirst(==(a2), assignments)
@@ -104,7 +104,7 @@ function _ls_block_stats(crystal, sg, O, label, wcache)
                     Lf2 = cbs[ai2][ci2][2]
                     for Mf2 = 1:(2 * Lf2 + 1)
                         Dg[colidx[(ai2, ci2, Mf2)], k] =
-                            SLCE._frob(SLCE._mfslice(cbs[ai2][ci2][3], Mf2), v)
+                            SLCE._frobenius_inner(SLCE._mf_slice(cbs[ai2][ci2][3], Mf2), v)
                     end
                 end
             end

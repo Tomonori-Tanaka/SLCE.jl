@@ -2,9 +2,9 @@
 # dataset's spin configurations. Split out of model.jl (pipeline types).
 
 # Energy design matrix: X_E[config, salc] = Φ_salc(config).
-function _design_energy(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{Float64}
+function _design_energy(basis::SLCEBasis, configs::Vector{Matrix{Float64}})::Matrix{Float64}
     salcs = basis.salc_basis.salcs
-    n = length(cfgs)
+    n = length(configs)
     m = length(salcs)
     X = Matrix{Float64}(undef, n, m)
     # Columns are independent; each task owns whole columns, so the writes are
@@ -12,7 +12,7 @@ function _design_energy(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix
     Threads.@threads for j = 1:m
         scratch = SALCScratch()      # task-local workspace (dnPl + harmonic tables)
         @inbounds for i = 1:n        # column-major: stride-1 writes down each column
-            X[i, j] = evaluate_salc(salcs[j], cfgs[i], scratch)
+            X[i, j] = evaluate_salc(salcs[j], configs[i], scratch)
         end
     end
     return X
@@ -21,11 +21,11 @@ end
 # Torque design matrix: for each SALC column, each config, each atom, the three
 # components of τ_a = −e_a × ∂Φ/∂e_a (the physical / Landau–Lifshitz torque) stacked
 # config-major / atom-major / xyz.
-function _design_torque(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{Float64}
+function _design_torque(basis::SLCEBasis, configs::Vector{Matrix{Float64}})::Matrix{Float64}
     salcs = basis.salc_basis.salcs
-    n = length(cfgs)
+    n = length(configs)
     m = length(salcs)
-    nat = isempty(cfgs) ? 0 : size(cfgs[1], 2)
+    nat = isempty(configs) ? 0 : size(configs[1], 2)
     block = 3 * nat
     X = Matrix{Float64}(undef, n * block, m)
     # Columns are independent; each task owns whole columns. `G` must be
@@ -34,7 +34,7 @@ function _design_torque(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix
         G = Matrix{Float64}(undef, 3, nat)
         scratch = SALCScratch()      # task-local workspace (dnPl + harmonic tables)
         @inbounds for ci = 1:n
-            c = cfgs[ci]
+            c = configs[ci]
             fill!(G, 0.0)
             accumulate_grad!(G, salcs[j], c, 1.0, scratch)
             row_off = block * (ci - 1)
@@ -58,16 +58,16 @@ end
 # `_fill_ztables_mixed!` tables with the spin-only path — bit-identical on
 # pure-spin SALCs, so a joint basis' pure-spin columns match the spin-only design).
 
-function _design_energy(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}},
+function _design_energy(basis::SLCEBasis, configs::Vector{Matrix{Float64}},
                         disps::Vector{Matrix{Float64}})::Matrix{Float64}
     salcs = basis.salc_basis.salcs
-    n = length(cfgs)
+    n = length(configs)
     m = length(salcs)
     X = Matrix{Float64}(undef, n, m)
     Threads.@threads for j = 1:m         # columns independent (cf. spin-only form)
         scratch = SALCScratch()
         @inbounds for i = 1:n
-            X[i, j] = evaluate_salc(salcs[j], cfgs[i], disps[i], scratch)
+            X[i, j] = evaluate_salc(salcs[j], configs[i], disps[i], scratch)
         end
     end
     return X
@@ -79,13 +79,13 @@ end
 # excluded, never padded, exactly like the force block; padding would dilute the
 # `√(w_T/n_T)` whitening). The pure-spin path keeps its all-atom layout (every atom
 # of a pure-spin basis is either spin-referenced or genuinely observed).
-function _design_torque(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}},
+function _design_torque(basis::SLCEBasis, configs::Vector{Matrix{Float64}},
                         disps::Vector{Matrix{Float64}},
                         tatoms::Vector{Int})::Matrix{Float64}
     salcs = basis.salc_basis.salcs
-    n = length(cfgs)
+    n = length(configs)
     m = length(salcs)
-    nat = isempty(cfgs) ? 0 : size(cfgs[1], 2)
+    nat = isempty(configs) ? 0 : size(configs[1], 2)
     block = 3 * length(tatoms)
     X = Matrix{Float64}(undef, n * block, m)
     Threads.@threads for j = 1:m         # columns independent; buffers task-local
@@ -93,7 +93,7 @@ function _design_torque(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}},
         Gu = Matrix{Float64}(undef, 3, nat)
         scratch = SALCScratch()
         @inbounds for ci = 1:n
-            c = cfgs[ci]
+            c = configs[ci]
             fill!(Ge, 0.0)
             fill!(Gu, 0.0)
             accumulate_grad!(Ge, Gu, salcs[j], c, disps[ci], 1.0, scratch)
@@ -117,12 +117,12 @@ end
 # the displacement-referenced atoms `fatoms` only (rows the model is structurally
 # blind to are excluded, never padded). Entry = −∂Φ/∂u (the force convention
 # `f_a = −∂E/∂u_a`, design record §6), rows config-major / fatoms-major / xyz.
-function _design_force(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}},
+function _design_force(basis::SLCEBasis, configs::Vector{Matrix{Float64}},
                        disps::Vector{Matrix{Float64}}, cols::Vector{Int},
                        fatoms::Vector{Int})::Matrix{Float64}
     salcs = basis.salc_basis.salcs
-    n = length(cfgs)
-    nat = isempty(cfgs) ? 0 : size(cfgs[1], 2)
+    n = length(configs)
+    nat = isempty(configs) ? 0 : size(configs[1], 2)
     block = 3 * length(fatoms)
     X = Matrix{Float64}(undef, n * block, length(cols))
     Threads.@threads for jj in eachindex(cols)   # columns independent; buffers task-local
@@ -133,7 +133,7 @@ function _design_force(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}},
         @inbounds for ci = 1:n
             fill!(Ge, 0.0)
             fill!(Gu, 0.0)
-            accumulate_grad!(Ge, Gu, salcs[j], cfgs[ci], disps[ci], 1.0, scratch)
+            accumulate_grad!(Ge, Gu, salcs[j], configs[ci], disps[ci], 1.0, scratch)
             row_off = block * (ci - 1)
             for (k, a) in enumerate(fatoms)
                 rb = row_off + 3 * (k - 1)
@@ -170,10 +170,10 @@ _flatten_forces(forces::AbstractVector, fatoms::Vector{Int}, nat::Int)::Vector{F
     _flatten_atom_rows(forces, fatoms, nat, "force")
 
 # Flatten per-config torque targets in the same row order as `_design_torque`.
-function _flatten_torques(torques::AbstractVector, cfgs::Vector{Matrix{Float64}})::Vector{Float64}
-    nat = isempty(cfgs) ? 0 : size(cfgs[1], 2)
+function _flatten_torques(torques::AbstractVector, configs::Vector{Matrix{Float64}})::Vector{Float64}
+    nat = isempty(configs) ? 0 : size(configs[1], 2)
     block = 3 * nat
-    y = Vector{Float64}(undef, length(cfgs) * block)
+    y = Vector{Float64}(undef, length(configs) * block)
     @inbounds for ci in eachindex(torques)
         τ = torques[ci]
         size(τ) == (3, nat) ||

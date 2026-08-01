@@ -101,8 +101,8 @@ function read_embset(path::AbstractString; n_atoms::Union{Integer,Nothing} = not
             length(tok) >= 7 ||
                 throw(ArgumentError("EMBSET file $path, config $c, atom line $i: " *
                                     "expected ≥ 7 columns, got $(length(tok))"))
-            idx = tryparse(Int, tok[1])
-            idx == i ||
+            index = tryparse(Int, tok[1])
+            index == i ||
                 throw(ArgumentError("EMBSET file $path, config $c, atom line $i: " *
                                     "index column is \"$(tok[1])\", expected $i"))
             for k = 1:3

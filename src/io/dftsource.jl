@@ -206,7 +206,7 @@ function _fp_u64(h::UInt64, x::UInt64)::UInt64
     return h
 end
 _fp_int(h::UInt64, x::Integer)::UInt64 = _fp_u64(h, reinterpret(UInt64, Int64(x)))
-_fp_float(h::UInt64, x::Float64)::UInt64 = _fp_u64(h, reinterpret(UInt64, _jnum(x)))
+_fp_float(h::UInt64, x::Float64)::UInt64 = _fp_u64(h, reinterpret(UInt64, _toml_float(x)))
 function _fp_str(h::UInt64, s::String)::UInt64
     cu = codeunits(s)
     h = _fp_int(h, length(cu))           # length prefix: ["Fe","eO"] ≠ ["Fe","e","O"]
@@ -219,7 +219,7 @@ end
 # Quantize a coordinate to a 1e-10 grid before hashing, so values that differ only
 # by sub-1e-10 construction noise (e.g. `mod(-1e-17, 1.0) == 1.0` vs `0.0` at the
 # fractional wrap boundary) fingerprint identically. `wrap` re-folds the [0, 1)
-# boundary after quantization; `_jnum` (via `_fp_float`) folds a -0.0. The single
+# boundary after quantization; `_toml_float` (via `_fp_float`) folds a -0.0. The single
 # `-= 1.0` fold is sufficient only because `Crystal`'s inner constructor already
 # wraps periodic fractional coordinates with `mod(·, 1.0)` into [0, 1] — if that
 # wrap ever moves, this becomes a partial mod.

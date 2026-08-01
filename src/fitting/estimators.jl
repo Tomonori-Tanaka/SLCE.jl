@@ -3,7 +3,7 @@
 
 Regression strategy. Implement one by subtyping this and defining
 
-    solve_coefficients(est, X, y) -> Vector{Float64}
+    solve_coefficients(estimator, X, y) -> Vector{Float64}
 
 where `(X, y)` is already **column-centered** (so the solver adds no intercept;
 the reference energy `j0` is recovered analytically downstream). In-tree
@@ -332,9 +332,9 @@ Base.show(io::IO, e::GroupAdaptiveRidge) =
           ", epsilon=", e.epsilon, ")")
 
 """
-    islinear(est) -> Bool
+    islinear(estimator) -> Bool
 
-Whether `est` is a linear (closed-form) estimator — one whose fitted values are
+Whether `estimator` is a linear (closed-form) estimator — one whose fitted values are
 `ŷ = H·y` with a hat matrix `H` independent of `y`. Gates closed-form diagnostics
 (e.g. [`gcv`](@ref) / [`effective_dof`](@ref)). [`OLS`](@ref), [`Ridge`](@ref),
 [`AdaptiveRidge`](@ref), and [`GroupAdaptiveRidge`](@ref) (the latter two linear in
@@ -349,7 +349,7 @@ islinear(::AdaptiveRidge) = true
 islinear(::GroupAdaptiveRidge) = true
 
 """
-    solve_coefficients(est, X, y; row_groups = nothing, nullspace = nothing) -> Vector{Float64}
+    solve_coefficients(estimator, X, y; row_groups = nothing, nullspace = nothing) -> Vector{Float64}
 
 Solve for the SALC coefficients from the (already centered) design matrix `X` and
 target `y`. See [`AbstractEstimator`](@ref) for the `(X, y)` contract.
@@ -371,9 +371,9 @@ plain γ-space solve already the β-penalized one (`‖β‖ = ‖γ‖`). L1 es
 (GLMNet extension) reject it — L1 under `Z` is a generalized lasso GLMNet cannot
 solve, and L1 on γ is factorization-gauge-dependent.
 """
-function solve_coefficients(est::AbstractEstimator, X::AbstractMatrix, y::AbstractVector;
+function solve_coefficients(estimator::AbstractEstimator, X::AbstractMatrix, y::AbstractVector;
                             row_groups = nothing, nullspace = nothing)
-    error("solve_coefficients has no method for $(typeof(est)); load the backend " *
+    error("solve_coefficients has no method for $(typeof(estimator)); load the backend " *
           "package (e.g. `using GLMNet` for Lasso/ElasticNet).")
 end
 
@@ -384,7 +384,7 @@ function solve_coefficients(::OLS, X::AbstractMatrix, y::AbstractVector;
     return X \ y   # QR-based least squares (more robust than the normal equations)
 end
 
-function solve_coefficients(est::Ridge, X::AbstractMatrix, y::AbstractVector;
+function solve_coefficients(estimator::Ridge, X::AbstractMatrix, y::AbstractVector;
                             row_groups = nothing, nullspace = nothing)::Vector{Float64}
     # `nullspace` is inert: with orthonormal Z, λ‖γ‖² = λ‖Z·γ‖² = λ‖β‖² — the
     # γ-space ridge is verbatim the β-penalized constrained ridge.
@@ -396,19 +396,19 @@ function solve_coefficients(est::Ridge, X::AbstractMatrix, y::AbstractVector;
     # symmetric factorization of a singular matrix returns numerical garbage, measured
     # at ‖β‖ ~ 1e16 against OLS's 0.48 on a design with one duplicated column — silently,
     # from an estimator whose docstring promises OLS at lambda = 0.
-    est.lambda == 0.0 && return solve_coefficients(OLS(), X, y)
+    estimator.lambda == 0.0 && return solve_coefficients(OLS(), X, y)
     n = size(X, 2)
-    return Symmetric(X' * X + est.lambda * I(n)) \ (X' * y)
+    return Symmetric(X' * X + estimator.lambda * I(n)) \ (X' * y)
 end
 
-function solve_coefficients(est::AdaptiveRidge, X::AbstractMatrix, y::AbstractVector;
+function solve_coefficients(estimator::AdaptiveRidge, X::AbstractMatrix, y::AbstractVector;
                             row_groups = nothing,
                             nullspace::Union{Nothing,Matrix{Float64}} = nothing)::Vector{Float64}
     # Exact zero only: at lambda = 0 the penalty diagonal is gone and `XtX` may be
     # singular, so route to the QR (min-norm) OLS path. Any lambda > 0 makes
     # `XtX + lambda·Diagonal(w)` SPD below, so the symmetric solve is safe — do NOT
     # widen this to a near-zero tolerance.
-    est.lambda == 0.0 && return solve_coefficients(OLS(), X, y)
+    estimator.lambda == 0.0 && return solve_coefficients(OLS(), X, y)
     XtX = X' * X
     Xty = X' * y
     q = size(XtX, 2)
@@ -419,14 +419,14 @@ function solve_coefficients(est::AdaptiveRidge, X::AbstractMatrix, y::AbstractVe
     # the penalty changes between iterations; the Gram matrix `XtX` is formed once.
     # With lambda > 0 and every wⱼ > 0 (epsilon > 0), the shifted matrix is SPD
     # throughout (Z full column rank).
-    coefs = Symmetric(XtX + est.lambda * I(q)) \ Xty
+    coefs = Symmetric(XtX + estimator.lambda * I(q)) \ Xty
     p = nullspace === nothing ? q : size(nullspace, 1)
     w = Vector{Float64}(undef, p)
-    for _ = 1:est.max_iter
+    for _ = 1:estimator.max_iter
         beta = nullspace === nothing ? coefs : nullspace * coefs
-        @. w = 1.0 / (beta^2 + est.epsilon)     # the β-space weight map, unchanged
-        P = nullspace === nothing ? est.lambda * Diagonal(w) :
-            est.lambda * Symmetric(nullspace' * (w .* nullspace))
+        @. w = 1.0 / (beta^2 + estimator.epsilon)     # the β-space weight map, unchanged
+        P = nullspace === nothing ? estimator.lambda * Diagonal(w) :
+            estimator.lambda * Symmetric(nullspace' * (w .* nullspace))
         coefs_new = Symmetric(XtX + P) \ Xty
         # Relative ∞-norm change ON β (γ's ∞-norm is factorization-gauge-
         # dependent under Z); the eps floor only guards the all-zero case.
@@ -434,7 +434,7 @@ function solve_coefficients(est::AdaptiveRidge, X::AbstractMatrix, y::AbstractVe
         rel = mapreduce((a, b) -> abs(a - b), max, beta_new, beta) /
               max(maximum(abs, beta_new), eps(Float64))
         coefs = coefs_new
-        rel < est.tol && break
+        rel < estimator.tol && break
     end
     return coefs
 end
@@ -444,7 +444,7 @@ end
 # converged penalty diagonal through this same function (`_penalty_diagonal` in
 # fitting/selection.jl); change the formula here and nowhere else. `normsq` is a
 # reusable length-`G` accumulator; fills `w` in place and returns it.
-function _gar_weights!(w::Vector{Float64}, beta::Vector{Float64},
+function _group_adaptive_weights!(w::Vector{Float64}, beta::Vector{Float64},
                        column_groups::Vector{Int}, group_weights::Vector{Float64},
                        group_sizes::Vector{Int}, epsilon::Float64,
                        normsq::Vector{Float64})::Vector{Float64}
@@ -494,7 +494,7 @@ function _solve_gar(XtX::Matrix{Float64}, Xty::Vector{Float64}, lambda::Float64,
     end
     for _ = 1:max_iter
         beta = nullspace === nothing ? coefs : nullspace * coefs
-        _gar_weights!(w, beta, column_groups, group_weights, group_sizes, epsilon, normsq)
+        _group_adaptive_weights!(w, beta, column_groups, group_weights, group_sizes, epsilon, normsq)
         coefs_new = Symmetric(XtX + penalty(w)) \ Xty
         # Relative ∞-norm change ON β (γ's ∞-norm is factorization-gauge-
         # dependent under Z); the eps floor only guards the all-zero case.
@@ -507,12 +507,12 @@ function _solve_gar(XtX::Matrix{Float64}, Xty::Vector{Float64}, lambda::Float64,
     return coefs
 end
 
-function solve_coefficients(est::GroupAdaptiveRidge, X::AbstractMatrix, y::AbstractVector;
+function solve_coefficients(estimator::GroupAdaptiveRidge, X::AbstractMatrix, y::AbstractVector;
                             row_groups = nothing,
                             nullspace::Union{Nothing,Matrix{Float64}} = nothing)::Vector{Float64}
     ncols_beta = nullspace === nothing ? size(X, 2) : size(nullspace, 1)
-    length(est.column_groups) == ncols_beta || throw(DimensionMismatch(
-        "GroupAdaptiveRidge column_groups length $(length(est.column_groups)) does not " *
+    length(estimator.column_groups) == ncols_beta || throw(DimensionMismatch(
+        "GroupAdaptiveRidge column_groups length $(length(estimator.column_groups)) does not " *
         "match the (β-space) design column count $ncols_beta; the labels were likely " *
         "built on a different SLCEBasis."))
     nullspace === nothing || size(nullspace, 2) == size(X, 2) ||
@@ -520,22 +520,22 @@ function solve_coefficients(est::GroupAdaptiveRidge, X::AbstractMatrix, y::Abstr
                                 "the design has $(size(X, 2))"))
     # Exact zero only (see the AdaptiveRidge method above): at lambda = 0 the penalty
     # diagonal is gone and the Gram matrix may be singular — route to QR (min-norm) OLS.
-    est.lambda == 0.0 && return solve_coefficients(OLS(), X, y)
-    return _solve_gar(Matrix{Float64}(X' * X), Vector{Float64}(X' * y), est.lambda,
-                      est.column_groups, est.group_weights, est.group_sizes,
-                      est.epsilon, est.max_iter, est.tol; nullspace = nullspace)
+    estimator.lambda == 0.0 && return solve_coefficients(OLS(), X, y)
+    return _solve_gar(Matrix{Float64}(X' * X), Vector{Float64}(X' * y), estimator.lambda,
+                      estimator.column_groups, estimator.group_weights, estimator.group_sizes,
+                      estimator.epsilon, estimator.max_iter, estimator.tol; nullspace = nullspace)
 end
 
-function solve_coefficients(est::FixedCoefficients, X::AbstractMatrix, y::AbstractVector;
+function solve_coefficients(estimator::FixedCoefficients, X::AbstractMatrix, y::AbstractVector;
                             row_groups = nothing, nullspace = nothing)::Vector{Float64}
     nullspace === nothing ||
         throw(ArgumentError("FixedCoefficients carries a fixed β-space coefficient " *
                             "vector — an ASR-constrained (γ-space) solve is " *
                             "undefined for it. Fit with asr = false, or use a " *
                             "fresh estimator."))
-    length(est.beta) == size(X, 2) || throw(DimensionMismatch(
-        "FixedCoefficients coefficient length $(length(est.beta)) does not match " *
+    length(estimator.beta) == size(X, 2) || throw(DimensionMismatch(
+        "FixedCoefficients coefficient length $(length(estimator.beta)) does not match " *
         "design-matrix column count $(size(X, 2)); the pilot was likely fit on a " *
         "different SLCEBasis."))
-    return copy(est.beta)
+    return copy(estimator.beta)
 end

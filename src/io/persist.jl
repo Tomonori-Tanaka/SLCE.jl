@@ -50,7 +50,7 @@ const _PERSIST_READABLE_VERSIONS = (2, 3, 4, 5, 6)
 
 # Normalize -0.0 → +0.0 so two builds of the same object serialize byte-identically
 # (eigensolvers on different BLAS can flip a sign of zero); -0.0 == 0.0 anyway.
-_jnum(x::Real)::Float64 = (y = Float64(x); y == 0.0 ? 0.0 : y)
+_toml_float(x::Real)::Float64 = (y = Float64(x); y == 0.0 ? 0.0 : y)
 
 # ----------------------------------------------------------------------------
 # struct → Dict
@@ -65,7 +65,7 @@ _term_doc(t::SALCTerm) = Dict{String,Any}(
     "slots" => [Int[s.site, Int(s.factor.channel), s.factor.k, s.factor.l]
                 for s in t.slots],
     "shape" => collect(Int, size(t.folded)),
-    "folded" => Float64[_jnum(v) for v in vec(t.folded)])   # column-major flat
+    "folded" => Float64[_toml_float(v) for v in vec(t.folded)])   # column-major flat
 
 _member_doc(m::SALCMember) = Dict{String,Any}(
     "atoms" => collect(Int, m.atoms),
@@ -78,9 +78,9 @@ _salc_doc(s::SALC) = Dict{String,Any}(
 
 function _crystal_doc(c::Crystal)
     A = c.lattice.vectors
-    cols = [[_jnum(A[1, j]), _jnum(A[2, j]), _jnum(A[3, j])] for j = 1:3]   # one per lattice vector
-    pos = [[_jnum(c.frac_positions[1, a]), _jnum(c.frac_positions[2, a]),
-            _jnum(c.frac_positions[3, a])] for a = 1:n_atoms(c)]          # one per atom
+    cols = [[_toml_float(A[1, j]), _toml_float(A[2, j]), _toml_float(A[3, j])] for j = 1:3]   # one per lattice vector
+    pos = [[_toml_float(c.frac_positions[1, a]), _toml_float(c.frac_positions[2, a]),
+            _toml_float(c.frac_positions[3, a])] for a = 1:n_atoms(c)]          # one per atom
     return Dict{String,Any}(
         "lattice_vectors" => cols,
         "pbc" => [c.lattice.pbc[1], c.lattice.pbc[2], c.lattice.pbc[3]],
@@ -93,15 +93,15 @@ function _symmetry_doc(sg::SpaceGroup)
     # Store only the fractional ops (+ symbol/number/tol); the Cartesian rotations,
     # properness flags, and the atom permutation table are re-derived deterministically
     # by `_assemble_spacegroup` on load.
-    rots = [[[_jnum(op.rotation_frac[i, j]) for j = 1:3] for i = 1:3] for op in sg.ops]
-    trans = [[_jnum(op.translation_frac[k]) for k = 1:3] for op in sg.ops]
+    rots = [[[_toml_float(op.rotation_frac[i, j]) for j = 1:3] for i = 1:3] for op in sg.ops]
+    trans = [[_toml_float(op.translation_frac[k]) for k = 1:3] for op in sg.ops]
     return Dict{String,Any}(
-        "symbol" => sg.symbol, "number" => sg.number, "tol" => _jnum(sg.tol),
+        "symbol" => sg.symbol, "number" => sg.number, "tol" => _toml_float(sg.tol),
         "rotations_frac" => rots, "translations_frac" => trans)
 end
 
 _cutoff_rows(M::AbstractMatrix) =
-    [[_jnum(M[i, j]) for j in axes(M, 2)] for i in axes(M, 1)]      # row-major
+    [[_toml_float(M[i, j]) for j in axes(M, 2)] for i in axes(M, 1)]      # row-major
 
 _sector_doc(r::SectorRule) = Dict{String,Any}(
     "spin_mode" => String(r.spin_mode),
@@ -121,7 +121,7 @@ _spec_doc(sp::BasisSpec) = Dict{String,Any}(
     "cutoff" => [_cutoff_rows(M) for M in sp.cutoff],       # per body order
     "soc" => sp.soc,
     "sectors" => [_sector_doc(r) for r in sp.sector_rules],
-    "disp_scale" => _jnum(sp.disp_scale),
+    "disp_scale" => _toml_float(sp.disp_scale),
     "species_labels" => collect(String, sp.species_labels))
 
 function _basis_doc(b::SLCEBasis)
@@ -149,8 +149,8 @@ end
 function _to_doc(m::SLCEModel)
     d = Dict{String,Any}("schema" => _SCHEMA_MODEL, "schema_version" => PERSIST_SCHEMA_VERSION)
     merge!(d, _basis_doc(m.basis))
-    d["j0"] = _jnum(m.j0)
-    d["couplings"] = [Dict{String,Any}("key" => _key_doc(m.keys[k]), "jphi" => _jnum(m.jphi[k]))
+    d["j0"] = _toml_float(m.j0)
+    d["couplings"] = [Dict{String,Any}("key" => _key_doc(m.keys[k]), "jphi" => _toml_float(m.jphi[k]))
                       for k in eachindex(m.jphi)]
     return d
 end
@@ -164,7 +164,7 @@ _to_doc(f::SLCEFit) = _to_doc(SLCEModel(f))
 _intvec(x)::Vector{Int} = Int[Int(v) for v in x]
 _floatvec(x)::Vector{Float64} = Float64[Float64(v) for v in x]
 
-function _mat3(rows)::SMatrix{3,3,Float64,9}
+function _matrix3(rows)::SMatrix{3,3,Float64,9}
     M = MMatrix{3,3,Float64}(undef)
     @inbounds for i = 1:3, j = 1:3
         M[i, j] = Float64(rows[i][j])
@@ -242,7 +242,7 @@ function _symmetry_from(crystal::Crystal, d)::SpaceGroup
     trans = d["translations_frac"]
     length(rots) == length(trans) ||
         throw(ArgumentError("symmetry: $(length(rots)) rotations but $(length(trans)) translations"))
-    rotations = SMatrix{3,3,Float64,9}[_mat3(r) for r in rots]
+    rotations = SMatrix{3,3,Float64,9}[_matrix3(r) for r in rots]
     translations = SVector{3,Float64}[SVector{3,Float64}(Float64(t[1]), Float64(t[2]), Float64(t[3]))
                                       for t in trans]
     return _assemble_spacegroup(crystal, rotations, translations,

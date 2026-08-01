@@ -654,7 +654,7 @@ I deliberately do NOT allow per-sector constraints in v0 — physically there ar
 
 ## D. Group action declaration
 
-**Single source of truth: the channel trait, consuming ONE Wigner cache.** `wignerD_real(l, R)` is the polar O(3) polynomial rep — correct for improper R, exactly what a displacement block needs. Axial = scalar multiple det(R)^l. Projection applies `Di = _wig(wcache, l, g)` then `sc = rep_scale(trait, dets[g], l)` — the det factor is cheap and *visible*; `SymOp.is_proper` stops being dead code.
+**Single source of truth: the channel trait, consuming ONE Wigner cache.** `wignerD_real(l, R)` is the polar O(3) polynomial rep — correct for improper R, exactly what a displacement block needs. Axial = scalar multiple det(R)^l. Projection applies `Di = _wigner_d(wcache, l, g)` then `sc = rep_scale(trait, dets[g], l)` — the det factor is cheap and *visible*; `SymOp.is_proper` stops being dead code.
 
 **Keep the coupled-tensor contraction engine; do NOT switch to the prototype's polynomial-composition route in production** (it lacks ordering×path×Mf recoupling, translation folding, deterministic gauge, thread discipline; B \ C per slot per op is slow and BLAS-dependent). The prototype's value: an **independent derivation of the same numbers** — promote `count_invariants` + `invariant_projector` to a test-support module and gate the production count against it. Plethysm disappears from production by construction (enumerating (k,l) labels IS the Sym^p restriction).
 
@@ -840,7 +840,7 @@ end
 
 **Force-design memory**: X_F is 3N rows/config — naive dense ~12 GB at l044-class joint scale. But block-sparse by construction: p=0 SALCs have identically zero force rows; spin-less SALCs zero torque rows. `JointDesign` stores X_E dense + X_F/X_T with column-subset index vectors; `_assemble_problem` scatters into the whitened stacked system without materializing zero blocks; SALCScratch pattern extends (solid_harmonics_grad is a two-array fill). Hierarchical stage 1 touches only its sectors' columns.
 
-**ASR — exact equality constraints in the estimator layer**, null-space reparameterization inside `_assemble_problem` (QR of Aᵀ once; solve in γ with X·Z; β = Z·γ; group penalties on β via `_gar_weights!` unchanged). Non-negotiables: (1) ASR exact, never penalized — a violated ASR is unbounded-below energy, a boundedness bug; (2) rejected relative coordinates — destroys frows layout, ΔE locality, adjacency ~doubles, GPU tables blow up; (3) rejected basis-level nullspace recombination — destroys key injectivity, group granularity, persist canonicalization.
+**ASR — exact equality constraints in the estimator layer**, null-space reparameterization inside `_assemble_problem` (QR of Aᵀ once; solve in γ with X·Z; β = Z·γ; group penalties on β via `_group_adaptive_weights!` unchanged). Non-negotiables: (1) ASR exact, never penalized — a violated ASR is unbounded-below energy, a boundedness bug; (2) rejected relative coordinates — destroys frows layout, ΔE locality, adjacency ~doubles, GPU tables blow up; (3) rejected basis-level nullspace recombination — destroys key injectivity, group granularity, persist canonicalization.
 
 Hierarchical fit: `fit(dataset; frozen::Dict{SALCKey,Float64})`; `sector_mask(basis; ...)` by key predicates.
 

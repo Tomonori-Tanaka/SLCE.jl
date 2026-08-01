@@ -38,9 +38,9 @@ using Random: MersenneTwister
             for l = 0:lmax
                 factor = sqrt(4π / (2l + 1))
                 for m = -l:l
-                    idx = SolidHarmonics.solid_harmonic_index(l, m)
+                    index = SolidHarmonics.solid_harmonic_index(l, m)
                     zref = factor * Harmonics.Zlm(l, m, u)
-                    @test vals[idx] ≈ zref atol = 1e-11 rtol = 1e-11
+                    @test vals[index] ≈ zref atol = 1e-11 rtol = 1e-11
                 end
             end
         end
@@ -62,8 +62,8 @@ using Random: MersenneTwister
         vals1 = SolidHarmonics.solid_harmonics(6, u)
         vals2 = SolidHarmonics.solid_harmonics(6, λ * u)
         for l = 0:6, m = -l:l
-            idx = SolidHarmonics.solid_harmonic_index(l, m)
-            @test vals2[idx] ≈ λ^l * vals1[idx] atol = 1e-12 rtol = 1e-12
+            index = SolidHarmonics.solid_harmonic_index(l, m)
+            @test vals2[index] ≈ λ^l * vals1[index] atol = 1e-12 rtol = 1e-12
         end
     end
 
@@ -77,8 +77,8 @@ using Random: MersenneTwister
         # Gradient at u = 0: exactly zero except the rank-1 block, whose gradients
         # are the exact Cartesian unit vectors (R₁₋₁, R₁₀, R₁₁ = y, z, x).
         for l = 0:5, m = -l:l
-            idx = SolidHarmonics.solid_harmonic_index(l, m)
-            g = SVector{3, Float64}(grads[1, idx], grads[2, idx], grads[3, idx])
+            index = SolidHarmonics.solid_harmonic_index(l, m)
+            g = SVector{3, Float64}(grads[1, index], grads[2, index], grads[3, index])
             if l == 1
                 expected = m == -1 ? SVector(0.0, 1.0, 0.0) :
                            m == 0 ? SVector(0.0, 0.0, 1.0) : SVector(1.0, 0.0, 0.0)
@@ -96,13 +96,13 @@ using Random: MersenneTwister
             vals, grads = SolidHarmonics.solid_harmonics_grad(6, u)
             @test vals ≈ SolidHarmonics.solid_harmonics(6, u) atol = 0 rtol = 0
             for l = 0:6, m = -l:l
-                idx = SolidHarmonics.solid_harmonic_index(l, m)
+                index = SolidHarmonics.solid_harmonic_index(l, m)
                 for α = 1:3
                     up = copy(u); up[α] += h
                     um = copy(u); um[α] -= h
                     fd = (SolidHarmonics.Rlm(l, m, up) - SolidHarmonics.Rlm(l, m, um)) /
                          (2h)
-                    @test grads[α, idx] ≈ fd atol = 1e-6 rtol = 1e-6
+                    @test grads[α, index] ≈ fd atol = 1e-6 rtol = 1e-6
                 end
             end
         end
@@ -130,10 +130,10 @@ using Random: MersenneTwister
         u = randn(rng, 3) * 1.3
         vals, grads = SolidHarmonics.solid_harmonics_grad(4, u)
         for l = 0:4, m = -l:l
-            idx = SolidHarmonics.solid_harmonic_index(l, m)
-            @test SolidHarmonics.Rlm(l, m, u) == vals[idx]
+            index = SolidHarmonics.solid_harmonic_index(l, m)
+            @test SolidHarmonics.Rlm(l, m, u) == vals[index]
             @test SolidHarmonics.grad_Rlm(l, m, u) ==
-                  SVector{3, Float64}(grads[1, idx], grads[2, idx], grads[3, idx])
+                  SVector{3, Float64}(grads[1, index], grads[2, index], grads[3, index])
         end
     end
 end

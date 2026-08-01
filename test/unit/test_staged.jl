@@ -244,16 +244,16 @@ _st_cfg(rng, nat) = reduce(hcat, [_st_unit(rng) for _ = 1:nat])
         @test maximum(abs, sum(predict_force(SLCEModel(fr0), e0, u0); dims = 2)) < 1e-12
         # a penalized estimator's gcv/effective_dof must use the weight map at
         # β − beta_p (what the solver iterated on), not at the raw jphi
-        for est in (AdaptiveRidge(; lambda = 0.01),
+        for estimator in (AdaptiveRidge(; lambda = 0.01),
                     GroupAdaptiveRidge(collect(1:m), ones(m); lambda = 0.01))
-            fp = fit(SLCEFit, ds, est; wts..., frozen = mbad, sector_mask = freec)
+            fp = fit(SLCEFit, ds, estimator; wts..., frozen = mbad, sector_mask = freec)
             lam, wv = SLCE._penalty_diagonal(fp.estimator,
                                              fp.jphi .- fp.reparam.beta_p)
             @test SLCE._penalty_beta(fp, fp.reparam) == fp.jphi .- fp.reparam.beta_p
             Xg, yg, _, _, _ = _assemble_problem(ds, wts.torque_weight,
                                                 wts.force_weight, fp.reparam)
             @test effective_dof(fp) ≈
-                  SLCE._edof_ns(Xg, lam, wv, fp.reparam.Z) + 1 rtol = 1e-8
+                  SLCE._effective_dof_nullspace(Xg, lam, wv, fp.reparam.Z) + 1 rtol = 1e-8
             @test isfinite(gcv(fp))
         end
     end
@@ -337,8 +337,8 @@ _st_cfg(rng, nat) = reduce(hcat, [_st_unit(rng) for _ = 1:nat])
         bspin = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
             Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
         ms = SLCEModel(bspin, 0.0, randn(rng, n_salcs(bspin)))
-        cfgs = [_st_cfg(rng, nat) for _ = 1:40]
-        dss = SLCEDataset(bspin, cfgs, predict_energy(ms, cfgs))
+        configs = [_st_cfg(rng, nat) for _ = 1:40]
+        dss = SLCEDataset(bspin, configs, predict_energy(ms, configs))
         fsp = fit(SLCEFit, dss, OLS(); sector_mask = [1, 2, 3])
         @test dof(fsp) == 4
         @test !fsp.asr && fsp.asr_residual == 0.0       # a mask is not a constraint

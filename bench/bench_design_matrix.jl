@@ -22,9 +22,9 @@ bench_header("design matrices — bcc Fe $(n)×$(n)×$(n), $m configs, lmax=$lma
 cr   = bcc_fe(n)
 spec = basis_spec(; nbody = 2, cutoff = cutoff, lmax = lmax)
 b    = SLCEBasis(cr, spec; backend = SpglibBackend())
-cfgs = rand_configs(cr, m)
+configs = rand_configs(cr, m)
 println("atoms = $(n_atoms(cr))   n_salcs = $(n_salcs(b))   configs = $m")
 
 # `_design_energy` / `_design_torque` are internal kernels (not exported).
-bench_one("_design_energy", () -> SLCE._design_energy(b, cfgs))
-bench_one("_design_torque", () -> SLCE._design_torque(b, cfgs))
+bench_one("_design_energy", () -> SLCE._design_energy(b, configs))
+bench_one("_design_torque", () -> SLCE._design_torque(b, configs))

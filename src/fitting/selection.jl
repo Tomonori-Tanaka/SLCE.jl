@@ -56,13 +56,13 @@ _slotkeys(t::SALCTerm)::Vector{_SlotKey} = _SlotKey[_slotkey(s) for s in t.slots
 function _push_entries!(set::Set{_EntryKey}, atoms::Vector{Int},
                         shifts::Vector{SVector{3,Int}}, slotkeys::Vector{_SlotKey},
                         folded::Array{Float64})::Nothing
-    for idx in CartesianIndices(folded)
+    for index in CartesianIndices(folded)
         # exact != 0.0 mirrors the skip in `_push_term_programs!`. Note the MC's SITE
-        # programs skip on `coef * folded[idx] == 0.0`, which a basis-level metric
+        # programs skip on `coef * folded[index] == 0.0`, which a basis-level metric
         # cannot evaluate (there is no fitted coefficient yet); the divergence is
         # underflow-only and in the lower-bound direction. Do not soften to isapprox.
-        if folded[idx] != 0.0
-            push!(set, (atoms, shifts, slotkeys, collect(Tuple(idx))))
+        if folded[index] != 0.0
+            push!(set, (atoms, shifts, slotkeys, collect(Tuple(index))))
         end
     end
     return nothing
@@ -280,30 +280,30 @@ end
 # coefficients. `w === nothing` ⇔ unpenalized (OLS, or λ = 0), where the effective dof
 # is the design rank. The adaptive members recompute their converged diagonal from the
 # fitted `beta` through the SAME weight formulas the solvers iterate (`AdaptiveRidge`'s
-# `1/(β² + ε)`, `_gar_weights!` for the group form) — the formula lives in one place.
+# `1/(β² + ε)`, `_group_adaptive_weights!` for the group form) — the formula lives in one place.
 _penalty_diagonal(::OLS, beta::Vector{Float64}) = (0.0, nothing)
-function _penalty_diagonal(est::Ridge, beta::Vector{Float64})
-    est.lambda == 0.0 && return (0.0, nothing)
-    return (est.lambda, ones(Float64, length(beta)))
+function _penalty_diagonal(estimator::Ridge, beta::Vector{Float64})
+    estimator.lambda == 0.0 && return (0.0, nothing)
+    return (estimator.lambda, ones(Float64, length(beta)))
 end
-function _penalty_diagonal(est::AdaptiveRidge, beta::Vector{Float64})
-    est.lambda == 0.0 && return (0.0, nothing)
-    return (est.lambda, @.(1.0 / (beta^2 + est.epsilon)))
+function _penalty_diagonal(estimator::AdaptiveRidge, beta::Vector{Float64})
+    estimator.lambda == 0.0 && return (0.0, nothing)
+    return (estimator.lambda, @.(1.0 / (beta^2 + estimator.epsilon)))
 end
-function _penalty_diagonal(est::GroupAdaptiveRidge, beta::Vector{Float64})
-    est.lambda == 0.0 && return (0.0, nothing)
-    length(beta) == length(est.column_groups) || throw(DimensionMismatch(
+function _penalty_diagonal(estimator::GroupAdaptiveRidge, beta::Vector{Float64})
+    estimator.lambda == 0.0 && return (0.0, nothing)
+    length(beta) == length(estimator.column_groups) || throw(DimensionMismatch(
         "coefficient length $(length(beta)) ≠ column_groups length " *
-        "$(length(est.column_groups))"))
+        "$(length(estimator.column_groups))"))
     w = Vector{Float64}(undef, length(beta))
-    normsq = Vector{Float64}(undef, length(est.group_weights))
-    _gar_weights!(w, beta, est.column_groups, est.group_weights, est.group_sizes,
-                  est.epsilon, normsq)
-    return (est.lambda, w)
+    normsq = Vector{Float64}(undef, length(estimator.group_weights))
+    _group_adaptive_weights!(w, beta, estimator.column_groups, estimator.group_weights, estimator.group_sizes,
+                  estimator.epsilon, normsq)
+    return (estimator.lambda, w)
 end
-_penalty_diagonal(est::AbstractEstimator, beta::Vector{Float64}) =
+_penalty_diagonal(estimator::AbstractEstimator, beta::Vector{Float64}) =
     throw(ArgumentError("gcv/effective_dof require a linear estimator " *
-                        "(`islinear`); got $(typeof(est))"))
+                        "(`islinear`); got $(typeof(estimator))"))
 
 # Numerical-rank dof of the unpenalized smoother. The cut is `min(size(X))·eps·σ₁` —
 # `LinearAlgebra.rank`'s actual default (its docstring: "n is the size of the SMALLEST
@@ -326,7 +326,7 @@ end
 # `X̃ = X·D^{-1/2}` — always an eigenproblem on the smaller side, never an `n × p` SVD.
 # A λ-path caller passes its cached `XtX` so the `p ≤ n` branch touches only `p × p`
 # data per λ. Tiny negative eigenvalues from roundoff are clamped out.
-function _edof(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64};
+function _effective_dof_gram(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64};
                XtX::Union{Nothing,Matrix{Float64}} = nothing)::Float64
     n, p = size(X)
     M = if p <= n
@@ -349,12 +349,12 @@ function _edof(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64};
     return df
 end
 
-# ASR generalization of `_edof`: the β-space penalty diagonal `w` compresses to the
+# ASR generalization of `_effective_dof_gram`: the β-space penalty diagonal `w` compresses to the
 # dense SPD matrix `P = Z'·D·Z` in γ space, so the diagonal-whitening shortcut is
 # silently wrong under `Z` — whiten by the Cholesky factor of `P` instead (design
 # record §6 amendment 6). `X` here is the γ-space design `X̃ = X_β·Z` (q columns);
 # q is small for joint bases, so the primal q × q eigenproblem suffices.
-function _edof_ns(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64},
+function _effective_dof_nullspace(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64},
                   Z::Matrix{Float64})::Float64
     all(>(0.0), w) ||
         throw(ArgumentError("effective_dof/gcv: the penalty diagonal has a " *
@@ -422,7 +422,7 @@ function effective_dof(f::SLCEFit)::Float64
     # the solve never saw.
     lambda, w = _penalty_diagonal(f.estimator, _penalty_beta(f, rep))
     df = w === nothing ? _rank_df(X) :
-         (rep === nothing ? _edof(X, lambda, w) : _edof_ns(X, lambda, w, rep.Z))
+         (rep === nothing ? _effective_dof_gram(X, lambda, w) : _effective_dof_nullspace(X, lambda, w, rep.Z))
     return df + 1.0
 end
 
@@ -442,8 +442,8 @@ function _gcv_score(X::Matrix{Float64}, y::Vector{Float64}, beta::Vector{Float64
                     )::Tuple{Float64,Float64}
     n = n_eff
     df = (w === nothing ? _rank_df(X) :
-          (Z === nothing ? _edof(X, lambda, w; XtX = XtX) :
-           _edof_ns(X, lambda, w, Z))) + 1.0
+          (Z === nothing ? _effective_dof_gram(X, lambda, w; XtX = XtX) :
+           _effective_dof_nullspace(X, lambda, w, Z))) + 1.0
     n - df < max(1.0, 1e-8 * n) && return (Inf, df)
     rss = sum(abs2, y .- X * beta)
     return (n * rss / (n - df)^2, df)
@@ -658,20 +658,20 @@ function Base.show(io::IO, ::MIME"text/plain", p::LambdaPath)
 end
 
 """
-    select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
+    select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
                lambdas, torque_weight = 0.0, force_weight = 0.0, criterion = :gcv,
                score_rtol = 0.05, costs = nothing, threshold = nothing, nfolds = 5,
                seed = 1, asr = true)
         -> LambdaPath
 
-Fit `est` along the descending λ path `lambdas` (each solve warm-started from the
+Fit `estimator` along the descending λ path `lambdas` (each solve warm-started from the
 previous λ's coefficients), score every fit, and select the **cheapest** λ whose score
 is within `(1 + score_rtol)` of the path minimum — the cost-aware generalization of the
 conventional `:lambda_1se` rule. The returned [`LambdaPath`](@ref) carries the full
 per-λ table and the selected fit (re-solved cold, so it is reproducible by a plain
 [`fit`](@ref) call); follow with [`refit`](@ref) to de-bias the surviving groups.
 
-`est` supplies the column groups, fixed weights, and IRLS controls; **its own `lambda`
+`estimator` supplies the column groups, fixed weights, and IRLS controls; **its own `lambda`
 is ignored** (the path is `lambdas`). Scoring:
 
 - `criterion = :gcv` (default) — the [`gcv`](@ref) score from the closed-form hat
@@ -694,7 +694,7 @@ flat). The effective absolute threshold at the selected λ is returned as
 `path.threshold`; de-bias with `refit(path.fit; threshold = path.threshold)` to
 realize exactly the reported support. The predicted Monte-Carlo cost of a fit is
 `Σ_{g alive} c_g` with `c_g` from `costs` (default: `SLCE.group_costs` of the
-dataset's basis under `est`'s column partition). `score_rtol` sets the accuracy tolerance
+dataset's basis under `estimator`'s column partition). `score_rtol` sets the accuracy tolerance
 of the cost–error trade; sweep the `cost_exponent` of `SLCE.cost_weights` to tilt the
 penalty itself and trace a Pareto front over both knobs.
 
@@ -712,7 +712,7 @@ cold with both weights.
     re-solved cold with the same `asr`, so `fit` reproduces it verbatim. Selection
     *under* the constraint is separate work.
 """
-function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
+function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
                     lambdas::AbstractVector{<:Real}, torque_weight::Real = 0.0,
                     criterion::Symbol = :gcv, score_rtol::Real = 0.05,
                     costs::Union{Nothing,AbstractVector{<:Real}} = nothing,
@@ -769,9 +769,9 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
         throw(ArgumentError("threshold must be ≥ 0 (or nothing for the relative " *
                             "default); got $threshold"))
     nfolds >= 2 || throw(ArgumentError("nfolds must be ≥ 2; got $nfolds"))
-    G = length(est.group_weights)
-    length(est.column_groups) == n_salcs(dataset.basis) || throw(DimensionMismatch(
-        "estimator column_groups length $(length(est.column_groups)) ≠ basis column " *
+    G = length(estimator.group_weights)
+    length(estimator.column_groups) == n_salcs(dataset.basis) || throw(DimensionMismatch(
+        "estimator column_groups length $(length(estimator.column_groups)) ≠ basis column " *
         "count $(n_salcs(dataset.basis))"))
     # The same discount `select_support` applies: a group whose columns the constraint makes
     # structurally infeasible buys no Monte-Carlo entries, so charging for it over-reports
@@ -780,7 +780,7 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
     # (it is the reparameterization this path already refuses to run under when it has
     # constraint rows), so there is no reason for the two entry points to price differently.
     cg = costs === nothing ?
-         Float64.(group_costs(dataset.basis, est.column_groups; asr = rep)) :
+         Float64.(group_costs(dataset.basis, estimator.column_groups; asr = rep)) :
          Float64.(costs)
     length(cg) == G ||
         throw(ArgumentError("costs length $(length(cg)) ≠ number of groups $G"))
@@ -799,8 +799,8 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
     prev = nothing
     for i = 1:nl
         b = lams[i] == 0.0 ? (X \ y) :
-            _solve_gar(XtX, Xty, lams[i], est.column_groups, est.group_weights,
-                       est.group_sizes, est.epsilon, est.max_iter, est.tol;
+            _solve_gar(XtX, Xty, lams[i], estimator.column_groups, estimator.group_weights,
+                       estimator.group_sizes, estimator.epsilon, estimator.max_iter, estimator.tol;
                        beta0 = prev)
         isempty(frozen_cols) || (b[frozen_cols] .= 0.0)
         betas[i] = b
@@ -822,7 +822,7 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
         t = thr_abs === nothing ? _ALIVE_RTOL * smax : thr_abs
         fill!(alive, false)
         for j in eachindex(b)
-            abs(b[j]) * colnorms[j] > t && (alive[est.column_groups[j]] = true)
+            abs(b[j]) * colnorms[j] > t && (alive[estimator.column_groups[j]] = true)
         end
         c = sum(cg[g] for g = 1:G if alive[g]; init = 0.0)
         return count(alive), c, t
@@ -851,8 +851,8 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
                 score[i], edof[i] = _gcv_score(X, y, betas[i], 0.0, nothing;
                                                n_eff = neff)
             else
-                _gar_weights!(wv, betas[i], est.column_groups, est.group_weights,
-                              est.group_sizes, est.epsilon, normsq)
+                _group_adaptive_weights!(wv, betas[i], estimator.column_groups, estimator.group_weights,
+                              estimator.group_sizes, estimator.epsilon, normsq)
                 score[i], edof[i] = _gcv_score(X, y, betas[i], lams[i], wv;
                                                XtX = XtX, n_eff = neff)
             end
@@ -921,9 +921,9 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
                     tr_rows = findall(!=(k), folds)
                     X[tr_rows, :] \ y[tr_rows]
                 else
-                    _solve_gar(XtX_tr, Xty_tr, lams[i], est.column_groups,
-                               est.group_weights, est.group_sizes, est.epsilon,
-                               est.max_iter, est.tol; beta0 = prevf)
+                    _solve_gar(XtX_tr, Xty_tr, lams[i], estimator.column_groups,
+                               estimator.group_weights, estimator.group_sizes, estimator.epsilon,
+                               estimator.max_iter, estimator.tol; beta0 = prevf)
                 end
                 prevf = bf
                 sse[i] += sum(abs2, yho .- Xho * bf)
@@ -933,8 +933,8 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
     end
 
     sel = _select_pareto(score, cost, Float64(score_rtol))
-    est_sel = GroupAdaptiveRidge(lams[sel], est.column_groups, est.group_weights,
-                                 est.epsilon, est.max_iter, est.tol)
+    est_sel = GroupAdaptiveRidge(lams[sel], estimator.column_groups, estimator.group_weights,
+                                 estimator.epsilon, estimator.max_iter, estimator.tol)
     fsel = fit(SLCEFit, dataset, est_sel; torque_weight = w, force_weight = wF,
                asr = asr)
     # Re-derive the selected row from the cold re-solve, so `fit` / `threshold` /
@@ -951,8 +951,8 @@ function select_fit(dataset::SLCEDataset, est::GroupAdaptiveRidge;
         else
             wv = Vector{Float64}(undef, length(Xty))
             normsq = Vector{Float64}(undef, G)
-            _gar_weights!(wv, fsel.jphi, est.column_groups, est.group_weights,
-                          est.group_sizes, est.epsilon, normsq)
+            _group_adaptive_weights!(wv, fsel.jphi, estimator.column_groups, estimator.group_weights,
+                          estimator.group_sizes, estimator.epsilon, normsq)
             score[sel], edof[sel] = _gcv_score(X, y, fsel.jphi, lams[sel], wv;
                                                XtX = XtX, n_eff = neff)
         end

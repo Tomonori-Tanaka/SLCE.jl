@@ -101,19 +101,19 @@ function _symmetrize_strain_pairs!(out::Array{Float64}, n::Int)
         end
         acc = 0.0
         for s = 0:(nsub - 1)
-            idx = 0
+            index = 0
             stride = 1
             for p = 1:n
                 a, b = dig[2p - 1], dig[2p]
                 if (s >> (p - 1)) & 1 == 1
                     a, b = b, a
                 end
-                idx += a * stride
+                index += a * stride
                 stride *= 3
-                idx += b * stride
+                index += b * stride
                 stride *= 3
             end
-            acc += src[idx + 1]
+            acc += src[index + 1]
         end
         out[lin] = acc / nsub
     end
@@ -334,11 +334,11 @@ end
 
 function _contract_strain!(out::Array{Float64}, tbuf::Array{Float64},
                            dvecs::Vector{SVector{3,Float64}}, choice)
-    idx = CartesianIndices(tbuf)
-    @inbounds for c in idx
+    index = CartesianIndices(tbuf)
+    @inbounds for c in index
         v = tbuf[c]
         v == 0.0 && continue
-        for b in idx
+        for b in index
             w = v
             for p in eachindex(choice)
                 w *= dvecs[choice[p]][b[p]]

@@ -149,17 +149,17 @@ function _asr_accumulate_term!(rows::Dict{_ASRRowKey,Dict{Int,Tuple{Float64,Floa
     disp_ids = Int[i for i = 1:D if slots[i].factor.channel != SPIN]
     isempty(disp_ids) && return nothing
     folded = t.folded
-    for idx in CartesianIndices(folded)
-        w = folded[idx]
+    for index in CartesianIndices(folded)
+        w = folded[index]
         w == 0.0 && continue
         spins = NTuple{3,Int}[(atoms[slots[i].site], slots[i].factor.l,
-                               idx[i] - slots[i].factor.l - 1) for i in spin_ids]
+                               index[i] - slots[i].factor.l - 1) for i in spin_ids]
         sort!(spins)
         # per disp slot: its (atom, poly) at this m index
         dslots = Vector{Tuple{Int,SolidHarmonics._Poly}}(undef, length(disp_ids))
         for (n, i) in enumerate(disp_ids)
             f = slots[i].factor
-            m = idx[i] - f.l - 1
+            m = index[i] - f.l - 1
             poly = get!(polycache, (f.k, f.l, m)) do
                 SolidHarmonics.solid_harmonic_poly(f.k, f.l, m)
             end
@@ -168,7 +168,7 @@ function _asr_accumulate_term!(rows::Dict{_ASRRowKey,Dict{Int,Tuple{Float64,Floa
         # differentiate each disp slot in turn, product-expand the rest
         for (n, i) in enumerate(disp_ids)
             f = slots[i].factor
-            m = idx[i] - f.l - 1
+            m = index[i] - f.l - 1
             for axis = 1:3
                 dp = get!(diffcache, (f.k, f.l, m, axis)) do
                     SolidHarmonics._poly_diff(polycache[(f.k, f.l, m)], axis)

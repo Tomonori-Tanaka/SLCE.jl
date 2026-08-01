@@ -186,8 +186,8 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         b = SLCEBasis(cr, sg, salcs, inter)
         rng = MersenneTwister(11)
         randcol() = (v = randn(rng, 3); v / norm(v))
-        cfgs = [hcat(randcol(), randcol()) for _ = 1:40]
-        Xc = let X = _design_energy(b, cfgs); X .- sum(X; dims = 1) ./ size(X, 1) end
+        configs = [hcat(randcol(), randcol()) for _ = 1:40]
+        Xc = let X = _design_energy(b, configs); X .- sum(X; dims = 1) ./ size(X, 1) end
         @test rank(Xc; rtol = 1e-9) == n_salcs(b)
     end
 

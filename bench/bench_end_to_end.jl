@@ -23,15 +23,15 @@ bench_one("SLCEBasis (sym+clusters+SALC)",
           () -> SLCEBasis(cr, spec; backend = SpglibBackend()))
 
 b    = SLCEBasis(cr, spec; backend = SpglibBackend())
-cfgs = rand_configs(cr, m)
+configs = rand_configs(cr, m)
 rng  = MersenneTwister(2)
 tqs  = [randn(rng, 3, n_atoms(cr)) for _ = 1:m]  # random targets — timing only
 
-bench_one("SLCEDataset (energy)", () -> SLCEDataset(b, cfgs, randn(rng, m)))
-bench_one("SLCEDataset (energy+torque)", () -> SLCEDataset(b, cfgs, randn(rng, m), tqs))
+bench_one("SLCEDataset (energy)", () -> SLCEDataset(b, configs, randn(rng, m)))
+bench_one("SLCEDataset (energy+torque)", () -> SLCEDataset(b, configs, randn(rng, m), tqs))
 
-ds  = SLCEDataset(b, cfgs, randn(rng, m))
-dst = SLCEDataset(b, cfgs, randn(rng, m), tqs)
+ds  = SLCEDataset(b, configs, randn(rng, m))
+dst = SLCEDataset(b, configs, randn(rng, m), tqs)
 println("n_salcs = $(n_salcs(b))   energy rows = $m   " *
         "torque rows = $(length(dst.y_T))")
 

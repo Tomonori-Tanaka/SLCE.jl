@@ -313,18 +313,18 @@ end
                             e::AbstractMatrix{<:Real}, s::SALCScratch) where {D}
     # Per-site harmonic tables. The site direction `u_i` is fixed for this term, so
     # `Z_{lsᵢ,μ}` depends only on `(i, μ)`; tabulate it once over `μ ∈ -lsᵢ:lsᵢ` (the
-    # tensor axis index is `idx[i] = μ+lsᵢ+1`) instead of recomputing inside the
+    # tensor axis index is `index[i] = μ+lsᵢ+1`) instead of recomputing inside the
     # nonzero multi-index loop, where each call hit `dnPl` and dominated the design-
     # matrix cost. Same values, same multiply order ⇒ bit-identical. `u_i` is a unit
     # column by the config contract, so the unchecked harmonic is safe.
     _fill_ztables!(s, Val(D), slots, atoms, e)
     z = s.z
     acc = 0.0
-    @inbounds for idx in CartesianIndices(folded)
-        w = folded[idx]
+    @inbounds for index in CartesianIndices(folded)
+        w = folded[index]
         w == 0.0 && continue
         for i = 1:D
-            w *= z[i][idx[i]]
+            w *= z[i][index[i]]
         end
         acc += w
     end
@@ -406,18 +406,18 @@ end
     _fill_gtables!(s, Val(D), slots, atoms, e)
     ztab = s.z
     gtab = s.g
-    @inbounds for idx in CartesianIndices(folded)
-        w = scale * folded[idx]
+    @inbounds for index in CartesianIndices(folded)
+        w = scale * folded[index]
         w == 0.0 && continue
         for i = 1:D
             # leave-one-out product of the other sites' harmonics
             p = 1.0
             for k = 1:D
                 k == i && continue
-                p *= ztab[k][idx[k]]
+                p *= ztab[k][index[k]]
             end
             p == 0.0 && continue
-            gi = gtab[i][idx[i]]
+            gi = gtab[i][index[i]]
             c = w * p
             a = atoms[slots[i].site]
             G[1, a] += c * gi[1]
@@ -492,11 +492,11 @@ end
     _fill_ztables_mixed!(s, Val(D), slots, atoms, e, u)
     z = s.z
     acc = 0.0
-    @inbounds for idx in CartesianIndices(folded)
-        w = folded[idx]
+    @inbounds for index in CartesianIndices(folded)
+        w = folded[index]
         w == 0.0 && continue
         for i = 1:D
-            w *= z[i][idx[i]]
+            w *= z[i][index[i]]
         end
         acc += w
     end
@@ -573,18 +573,18 @@ end
     _fill_gtables_mixed!(s, Val(D), slots, atoms, e, u)
     ztab = s.z
     gtab = s.g
-    @inbounds for idx in CartesianIndices(folded)
-        w = scale * folded[idx]
+    @inbounds for index in CartesianIndices(folded)
+        w = scale * folded[index]
         w == 0.0 && continue
         for i = 1:D
             # leave-one-out product of the other axes' factors
             p = 1.0
             for k = 1:D
                 k == i && continue
-                p *= ztab[k][idx[k]]
+                p *= ztab[k][index[k]]
             end
             p == 0.0 && continue
-            gi = gtab[i][idx[i]]
+            gi = gtab[i][index[i]]
             c = w * p
             a = atoms[slots[i].site]
             if slots[i].factor.channel == SPIN

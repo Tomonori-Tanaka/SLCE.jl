@@ -146,10 +146,10 @@ end
 
 # The Mf-th multiplet slice of a coupled tensor (rank N+1 → rank N), as a view: the
 # last axis is column-major-contiguous, so this is a strided view with no copy. Every
-# consumer (`nmode_mul`, `_frob`, the fold broadcast) reads it without mutating.
-_mfslice(T::AbstractArray, Mf::Int) = selectdim(T, ndims(T), Mf)
+# consumer (`nmode_mul`, `_frobenius_inner`, the fold broadcast) reads it without mutating.
+_mf_slice(T::AbstractArray, Mf::Int) = selectdim(T, ndims(T), Mf)
 
-_frob(A::AbstractArray, B::AbstractArray) = sum(A .* B)
+_frobenius_inner(A::AbstractArray, B::AbstractArray) = sum(A .* B)
 
 # Real Wigner-D matrix `D^l(R_g)`, keyed by `(l, g)` for the whole basis build (it
 # depends only on the operation and `l`, but is needed once per stabilizer column and
@@ -165,7 +165,7 @@ function _build_wig_cache(sg::SpaceGroup, maxl::Int)::_WigCache
     end
     return cache
 end
-_wig(cache::_WigCache, l::Int, g::Int) = cache[(l, g)]   # read-only lookup
+_wigner_d(cache::_WigCache, l::Int, g::Int) = cache[(l, g)]   # read-only lookup
 
 # Project the combined (ordering, path, Mf) space onto stabilizer invariants for a
 # fixed final `Lf`, gauge-fix, and fold each invariant into per-ordering tensors.
@@ -195,9 +195,9 @@ function _project_and_fold(stab::Vector{Tuple{Int,Vector{Int}}},
         for k = 1:D
             (oi, p, Mf) = cols[k]
             o = orderings[oi]
-            v = _mfslice(tens[oi][p], Mf)
+            v = _mf_slice(tens[oi][p], Mf)
             for i = 1:N
-                v = AngularMomentum.nmode_mul(v, _wig(wcache, o[i], g), i)
+                v = AngularMomentum.nmode_mul(v, _wigner_d(wcache, o[i], g), i)
             end
             # U_g sends rep axis i → position π(i)=perm[i], i.e. permutedims by π⁻¹.
             q = invperm(perm)
@@ -206,7 +206,7 @@ function _project_and_fold(stab::Vector{Tuple{Int,Vector{Int}}},
             oi2 = findfirst(==(oprime), orderings)
             oi2 === nothing && error("ordering set not closed under the stabilizer")
             for p2 in eachindex(tens[oi2]), Mf2 = 1:(2Lf + 1)
-                c = _frob(_mfslice(tens[oi2][p2], Mf2), v)
+                c = _frobenius_inner(_mf_slice(tens[oi2][p2], Mf2), v)
                 abs(c) < 1e-12 && continue
                 P[colidx[(oi2, p2, Mf2)], k] += c
             end
@@ -231,10 +231,10 @@ function _project_and_fold(stab::Vector{Tuple{Int,Vector{Int}}},
             for p in eachindex(tens[oi]), Mf = 1:(2Lf + 1)
                 coef = c[colidx[(oi, p, Mf)]]
                 coef == 0.0 && continue
-                Fo .+= coef .* _mfslice(tens[oi][p], Mf)
+                Fo .+= coef .* _mf_slice(tens[oi][p], Mf)
             end
-            @inbounds for idx in eachindex(Fo)
-                abs(Fo[idx]) < 1e-10 && (Fo[idx] = 0.0)
+            @inbounds for index in eachindex(Fo)
+                abs(Fo[index]) < 1e-10 && (Fo[index] = 0.0)
             end
             norm(Fo) > 1e-10 && push!(terms, (collect(o), Fo))
         end
@@ -285,12 +285,12 @@ function _transport_term(o::Vector{Int}, F::Array{Float64}, g::Int,
     N = length(o)
     T = F
     for i = 1:N
-        T = AngularMomentum.nmode_mul(T, _wig(wcache, o[i], g), i)
+        T = AngularMomentum.nmode_mul(T, _wigner_d(wcache, o[i], g), i)
     end
     q = invperm(perm)                       # member axis j ← rep axis q[j]
     G = Array{Float64}(permutedims(T, q))
-    @inbounds for idx in eachindex(G)
-        abs(G[idx]) < 1e-10 && (G[idx] = 0.0)
+    @inbounds for index in eachindex(G)
+        abs(G[index]) < 1e-10 && (G[index] = 0.0)
     end
     return o[q], G                          # member ls = o[invperm(perm)]
 end
@@ -428,10 +428,10 @@ function _project_and_fold_decors(stab::Vector{Tuple{Int,Vector{Int}}},
         for k = 1:D
             (ai, p, Mf) = cols[k]
             slots = slotlists[ai]
-            v = _mfslice(tens[ai][p], Mf)
+            v = _mf_slice(tens[ai][p], Mf)
             for j in eachindex(slots)
                 slots[j].factor.l == 0 && continue          # D⁰ = 1 (trace axes)
-                v = AngularMomentum.nmode_mul(v, _wig(wcache, slots[j].factor.l, g), j)
+                v = AngularMomentum.nmode_mul(v, _wigner_d(wcache, slots[j].factor.l, g), j)
             end
             a2 = _assignment_image(assignments[ai], perm)
             ai2 = findfirst(==(a2), assignments)
@@ -439,7 +439,7 @@ function _project_and_fold_decors(stab::Vector{Tuple{Int,Vector{Int}}},
             σ = _slot_sigma(slots, slotlists[ai2], perm)
             v = permutedims(v, invperm(σ))
             for p2 in eachindex(tens[ai2]), Mf2 = 1:(2Lf + 1)
-                c = _frob(_mfslice(tens[ai2][p2], Mf2), v)
+                c = _frobenius_inner(_mf_slice(tens[ai2][p2], Mf2), v)
                 abs(c) < 1e-12 && continue
                 P[colidx[(ai2, p2, Mf2)], k] += c
             end
@@ -463,10 +463,10 @@ function _project_and_fold_decors(stab::Vector{Tuple{Int,Vector{Int}}},
             for p in eachindex(tens[ai]), Mf = 1:(2Lf + 1)
                 coef = c[colidx[(ai, p, Mf)]]
                 coef == 0.0 && continue
-                Fo .+= coef .* _mfslice(tens[ai][p], Mf)
+                Fo .+= coef .* _mf_slice(tens[ai][p], Mf)
             end
-            @inbounds for idx in eachindex(Fo)
-                abs(Fo[idx]) < 1e-10 && (Fo[idx] = 0.0)
+            @inbounds for index in eachindex(Fo)
+                abs(Fo[index]) < 1e-10 && (Fo[index] = 0.0)
             end
             norm(Fo) > 1e-10 && push!(terms, (ai, Fo))
         end
@@ -484,14 +484,14 @@ function _transport_term_decors(a::Vector{SiteDecor}, slots::Vector{Slot},
     T = F
     for j in eachindex(slots)
         slots[j].factor.l == 0 && continue                  # D⁰ = 1 (trace axes)
-        T = AngularMomentum.nmode_mul(T, _wig(wcache, slots[j].factor.l, g), j)
+        T = AngularMomentum.nmode_mul(T, _wigner_d(wcache, slots[j].factor.l, g), j)
     end
     a2 = _assignment_image(a, perm)
     slots2 = _assignment_slots(a2)
     σ = _slot_sigma(slots, slots2, perm)
     G = Array{Float64}(permutedims(T, invperm(σ)))
-    @inbounds for idx in eachindex(G)
-        abs(G[idx]) < 1e-10 && (G[idx] = 0.0)
+    @inbounds for index in eachindex(G)
+        abs(G[index]) < 1e-10 && (G[index] = 0.0)
     end
     return SALCTerm(slots2, G)
 end

@@ -24,33 +24,33 @@ using Random
 
     rng = MersenneTwister(7)
     configs = [randcfg(rng, nat) for _ = 1:64]
-    cfgs = [Matrix{Float64}(c) for c in configs]
+    configs = [Matrix{Float64}(c) for c in configs]
 
     @testset "_design_energy: threaded == serial double loop" begin
-        X = SLCE._design_energy(basis, cfgs)             # threaded
-        Xref = Matrix{Float64}(undef, length(cfgs), m)
-        for j = 1:m, i in eachindex(cfgs)                      # race-free serial
-            Xref[i, j] = SLCE.evaluate_salc(salcs[j], cfgs[i])
+        X = SLCE._design_energy(basis, configs)             # threaded
+        Xref = Matrix{Float64}(undef, length(configs), m)
+        for j = 1:m, i in eachindex(configs)                      # race-free serial
+            Xref[i, j] = SLCE.evaluate_salc(salcs[j], configs[i])
         end
         @test X == Xref                                        # exact: same kernel, deterministic
-        @test SLCE._design_energy(basis, cfgs) == X      # idempotent across calls
+        @test SLCE._design_energy(basis, configs) == X      # idempotent across calls
     end
 
     # Fit a model so the columns carry real coefficients for the cross-checks.
-    y = 0.7 .+ SLCE._design_energy(basis, cfgs) * randn(MersenneTwister(3), m)
+    y = 0.7 .+ SLCE._design_energy(basis, configs) * randn(MersenneTwister(3), m)
     ds = SLCEDataset(basis, configs, y)
     model = SLCEModel(fit(SLCEFit, ds, OLS()))
     jphi = coef(model)
 
     @testset "_design_torque: threaded X_T·jϕ == scalar predict_torque" begin
-        X_T = SLCE._design_torque(basis, cfgs)           # threaded
-        @test X_T == SLCE._design_torque(basis, cfgs)    # idempotent
+        X_T = SLCE._design_torque(basis, configs)           # threaded
+        @test X_T == SLCE._design_torque(basis, configs)    # idempotent
         # Independent path: assemble the full-model torque from the scalar kernel,
         # flattened config-major / atom-major / xyz, and compare to X_T·jϕ.
         block = 3 * nat
-        ref = Vector{Float64}(undef, length(cfgs) * block)
-        for ci in eachindex(cfgs)
-            τ = predict_torque(model, cfgs[ci])                # scalar (all SALCs)
+        ref = Vector{Float64}(undef, length(configs) * block)
+        for ci in eachindex(configs)
+            τ = predict_torque(model, configs[ci])                # scalar (all SALCs)
             rb = block * (ci - 1)
             for a = 1:nat, d = 1:3
                 ref[rb + 3 * (a - 1) + d] = τ[d, a]

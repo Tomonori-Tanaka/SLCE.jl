@@ -184,16 +184,16 @@ function _sig_accumulate_term!(rows::Dict{_FuncRowKey,Dict{Int,Float64}},
     spin_ids = Int[i for i = 1:D if slots[i].factor.channel == SPIN]
     disp_ids = Int[i for i = 1:D if slots[i].factor.channel != SPIN]
     folded = t.folded
-    for idx in CartesianIndices(folded)
-        w = folded[idx]
+    for index in CartesianIndices(folded)
+        w = folded[index]
         w == 0.0 && continue
         spins = NTuple{3,Int}[(atoms[slots[i].site], slots[i].factor.l,
-                               idx[i] - slots[i].factor.l - 1) for i in spin_ids]
+                               index[i] - slots[i].factor.l - 1) for i in spin_ids]
         sort!(spins)
         dslots = Vector{Tuple{Int,SolidHarmonics._Poly}}(undef, length(disp_ids))
         for (n, i) in enumerate(disp_ids)
             f = slots[i].factor
-            m = idx[i] - f.l - 1
+            m = index[i] - f.l - 1
             dslots[n] = (atoms[slots[i].site],
                          get!(polycache, (f.k, f.l, m)) do
                              SolidHarmonics.solid_harmonic_poly(f.k, f.l, m)

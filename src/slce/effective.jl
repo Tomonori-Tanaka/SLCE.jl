@@ -234,14 +234,14 @@ function _accumulate_effective!(acc::Dict{_EffKey,Float64}, weight::Float64,
     dslots = [i for i = 1:D if t.slots[i].factor.channel == DISP]
     polys = Vector{SolidHarmonics._Poly}(undef, length(dslots))
     datoms = Vector{Int}(undef, length(dslots))
-    for idx in CartesianIndices(t.folded)
-        w = t.folded[idx]
+    for index in CartesianIndices(t.folded)
+        w = t.folded[index]
         w == 0.0 && continue
         spins = Vector{NTuple{3,Int}}(undef, length(sslots))
         for (n, i) in enumerate(sslots)
             sl = t.slots[i]
             l = sl.factor.l
-            spins[n] = (mem.atoms[sl.site], l, idx[i] - l - 1)
+            spins[n] = (mem.atoms[sl.site], l, index[i] - l - 1)
         end
         sort!(spins)
         if isempty(dslots)
@@ -252,7 +252,7 @@ function _accumulate_effective!(acc::Dict{_EffKey,Float64}, weight::Float64,
             sl = t.slots[i]
             a = mem.atoms[sl.site]
             l = sl.factor.l
-            key = (sl.factor.k, l, idx[i] - l - 1, a)
+            key = (sl.factor.k, l, index[i] - l - 1, a)
             polys[n] = get!(cache, key) do
                 _shift_poly(SolidHarmonics.solid_harmonic_poly(key[1], key[2], key[3]),
                             SVector{3,Float64}(U0[1, a], U0[2, a], U0[3, a]))

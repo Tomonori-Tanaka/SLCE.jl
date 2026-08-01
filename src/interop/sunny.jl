@@ -37,7 +37,7 @@ struct SunnyPrimitive
 end
 
 # Lexicographic n ≥ 0 — the canonical direction for a same-sublattice bond.
-_ge0(n::SVector{3,Int}) = (n[1], n[2], n[3]) >= (0, 0, 0)
+_is_nonnegative(n::SVector{3,Int}) = (n[1], n[2], n[3]) >= (0, 0, 0)
 
 # Three shortest linearly independent vectors among `cands` (sorted by length):
 # the primitive lattice vectors.
@@ -129,7 +129,7 @@ function _sunny_primitive(model::SLCEModel)::SunnyPrimitive
         cb = round.(Int, fb - positions[j])
         clean &= maximum(abs.(fb - positions[j] - cb)) < tol
         n = SVector{3,Int}(cb - cellof(a))
-        key, val = (i < j || (i == j && _ge0(n))) ? ((i, j, n), M) :
+        key, val = (i < j || (i == j && _is_nonnegative(n))) ? ((i, j, n), M) :
                    ((j, i, -n), SMatrix{3,3,Float64}(transpose(M)))
         if haskey(bonds, key)
             clean &= isapprox(bonds[key], val; atol = 1e-9 * (1 + norm(val)))

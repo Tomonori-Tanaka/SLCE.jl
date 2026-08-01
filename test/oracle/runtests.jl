@@ -249,10 +249,10 @@ end
         heis = basis.salc_basis.salcs[1]
 
         rng = MersenneTwister(3)
-        cfg() = (M = Matrix{Float64}(undef, 3, 4);
+        config() = (M = Matrix{Float64}(undef, 3, 4);
                  for a = 1:4; v = randn(rng, 3); M[:, a] = v / norm(v); end; M)
         J_true = 0.0137
-        configs = [cfg() for _ = 1:30]
+        configs = [config() for _ = 1:30]
         # physical Heisenberg energies E = J Σ_{undirected nn} e_i·e_j (canonical
         # members are exactly the undirected nearest-neighbor bonds)
         E = [J_true * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)

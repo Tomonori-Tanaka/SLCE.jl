@@ -112,7 +112,7 @@ Base.:*(q::HomogeneousPolynomial, a::Real) = a * q
 
 function Base.:*(q1::HomogeneousPolynomial, q2::HomogeneousPolynomial)
     p = q1.degree + q2.degree
-    idx = _monomial_index_map(p)
+    index = _monomial_index_map(p)
     coeffs = zeros(Float64, div((p + 1) * (p + 2), 2))
     e1 = _monomial_exponents(q1.degree)
     e2 = _monomial_exponents(q2.degree)
@@ -122,7 +122,7 @@ function Base.:*(q1::HomogeneousPolynomial, q2::HomogeneousPolynomial)
         for (j, (a2, b2, c2)) in enumerate(e2)
             v2 = q2.coeffs[j]
             v2 == 0.0 && continue
-            coeffs[idx[(a1 + a2, b1 + b2, c1 + c2)]] += v1 * v2
+            coeffs[index[(a1 + a2, b1 + b2, c1 + c2)]] += v1 * v2
         end
     end
     return HomogeneousPolynomial(p, coeffs)

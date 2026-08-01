@@ -148,15 +148,15 @@ Complex→real (tesseral) transform `U` for degree `l`, `Z = U·Y`, indexed by
 function c2r_matrix(l::Integer)::Matrix{ComplexF64}
     l >= 0 || throw(ArgumentError("need l ≥ 0 (got $l)"))
     U = zeros(ComplexF64, 2l + 1, 2l + 1)
-    idx(m) = m + l + 1
-    U[idx(0), idx(0)] = 1
+    index(m) = m + l + 1
+    U[index(0), index(0)] = 1
     for m = 1:l
         s = 1 / sqrt(2.0)
         sgn = iseven(m) ? 1.0 : -1.0
-        U[idx(m), idx(m)] = sgn * s
-        U[idx(m), idx(-m)] = s
-        U[idx(-m), idx(m)] = -im * sgn * s
-        U[idx(-m), idx(-m)] = im * s
+        U[index(m), index(m)] = sgn * s
+        U[index(m), index(-m)] = s
+        U[index(-m), index(m)] = -im * sgn * s
+        U[index(-m), index(-m)] = im * s
     end
     return U
 end
@@ -227,12 +227,12 @@ function coeff_tensor_complex(ls::AbstractVector{<:Integer}, Lseq::AbstractVecto
     end
     P[N] = Lf
     site_dims = ntuple(i -> 2ls[i] + 1, N)
-    for idx in CartesianIndices(site_dims)
-        runM = idx[1] - ls[1] - 1            # m₁
+    for index in CartesianIndices(site_dims)
+        runM = index[1] - ls[1] - 1            # m₁
         amp = 1.0
         ok = true
         for k = 2:N
-            mk = idx[k] - ls[k] - 1
+            mk = index[k] - ls[k] - 1
             Mk = runM + mk
             amp *= clebsch_gordan(P[k-1], runM, ls[k], mk, P[k], Mk)
             runM = Mk
@@ -243,7 +243,7 @@ function coeff_tensor_complex(ls::AbstractVector{<:Integer}, Lseq::AbstractVecto
         end
         ok || continue
         abs(runM) <= Lf || continue
-        C[Tuple(idx)..., runM + Lf + 1] = amp
+        C[Tuple(index)..., runM + Lf + 1] = amp
     end
     return C
 end

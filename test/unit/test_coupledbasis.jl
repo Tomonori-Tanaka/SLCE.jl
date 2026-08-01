@@ -14,13 +14,13 @@ function coupled_value(cb, es)
     N = length(ls)
     Zs = [[Harmonics.Zlm(ls[i], m, es[i]) for m = -ls[i]:ls[i]] for i = 1:N]
     f = zeros(2Lf + 1)
-    for idx in CartesianIndices(ntuple(i -> 2ls[i] + 1, N))
+    for index in CartesianIndices(ntuple(i -> 2ls[i] + 1, N))
         w = 1.0
         for i = 1:N
-            w *= Zs[i][idx[i]]
+            w *= Zs[i][index[i]]
         end
         for q = 1:(2Lf+1)
-            f[q] += T[Tuple(idx)..., q] * w
+            f[q] += T[Tuple(index)..., q] * w
         end
     end
     return f

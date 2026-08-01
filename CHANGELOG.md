@@ -6,6 +6,22 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — internal names spelled out (no public surface touched)
+
+The `STYLE_GUIDE.md` §1 naming contract's safe tier, applied: internal locals and
+private helper functions now spell their words out. Nothing exported, nothing in the
+`public` tier, no struct field and no persisted key changed, so this is invisible to
+every caller and to every file on disk; the suites are green at the same counts.
+
+Locals: `est` → `estimator`, `idx` → `index`, `cfg`/`cfgs` → `config`/`configs`.
+Helpers: `_edof`/`_edof_ns` → `_effective_dof_gram`/`_effective_dof_nullspace`,
+`_gar_weights!` → `_group_adaptive_weights!`, `_sm_*` → `_grid_*`, `_ex_*` →
+`_exchange_*`, `_wig` → `_wigner_d`, `_frob` → `_frobenius_inner`, `_mfslice` →
+`_mf_slice`, `_tclose` → `_translations_equal`, `_jnum` → `_toml_float`, `_mat3` →
+`_matrix3`, `_ge0` → `_is_nonnegative`.
+
+`STYLE_GUIDE.md` §1.9 records what was renamed and what deliberately was not.
+
 ### Fixed — writing an EMPTY force-constant set no longer does so in silence
 
 `write_phonopy` on an empty `ForceConstantSet` produced a valid, all-zero

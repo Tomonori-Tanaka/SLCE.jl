@@ -69,7 +69,7 @@ struct StrainedModels
 
     # Inner, so a field-wise call (persistence, a future reader) cannot assemble a grid
     # whose scales are unsorted or whose degree exceeds what the points can support —
-    # either would make `_sm_interpolate` return a number rather than fail. The PHYSICAL
+    # either would make `_grid_interpolate` return a number rather than fail. The PHYSICAL
     # invariants (similarity, key equality, the gauge) live in the outer constructor
     # because they need the models compared pairwise, which is not a shape check.
     function StrainedModels(scales::Vector{Float64}, models::Vector{SLCEModel},
@@ -115,7 +115,7 @@ volumes(sm::StrainedModels) =
 
 # The interpolation abscissa. A modelling choice, not a coordinate change (design record
 # §9e part 2 / gate (w)) — which is why it is a field and not a hard-coded convention.
-function _sm_abscissa(sm::StrainedModels, s::Real)::Float64
+function _grid_abscissa(sm::StrainedModels, s::Real)::Float64
     V0 = abs(det(sm.models[1].basis.crystal.lattice.vectors)) / sm.scales[1]^3
     sm.abscissa === :linear && return Float64(s)
     sm.abscissa === :volume && return V0 * s^3
@@ -124,7 +124,7 @@ function _sm_abscissa(sm::StrainedModels, s::Real)::Float64
 end
 
 # d(abscissa)/ds — the chain-rule factor the grid derivative needs.
-function _sm_dabscissa(sm::StrainedModels, s::Real)::Float64
+function _grid_dabscissa(sm::StrainedModels, s::Real)::Float64
     V0 = abs(det(sm.models[1].basis.crystal.lattice.vectors)) / sm.scales[1]^3
     sm.abscissa === :linear && return 1.0
     sm.abscissa === :volume && return 3 * V0 * s^2
@@ -183,7 +183,7 @@ function StrainedModels(models::AbstractVector{SLCEModel},
     abscissa in (:volume, :linear, :logvolume) || throw(ArgumentError(
         "abscissa must be :volume, :linear or :logvolume; got $abscissa"))
     ms = collect(SLCEModel, models)
-    ss = _sm_scales(ms, scales, tol)
+    ss = _grid_scales(ms, scales, tol)
     p = sortperm(ss)
     ss, ms = ss[p], ms[p]
     allunique(ss) || throw(ArgumentError(
@@ -194,15 +194,15 @@ function StrainedModels(models::AbstractVector{SLCEModel},
         "degree must be between 0 and $(n - 1) for a $n-point grid; got $deg"))
     ref = ms[1]
     for i = 2:n
-        _sm_check_similar(ref, ms[i], ss[i] / ss[1], tol, i)
+        _grid_check_similar(ref, ms[i], ss[i] / ss[1], tol, i)
     end
     return StrainedModels(ss, ms, abscissa, deg)
 end
 
 # Validate the supplied scales against the cells. The volume ratio is a single number and
-# cannot itself detect a shear, so this checks the RATIOS here and `_sm_check_similar`
+# cannot itself detect a shear, so this checks the RATIOS here and `_grid_check_similar`
 # checks the full `A_i = s_i·A₀` afterwards.
-function _sm_scales(ms::Vector{SLCEModel}, scales::AbstractVector{<:Real}, tol::Real)
+function _grid_scales(ms::Vector{SLCEModel}, scales::AbstractVector{<:Real}, tol::Real)
     V = [abs(det(m.basis.crystal.lattice.vectors)) for m in ms]
     derived = [(V[i] / V[1])^(1 / 3) for i in eachindex(ms)]
     length(scales) == length(ms) || throw(DimensionMismatch(
@@ -218,7 +218,7 @@ function _sm_scales(ms::Vector{SLCEModel}, scales::AbstractVector{<:Real}, tol::
     return collect(Float64, scales)
 end
 
-function _sm_check_similar(a::SLCEModel, b::SLCEModel, s::Real, tol::Real, i::Int)
+function _grid_check_similar(a::SLCEModel, b::SLCEModel, s::Real, tol::Real, i::Int)
     ca, cb = a.basis.crystal, b.basis.crystal
     ca.species == cb.species && ca.species_labels == cb.species_labels ||
         throw(ArgumentError(
@@ -236,12 +236,12 @@ function _sm_check_similar(a::SLCEModel, b::SLCEModel, s::Real, tol::Real, i::In
         "grid point $i is not an isotropic scaling of point 1: A_i ≠ $s·A₀. v0 grids are " *
         "volume-only (design record §9a) — a symmetry-breaking strain needs the explicit " *
         "global strain channel, and a c/a path needs its own path-specific grid."))
-    _sm_check_spec(a.basis.spec, b.basis.spec, s, tol, i)
-    _sm_check_basis(a.basis, b.basis, i)
+    _grid_check_spec(a.basis.spec, b.basis.spec, s, tol, i)
+    _grid_check_basis(a.basis, b.basis, i)
     return nothing
 end
 
-function _sm_check_spec(sa::BasisSpec, sb::BasisSpec, s::Real, tol::Real, i::Int)
+function _grid_check_spec(sa::BasisSpec, sb::BasisSpec, s::Real, tol::Real, i::Int)
     sa.nbody == sb.nbody && sa.lmax == sb.lmax && sa.pmax == sb.pmax &&
         sa.lsum == sb.lsum && sa.soc == sb.soc || throw(ArgumentError(
         "grid point $i has a different truncation than point 1 (nbody/lmax/pmax/lsum/soc)"))
@@ -254,7 +254,7 @@ function _sm_check_spec(sa::BasisSpec, sb::BasisSpec, s::Real, tol::Real, i::Int
         "grid point $i has $(length(sb.cutoff)) cutoff matrices against point 1's " *
         "$(length(sa.cutoff))"))
     for b in eachindex(sa.cutoff)
-        _sm_cutoff_scaled(sa.cutoff[b], sb.cutoff[b], s, tol, i,
+        _grid_cutoff_scaled(sa.cutoff[b], sb.cutoff[b], s, tol, i,
                           "BasisSpec.cutoff[$b]")
     end
     length(sa.sector_rules) == length(sb.sector_rules) || throw(ArgumentError(
@@ -268,12 +268,12 @@ function _sm_check_spec(sa::BasisSpec, sb::BasisSpec, s::Real, tol::Real, i::Int
             ra.sites == rb.sites && ra.soc == rb.soc || throw(ArgumentError(
             "grid point $i's sector $r differs from point 1's in something other " *
             "than its cutoff"))
-        _sm_cutoff_scaled(ra.cutoff, rb.cutoff, s, tol, i, "sector $r's cutoff")
+        _grid_cutoff_scaled(ra.cutoff, rb.cutoff, s, tol, i, "sector $r's cutoff")
     end
     return nothing
 end
 
-function _sm_cutoff_scaled(ca::AbstractMatrix, cb::AbstractMatrix, s::Real, tol::Real,
+function _grid_cutoff_scaled(ca::AbstractMatrix, cb::AbstractMatrix, s::Real, tol::Real,
                            i::Int, what::AbstractString)
     size(ca) == size(cb) || throw(ArgumentError(
         "grid point $i: $what has size $(size(cb)) against point 1's $(size(ca))"))
@@ -288,7 +288,7 @@ function _sm_cutoff_scaled(ca::AbstractMatrix, cb::AbstractMatrix, s::Real, tol:
     return nothing
 end
 
-function _sm_check_basis(ba::SLCEBasis, bb::SLCEBasis, i::Int)
+function _grid_check_basis(ba::SLCEBasis, bb::SLCEBasis, i::Int)
     ka, kb = ba.salc_basis.keys, bb.salc_basis.keys
     ka == kb || throw(ArgumentError(
         "grid point $i has a different SALC key set than point 1 ($(length(kb)) vs " *
@@ -300,7 +300,7 @@ function _sm_check_basis(ba::SLCEBasis, bb::SLCEBasis, i::Int)
             "grid point $i: SALC $(sa.key) has $(length(sb.members)) members against " *
             "point 1's $(length(sa.members))"))
         for (ma, mb) in zip(sa.members, sb.members)
-            _sm_check_gauge(sa, ma, mb, i)
+            _grid_check_gauge(sa, ma, mb, i)
             ma.atoms == mb.atoms && ma.shifts == mb.shifts || throw(ArgumentError(
                 "grid point $i: SALC $(sa.key) has a member at different images than " *
                 "point 1 (atoms $(mb.atoms), shifts $(mb.shifts) vs $(ma.atoms), " *
@@ -321,7 +321,7 @@ end
 # perfect at its own point. Along a similarity grid the construction is deterministic and
 # the angular content is identical, so the tensors agree bitwise; the tolerance is here for
 # the ordering of a distance comparison, not for a different gauge.
-function _sm_check_gauge(salc, ma, mb, i::Int)
+function _grid_check_gauge(salc, ma, mb, i::Int)
     length(ma.terms) == length(mb.terms) || throw(ArgumentError(
         "grid point $i: SALC $(salc.key) has a member with $(length(mb.terms)) terms " *
         "against point 1's $(length(ma.terms))"))
@@ -359,7 +359,7 @@ at construction time, not assumed here.
 """
 function model_at(sm::StrainedModels, s::Real)::SLCEModel
     s > 0 || throw(ArgumentError("scale must be positive; got $s"))
-    j0, jphi = _sm_interpolate(sm, s, 0)
+    j0, jphi = _grid_interpolate(sm, s, 0)
     return SLCEModel(_scaled_basis(sm.models[1].basis, s / sm.scales[1]), j0, jphi)
 end
 
@@ -386,7 +386,7 @@ function grid_strain_derivative(
         spins::Union{AbstractMatrix{<:Real},Nothing} = nothing)::Float64
     s > 0 || throw(ArgumentError("scale must be positive; got $s"))
     e = _resolve_spins(sm.models[1], spins, "the grid strain derivative")
-    dj0, djphi = _sm_interpolate(sm, s, 1)
+    dj0, djphi = _grid_interpolate(sm, s, 1)
     # d/dη, NOT d/ds. `η` is always measured from the reference the derivative is taken at
     # — the same convention `strain_derivatives` uses, since a model knows only its own
     # reference — and the total scale is `s(1 + η)`, so `dE/dη = s·dE/ds`. Dropping this
@@ -406,10 +406,10 @@ end
 # Polynomial interpolation of (j0, jphi) in the chosen abscissa, differentiated `order`
 # times with respect to the LINEAR SCALE s (the chain rule through the abscissa is applied
 # here, so callers never see it).
-function _sm_interpolate(sm::StrainedModels, s::Real, order::Int)
+function _grid_interpolate(sm::StrainedModels, s::Real, order::Int)
     n = length(sm)
     d = sm.degree
-    x = [_sm_abscissa(sm, si) for si in sm.scales]
+    x = [_grid_abscissa(sm, si) for si in sm.scales]
     # Center and scale the abscissa: a Vandermonde in raw volumes of a few hundred Å³ is
     # hopelessly conditioned by degree 3, and the answer would be silently wrong rather
     # than obviously so.
@@ -424,7 +424,7 @@ function _sm_interpolate(sm::StrainedModels, s::Real, order::Int)
         B[i, 2:end] = sm.models[i].jphi
     end
     C = V \ B                                        # (d+1) × (1 + n_salcs)
-    zs = (_sm_abscissa(sm, s) - x0) / w
+    zs = (_grid_abscissa(sm, s) - x0) / w
     if order == 0
         v = [zs^(j - 1) for j = 1:(d + 1)]
         r = transpose(C) * v
@@ -432,7 +432,7 @@ function _sm_interpolate(sm::StrainedModels, s::Real, order::Int)
     end
     order == 1 || throw(ArgumentError("only orders 0 and 1 are implemented; got $order"))
     dv = [j == 1 ? 0.0 : (j - 1) * zs^(j - 2) for j = 1:(d + 1)]
-    chain = _sm_dabscissa(sm, s) / w
+    chain = _grid_dabscissa(sm, s) / w
     r = (transpose(C) * dv) .* chain
     return r[1], r[2:end]
 end

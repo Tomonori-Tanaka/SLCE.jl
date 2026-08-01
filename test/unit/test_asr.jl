@@ -320,8 +320,8 @@ end
         @test dof(f) == (m - rep.rank) + 1              # q + 1 free parameters
         @test isfinite(gcv(f)) && effective_dof(f) <= m - rep.rank + 1 + 1e-9
         # dense-hat-matrix gate for the constrained effective dof: the Cholesky-
-        # congruence _edof_ns must reproduce tr[X̃(X̃'X̃ + λ·Z'DZ)⁻¹X̃'] + 1,
-        # and reduce to _edof at Z = I
+        # congruence _effective_dof_nullspace must reproduce tr[X̃(X̃'X̃ + λ·Z'DZ)⁻¹X̃'] + 1,
+        # and reduce to _effective_dof_gram at Z = I
         fRg = fit(SLCEFit, ds, Ridge(1e-6); torque_weight = 0.3)
         Xg, _, _, _, _ = _assemble_problem(ds, 0.3, 0.0, ds.asr)
         lamg, wg = SLCE._penalty_diagonal(fRg.estimator, fRg.jphi)
@@ -329,8 +329,8 @@ end
         H = Xg * ((Symmetric(Xg' * Xg) + lamg * P) \ Xg')
         @test effective_dof(fRg) ≈ tr(H) + 1 rtol = 1e-8
         q = size(ds.asr.Z, 2)
-        @test SLCE._edof_ns(Xg, lamg, ones(q), Matrix{Float64}(I, q, q)) ≈
-              SLCE._edof(Xg, lamg, ones(q)) rtol = 1e-10
+        @test SLCE._effective_dof_nullspace(Xg, lamg, ones(q), Matrix{Float64}(I, q, q)) ≈
+              SLCE._effective_dof_gram(Xg, lamg, ones(q)) rtol = 1e-10
     end
 
     @testset "violation demonstration (asr = false) and noisy contrast" begin
@@ -377,9 +377,9 @@ end
         # Ridge at tiny λ recovers; the adaptive members shrink near-zero
         # components harder (w → 1/ε), so they are held to feasibility +
         # prediction accuracy, not coefficient identity.
-        for est in (Ridge(1e-9), AdaptiveRidge(; lambda = 1e-9),
+        for estimator in (Ridge(1e-9), AdaptiveRidge(; lambda = 1e-9),
                     GroupAdaptiveRidge(collect(1:m), ones(m); lambda = 1e-9))
-            fe = fit(SLCEFit, ds, est; torque_weight = 0.3)
+            fe = fit(SLCEFit, ds, estimator; torque_weight = 0.3)
             @test fe.asr_residual < 1e-12               # feasible by construction
             @test maximum(abs, fe.jphi .- beta_true) < 1e-2
             @test rmse_energy(fe) < 1e-4
@@ -396,8 +396,8 @@ end
         bspin = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
             Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
         ms = SLCEModel(bspin, 0.0, randn(rng, n_salcs(bspin)))
-        cfgs = [_as_cfg(rng, nat) for _ = 1:20]
-        dss = SLCEDataset(bspin, cfgs, predict_energy(ms, cfgs))
+        configs = [_as_cfg(rng, nat) for _ = 1:20]
+        dss = SLCEDataset(bspin, configs, predict_energy(ms, configs))
         @test dss.asr === nothing
         fa = fit(SLCEFit, dss, OLS())
         fb = fit(SLCEFit, dss, OLS(); asr = false)

@@ -279,8 +279,8 @@ end
         bspin = SLCEBasis(cr, BasisSpec(cr; lmax = 1, sectors = [
             Sector(spin = (sites = 1:2,), cutoff = 1.1)]))
         ms = SLCEModel(bspin, 0.0, randn(rng, n_salcs(bspin)))
-        cfgs = [_id_cfg(rng, nat) for _ = 1:40]
-        dss = SLCEDataset(bspin, cfgs, predict_energy(ms, cfgs))
+        configs = [_id_cfg(rng, nat) for _ = 1:40]
+        dss = SLCEDataset(bspin, configs, predict_energy(ms, configs))
         ids = identifiability(dss)
         @test ids.ncols == n_salcs(bspin) && ids.nullity == 0
         # fewer rows than columns is a (structural) deficiency, not an error —

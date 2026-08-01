@@ -19,13 +19,13 @@ end
 
 @testset "cost-weighted group selection" begin
     @testset "GroupAdaptiveRidge construction and validation" begin
-        est = GroupAdaptiveRidge([1, 1, 2], [1.0, 2.0]; lambda = 0.5)
-        @test est.lambda === 0.5
-        @test est.column_groups == [1, 1, 2]
-        @test est.group_weights == [1.0, 2.0]
-        @test est.group_sizes == [2, 1]
-        @test est.epsilon === 1e-8 && est.max_iter === 50 && est.tol === 1e-6
-        @test SLCE.islinear(est)
+        estimator = GroupAdaptiveRidge([1, 1, 2], [1.0, 2.0]; lambda = 0.5)
+        @test estimator.lambda === 0.5
+        @test estimator.column_groups == [1, 1, 2]
+        @test estimator.group_weights == [1.0, 2.0]
+        @test estimator.group_sizes == [2, 1]
+        @test estimator.epsilon === 1e-8 && estimator.max_iter === 50 && estimator.tol === 1e-6
+        @test SLCE.islinear(estimator)
 
         # invalid scalars
         @test_throws ArgumentError GroupAdaptiveRidge([1], [1.0]; lambda = -1.0)
@@ -57,10 +57,10 @@ end
         # label length must match the design-matrix column count
         rng = MersenneTwister(1)
         X, y = _centered_problem(rng, 20, zeros(4))
-        @test_throws DimensionMismatch solve_coefficients(est, X, y)   # 3 labels, 4 cols
+        @test_throws DimensionMismatch solve_coefficients(estimator, X, y)   # 3 labels, 4 cols
 
         # compact show (never dumps the label vectors)
-        s = sprint(show, est)
+        s = sprint(show, estimator)
         @test occursin("GroupAdaptiveRidge(3 columns in 2 groups", s)
         @test occursin("lambda=0.5", s)
     end
@@ -149,10 +149,10 @@ end
                 for mem in s.members, t in mem.terms
                     slotkey = Tuple((Int(sl.factor.channel), sl.site,
                                      sl.factor.k, sl.factor.l) for sl in t.slots)
-                    for idx in CartesianIndices(t.folded)
-                        t.folded[idx] == 0.0 && continue
+                    for index in CartesianIndices(t.folded)
+                        t.folded[index] == 0.0 && continue
                         key = (Tuple(mem.atoms), Tuple(Tuple.(mem.shifts)),
-                               slotkey, Tuple(idx))
+                               slotkey, Tuple(index))
                         push!(bysets[labels[j]], key)
                     end
                 end
@@ -237,10 +237,10 @@ end
         @test_throws ArgumentError cost_weights(basis; cost_exponent = -0.1)
         @test_throws ArgumentError cost_weights(basis; cost_exponent = 1.1)
 
-        est = GroupAdaptiveRidge(basis; lambda = 1e-3, cost_exponent = 1.0)
-        @test est.column_groups == labels
-        @test est.group_weights == lw1.weights
-        @test est.lambda === 1e-3
+        estimator = GroupAdaptiveRidge(basis; lambda = 1e-3, cost_exponent = 1.0)
+        @test estimator.column_groups == labels
+        @test estimator.group_weights == lw1.weights
+        @test estimator.lambda === 1e-3
     end
 
     # --- GCV / effective degrees of freedom -----------------------------------------

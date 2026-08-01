@@ -459,7 +459,7 @@ joint blocks enter only through the `TrainingDatum` construction path — the
 spin-configuration constructors below are pure-spin-only.
 
 Datasets support `length` (number of configs), configuration slicing
-`dataset[idx]` (integer vector/range, `Bool` mask, or `:`), and `vcat` of parts
+`dataset[index]` (integer vector/range, `Bool` mask, or `:`), and `vcat` of parts
 built on the same basis — see those methods for train/test splitting and
 incremental data addition. The recommended construction path from DFT data is
 `SLCEDataset(basis, data::AbstractVector{TrainingDatum})` (see the io layer), which
@@ -649,12 +649,12 @@ Base.lastindex(d::SLCEDataset) = length(d)
 # indices (bootstrap resampling) duplicate the rows. Returns the sliced
 # `(X, y, config_index)` triple.
 function _slice_channel_rows(X::Matrix{Float64}, y::Vector{Float64},
-                             cfg::Vector{Int}, idx::AbstractVector{<:Integer})
-    isempty(cfg) && return X[1:0, :], Float64[], Int[]
+                             config::Vector{Int}, index::AbstractVector{<:Integer})
+    isempty(config) && return X[1:0, :], Float64[], Int[]
     rows = Int[]
     rc = Int[]
-    for (k, i) in enumerate(idx)
-        r = searchsorted(cfg, i)
+    for (k, i) in enumerate(index)
+        r = searchsorted(config, i)
         isempty(r) && continue
         append!(rows, r)
         append!(rc, fill(k, length(r)))
@@ -663,23 +663,23 @@ function _slice_channel_rows(X::Matrix{Float64}, y::Vector{Float64},
 end
 
 """
-    dataset[idx] -> SLCEDataset
+    dataset[index] -> SLCEDataset
 
-Select the configurations `idx` — an integer vector or range, a `Bool` mask, or `:`
+Select the configurations `index` — an integer vector or range, a `Bool` mask, or `:`
 — into a new [`SLCEDataset`](@ref) on the same basis. Design-matrix rows are sliced,
 never recomputed, so train/test splits and filters are cheap:
 `train, test = dataset[1:80], dataset[81:end]`. Duplicate indices are allowed
 (bootstrap-style resampling). See also `vcat` for the reverse operation.
 """
-function Base.getindex(d::SLCEDataset, idx::AbstractVector{<:Integer})::SLCEDataset
-    isempty(idx) && throw(ArgumentError("empty configuration selection"))
-    cfgs = d.configs[idx]                       # BoundsError on an out-of-range index
-    dsp = isempty(d.disps) ? d.disps : d.disps[idx]
-    X_E = d.X_E[idx, :]
-    y_E = d.y_E[idx]
-    X_T, y_T, tc = _slice_channel_rows(d.X_T, d.y_T, d.torque_config, idx)
-    X_F, y_F, fc = _slice_channel_rows(d.X_F, d.y_F, d.force_config, idx)
-    return SLCEDataset(d.basis, cfgs, X_E, y_E, X_T, y_T, tc, d.provenance;
+function Base.getindex(d::SLCEDataset, index::AbstractVector{<:Integer})::SLCEDataset
+    isempty(index) && throw(ArgumentError("empty configuration selection"))
+    configs = d.configs[index]                       # BoundsError on an out-of-range index
+    dsp = isempty(d.disps) ? d.disps : d.disps[index]
+    X_E = d.X_E[index, :]
+    y_E = d.y_E[index]
+    X_T, y_T, tc = _slice_channel_rows(d.X_T, d.y_T, d.torque_config, index)
+    X_F, y_F, fc = _slice_channel_rows(d.X_F, d.y_F, d.force_config, index)
+    return SLCEDataset(d.basis, configs, X_E, y_E, X_T, y_T, tc, d.provenance;
                       disps = dsp, X_F = X_F, y_F = y_F, force_config = fc,
                       force_cols = d.force_cols, asr = d.asr)
 end
@@ -701,7 +701,7 @@ fingerprint, so a dataset built from a persisted-and-reloaded basis concatenates
 with one built in-session. Parts may differ in torque presence (a torque-bearing
 part and an energy-only part concatenate into a mixed dataset; each torque row
 keeps its configuration through the re-offset `torque_config`). Together with
-`dataset[idx]` this supports incremental data addition and resampling without
+`dataset[index]` this supports incremental data addition and resampling without
 rebuilding design matrices.
 """
 function Base.vcat(a::SLCEDataset, rest::SLCEDataset...)::SLCEDataset
@@ -833,9 +833,9 @@ function _validate_config(c::AbstractMatrix{<:Real}, nat::Int; atol::Real = 1e-6
     return nothing
 end
 
-function _validate_configs(basis::SLCEBasis, cfgs::Vector{Matrix{Float64}}; atol::Real = 1e-6)
+function _validate_configs(basis::SLCEBasis, configs::Vector{Matrix{Float64}}; atol::Real = 1e-6)
     nat = n_atoms(basis.crystal)
-    for (i, c) in enumerate(cfgs)
+    for (i, c) in enumerate(configs)
         _validate_config(c, nat; atol = atol, label = "config $i")
     end
     return nothing
@@ -902,16 +902,16 @@ function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::Abstra
     # selection", so accepting it here only moved the error away from the mistake.
     isempty(configs) && throw(ArgumentError("no configurations given"))
     _require_pure_spin_basis(basis)
-    cfgs = [Matrix{Float64}(c) for c in configs]
-    _validate_configs(basis, cfgs; atol = atol)
-    X = _design_energy(basis, cfgs)
+    configs = [Matrix{Float64}(c) for c in configs]
+    _validate_configs(basis, configs; atol = atol)
+    X = _design_energy(basis, configs)
     empty_T = Matrix{Float64}(undef, 0, size(X, 2))
     # `build_asr` even here: a pure-spin basis has no ASR to impose, but it can still
     # carry columns this cell cannot resolve (measured: 4 of 7 on a bcc `soc` pair
     # basis), and those must be frozen exactly as on the joint path. It returns
     # `nothing` when there is nothing to freeze, so the pure-spin fast path is
     # unchanged wherever it was already correct.
-    return SLCEDataset(basis, cfgs, X, collect(Float64, energies), empty_T, Float64[],
+    return SLCEDataset(basis, configs, X, collect(Float64, energies), empty_T, Float64[],
                       Int[], provenance; asr = build_asr(basis))
 end
 
@@ -927,24 +927,24 @@ function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::Abstra
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
     _require_pure_spin_basis(basis)
-    cfgs = [Matrix{Float64}(c) for c in configs]
+    configs = [Matrix{Float64}(c) for c in configs]
     sel = collect(Int, torque_sel)
     issorted(sel; lt = <=) ||                          # strictly increasing
         throw(ArgumentError("torque_sel must be strictly increasing"))
     isempty(sel) && throw(ArgumentError("torque_sel is empty — use the three-argument " *
                                         "energy-only form instead"))
-    (sel[1] >= 1 && sel[end] <= length(cfgs)) ||
-        throw(ArgumentError("torque_sel entries must index configs 1:$(length(cfgs))"))
+    (sel[1] >= 1 && sel[end] <= length(configs)) ||
+        throw(ArgumentError("torque_sel entries must index configs 1:$(length(configs))"))
     length(torques) == length(sel) ||
         throw(ArgumentError("got $(length(torques)) torque blocks for " *
                             "$(length(sel)) torque-bearing configs"))
-    _validate_configs(basis, cfgs; atol = atol)
-    X_E = _design_energy(basis, cfgs)
-    tcfgs = cfgs[sel]
+    _validate_configs(basis, configs; atol = atol)
+    X_E = _design_energy(basis, configs)
+    tcfgs = configs[sel]
     X_T = _design_torque(basis, tcfgs)
     y_T = _flatten_torques(torques, tcfgs)
     tc = repeat(sel; inner = 3 * n_atoms(basis.crystal))
-    return SLCEDataset(basis, cfgs, X_E, collect(Float64, energies), X_T, y_T, tc,
+    return SLCEDataset(basis, configs, X_E, collect(Float64, energies), X_T, y_T, tc,
                       provenance; asr = build_asr(basis))
 end
 """

@@ -339,9 +339,9 @@ end
     end
 
     @testset "-0.0 is normalized to +0.0 on write" begin
-        @test MR._jnum(-0.0) === 0.0
-        @test MR._jnum(0.0) === 0.0
-        @test MR._jnum(-1.5) === -1.5
+        @test MR._toml_float(-0.0) === 0.0
+        @test MR._toml_float(0.0) === 0.0
+        @test MR._toml_float(-1.5) === -1.5
     end
 
     @testset "error paths" begin

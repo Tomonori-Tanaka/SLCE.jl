@@ -185,8 +185,8 @@ end
         end
         # the spin-only dataset path refuses displacement-decorated SALCs (M3
         # brings the joint data layer)
-        cfg = [_sb_cfg(rng) for _ = 1:3]
-        @test_throws ArgumentError SLCEDataset(b, cfg, randn(rng, 3))
+        config = [_sb_cfg(rng) for _ = 1:3]
+        @test_throws ArgumentError SLCEDataset(b, config, randn(rng, 3))
     end
 
     @testset "gate (f): SOC-less pair + ligand p = 1 on a mixed spec — no DMI" begin
@@ -451,11 +451,11 @@ end
             sectors = [Sector(spin = (sites = 1:2,), cutoff = 2.6)]))
         @test _sector_basis_identical(dense, sect)
         rngd = MersenneTwister(0xd00d)
-        cfgs = [randcfg(rngd, 4) for _ = 1:5]
+        configs = [randcfg(rngd, 4) for _ = 1:5]
         E = randn(rngd, 5)
         T = [randn(rngd, 3, 4) for _ = 1:5]
-        da = SLCEDataset(dense, cfgs, E, T)
-        db = SLCEDataset(sect, cfgs, E, T)
+        da = SLCEDataset(dense, configs, E, T)
+        db = SLCEDataset(sect, configs, E, T)
         @test da.X_E == db.X_E
         @test da.X_T == db.X_T
         # Gate (a), spec-level re-run of the relabel bit-identity: the MC

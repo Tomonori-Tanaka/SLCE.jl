@@ -27,11 +27,11 @@ function _energy_via_rows(model, layout, e, u)
     tot = 0.0
     for t in decorated_terms(model)
         s = 0.0
-        for idx in CartesianIndices(t.folded)
-            w = t.folded[idx]
+        for index in CartesianIndices(t.folded)
+            w = t.folded[index]
             w == 0.0 && continue
             for (i, sl) in enumerate(t.slots)
-                m = idx[i] - sl.factor.l - 1
+                m = index[i] - sl.factor.l - 1
                 w *= rows[row_index(layout, sl.factor, m), t.atoms[sl.site]]
             end
             s += w

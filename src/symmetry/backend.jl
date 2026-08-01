@@ -86,17 +86,17 @@ end
 const _MAX_CLOSURE_OPS = 192
 
 # Are two fractional translations equal modulo a lattice vector?
-_tclose(a::SVector{3,Float64}, b::SVector{3,Float64}, tol::Real) =
+_translations_equal(a::SVector{3,Float64}, b::SVector{3,Float64}, tol::Real) =
     all(k -> (d = abs(a[k] - b[k]) % 1.0; min(d, 1.0 - d) <= tol), 1:3)
 
 # Index of the operation `(W|t)` in `ops` (0 if absent). `bykey` groups operation
 # indices by their integer rotation, so only the same-rotation coset is scanned.
 function _find_op(ops::Vector{SymOp}, bykey::Dict{SMatrix{3,3,Int,9},Vector{Int}},
                   W::SMatrix{3,3,Int,9}, t::SVector{3,Float64}, tol::Real)::Int
-    idx = get(bykey, W, nothing)
-    idx === nothing && return 0
-    for i in idx
-        _tclose(ops[i].translation_frac, t, tol) && return i
+    index = get(bykey, W, nothing)
+    index === nothing && return 0
+    for i in index
+        _translations_equal(ops[i].translation_frac, t, tol) && return i
     end
     return 0
 end
@@ -152,10 +152,10 @@ function _validate_ops(ops::Vector{SymOp}, tol::Real)
     for i = 1:n
         push!(get!(Vector{Int}, bykey, Wint[i]), i)
     end
-    for (_, idx) in bykey, a in eachindex(idx), b in (a + 1):length(idx)
-        _tclose(ops[idx[a]].translation_frac, ops[idx[b]].translation_frac, tol) &&
+    for (_, index) in bykey, a in eachindex(index), b in (a + 1):length(index)
+        _translations_equal(ops[index[a]].translation_frac, ops[index[b]].translation_frac, tol) &&
             throw(ArgumentError(
-                "symmetry ops $(idx[a]) and $(idx[b]) are the same operation modulo " *
+                "symmetry ops $(index[a]) and $(index[b]) are the same operation modulo " *
                 "a lattice translation — duplicates inflate every orbit multiplicity"))
     end
 

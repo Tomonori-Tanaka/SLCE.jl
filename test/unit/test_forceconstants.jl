@@ -39,8 +39,8 @@ function _gamma_sum(fcs, nat)
     S = zeros(ntuple(_ -> 3nat, fcs.order))
     for ((atoms, _), T) in fcs.constants
         for cidx in CartesianIndices(T)
-            idx = ntuple(i -> 3 * (atoms[i] - 1) + cidx[i], fcs.order)
-            S[idx...] += T[cidx]
+            index = ntuple(i -> 3 * (atoms[i] - 1) + cidx[i], fcs.order)
+            S[index...] += T[cidx]
         end
     end
     return S

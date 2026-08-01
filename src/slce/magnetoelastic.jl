@@ -320,7 +320,7 @@ end
 # Which bilinear channel a term maps to, and where its slots are. Returns `nothing` for
 # anything this view cannot express. Read off the TERM (slots), not the SALC key, because
 # the displacement decoration is per slot.
-function _ex_classify(t::SALCTerm)
+function _exchange_classify(t::SALCTerm)
     spin = Int[]
     disp = Int[]
     for i in eachindex(t.slots)
@@ -397,12 +397,12 @@ function exchange_strain_derivatives(
     # too (`magnetoelastic_constants` inherits it through `strain_derivatives`).
     _warn_unresolvable(model, "exchange_strain_derivatives")
     o = SVector{3,Float64}(origin[1], origin[2], origin[3])
-    out = _ex_derivatives(model, o)
+    out = _exchange_derivatives(model, o)
     check_origin && _check_exchange_origin(model, out, o)
     return out
 end
 
-function _ex_derivatives(model::SLCEModel, o::SVector{3,Float64})
+function _exchange_derivatives(model::SLCEModel, o::SVector{3,Float64})
     pairs = Dict{Tuple{Int,Int,SVector{3,Int}},Array{Float64,4}}()
     onsites = Dict{Int,Array{Float64,4}}()
     skipped = String[]
@@ -427,11 +427,11 @@ function _ex_derivatives(model::SLCEModel, o::SVector{3,Float64})
         reported = false
         for mem in salc.members
             for t in mem.terms
-                cls = _ex_classify(t)
+                cls = _exchange_classify(t)
                 if cls === nothing
                     # report only content that IS ε-linear: a pure-spin or degree-2 term
                     # is not missing from a first derivative, it does not belong in one
-                    if !reported && _ex_is_linear_disp(t) &&
+                    if !reported && _exchange_is_linear_disp(t) &&
                        any(has_spin, salc.decors)
                         push!(skipped, _unsupported_salc_string(salc.key))
                         reported = true
@@ -509,7 +509,7 @@ end
 
 # Does this term carry exactly one displacement factor of degree 1? (The "would have
 # contributed if its spin part were representable" test behind `skipped`.)
-function _ex_is_linear_disp(t::SALCTerm)::Bool
+function _exchange_is_linear_disp(t::SALCTerm)::Bool
     deg = 0
     nd = 0
     for s in t.slots
@@ -523,13 +523,13 @@ end
 function _check_exchange_origin(model::SLCEModel, out::ExchangeStrainDerivatives,
                                 o::SVector{3,Float64})
     probe = o + model.basis.crystal.lattice.vectors * _STRAIN_ORIGIN_PROBE
-    other = _ex_derivatives(model, probe)
-    scale = max(_ex_norm(out), eps())
+    other = _exchange_derivatives(model, probe)
+    scale = max(_exchange_norm(out), eps())
     # Compare in BOTH directions: the zero-pruning can drop a key from one side only, and
     # a coupling that exists at one origin and not at the other is the loudest possible
     # form of the failure this checks for.
-    dev = max(_ex_dev(out.pairs, other.pairs), _ex_dev(other.pairs, out.pairs),
-              _ex_dev(out.onsites, other.onsites), _ex_dev(other.onsites, out.onsites))
+    dev = max(_exchange_dev(out.pairs, other.pairs), _exchange_dev(other.pairs, out.pairs),
+              _exchange_dev(out.onsites, other.onsites), _exchange_dev(other.onsites, out.onsites))
     dev <= _EX_ORIGIN_RTOL * scale && return nothing
     throw(ArgumentError(
         "the per-bond strain derivatives of this model are not origin-independent " *
@@ -544,10 +544,10 @@ function _check_exchange_origin(model::SLCEModel, out::ExchangeStrainDerivatives
         "couplings anyway, for diagnosis only."))
 end
 
-_ex_dev(a::Dict, b::Dict)::Float64 =
+_exchange_dev(a::Dict, b::Dict)::Float64 =
     isempty(a) ? 0.0 : maximum(norm(T .- get(() -> zero(T), b, key)) for (key, T) in a)
 
-function _ex_norm(x::ExchangeStrainDerivatives)::Float64
+function _exchange_norm(x::ExchangeStrainDerivatives)::Float64
     acc = 0.0
     for (_, T) in x.pairs
         acc += sum(abs2, T)

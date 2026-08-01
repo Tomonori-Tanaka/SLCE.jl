@@ -20,9 +20,9 @@ using StaticArrays
 isdefined(@__MODULE__, :same_members) || include("testutils.jl")
 
 # Design matrix with intercept: X[i, 1] = 1, X[i, k+1] = Φ_k(e_i, u_i).
-function _rc_design(svec, cfgs)
-    X = Matrix{Float64}(undef, length(cfgs), length(svec) + 1)
-    for (i, (e, u)) in enumerate(cfgs)
+function _rc_design(svec, configs)
+    X = Matrix{Float64}(undef, length(configs), length(svec) + 1)
+    for (i, (e, u)) in enumerate(configs)
         X[i, 1] = 1.0
         for (k, s) in enumerate(svec)
             X[i, k + 1] = evaluate_salc(s, e, u)
@@ -37,9 +37,9 @@ _rc_pred(β, svec, e, u) =
 # OLS fit on the first `nfit` configs, relative holdout residual on the rest.
 # The fit design must be full column rank (unique β — the coefficient
 # discrimination assertions depend on it), and the holdout nonempty.
-function _rc_fit(svec, cfgs, E, nfit)
-    @assert 1 <= nfit < length(cfgs)
-    X = _rc_design(svec, cfgs)
+function _rc_fit(svec, configs, E, nfit)
+    @assert 1 <= nfit < length(configs)
+    X = _rc_design(svec, configs)
     @test rank(X[1:nfit, :]) == size(X, 2)
     β = X[1:nfit, :] \ E[1:nfit]
     ho = X[(nfit + 1):end, :] * β .- E[(nfit + 1):end]
@@ -91,10 +91,10 @@ _rc_unit(rng) = normalize(randn(rng, 3))
         gt(e, u) = E0 + (J + a_s * (u[1, 1] - u[1, 2]) + a_y * (u[2, 1] + u[2, 2]) +
                          a_O * u[2, 3]) * dot(e[:, 1], e[:, 2])
         rng = MersenneTwister(0xa1)
-        cfgs = [(reduce(hcat, [_rc_unit(rng) for _ = 1:3]), randn(rng, 3, 3))
+        configs = [(reduce(hcat, [_rc_unit(rng) for _ = 1:3]), randn(rng, 3, 3))
                 for _ = 1:40]
-        E = [gt(e, u) for (e, u) in cfgs]
-        β, res = _rc_fit(b0.salcs, cfgs, E, 30)
+        E = [gt(e, u) for (e, u) in configs]
+        β, res = _rc_fit(b0.salcs, configs, E, 30)
         @test res < 1e-9
         # Cartesian constant recovery through probe configurations (the
         # back-transform face of the plan, realized operationally): each probe
@@ -122,8 +122,8 @@ _rc_unit(rng) = normalize(randn(rng, 3))
         # it is OUT of span — the holdout must fail loudly...
         D = 0.3
         gt2(e, u) = gt(e, u) + D * (e[1, 1] * e[2, 2] - e[2, 1] * e[1, 2])
-        E2 = [gt2(e, u) for (e, u) in cfgs]
-        _, res2 = _rc_fit(b0.salcs, cfgs, E2, 30)
+        E2 = [gt2(e, u) for (e, u) in configs]
+        _, res2 = _rc_fit(b0.salcs, configs, E2, 30)
         @test res2 > 1e-2
         # ...and with the pure-spin pair sector flipped to soc = true the very
         # same data recovers exactly, including the Cartesian D.
@@ -131,7 +131,7 @@ _rc_unit(rng) = normalize(randn(rng, 3))
         b1 = SLCE.build_salc_basis(cr, sg, cs, spec1; neighbors = nl)
         @test length(b1.salcs) == 7          # pure-spin pair L_S = 0/1/2 → 1/1/2
         @test count(s -> s.key.L_S == 1, b1.salcs) == 1
-        β1, res1 = _rc_fit(b1.salcs, cfgs, E2, 30)
+        β1, res1 = _rc_fit(b1.salcs, configs, E2, 30)
         @test res1 < 1e-9
         ed = [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]    # ê₁ = x̂, ê₂ = ŷ (ê·ê = 0)
         D_rec = _rc_pred(β1, b1.salcs, ed, zeros(3, 3)) - β1[1]
@@ -178,10 +178,10 @@ _rc_unit(rng) = normalize(randn(rng, 3))
             return acc
         end
         rng = MersenneTwister(0xa2)
-        cfgs = [(reduce(hcat, [_rc_unit(rng) for _ = 1:7]), randn(rng, 3, 7))
+        configs = [(reduce(hcat, [_rc_unit(rng) for _ = 1:7]), randn(rng, 3, 7))
                 for _ = 1:24]
-        E = [gt(e, u) for (e, u) in cfgs]
-        β, res = _rc_fit(b.salcs, cfgs, E, 16)
+        E = [gt(e, u) for (e, u) in configs]
+        β, res = _rc_fit(b.salcs, configs, E, 16)
         @test res < 1e-9
         # probe recovery of α and β on the +x bond alone
         n1 = n2 = 0
@@ -227,10 +227,10 @@ _rc_unit(rng) = normalize(randn(rng, 3))
         E0, K = 0.05, 0.9
         gt(e, u) = E0 + K * dot(cross(e[:, 1], e[:, 2]), cross(u[:, 1], u[:, 2]))
         rng = MersenneTwister(0xa3)
-        cfgs = [(reduce(hcat, [_rc_unit(rng) for _ = 1:2]), randn(rng, 3, 2))
+        configs = [(reduce(hcat, [_rc_unit(rng) for _ = 1:2]), randn(rng, 3, 2))
                 for _ = 1:60]
-        E = [gt(e, u) for (e, u) in cfgs]
-        β, res = _rc_fit(b.salcs, cfgs, E, 45)
+        E = [gt(e, u) for (e, u) in configs]
+        β, res = _rc_fit(b.salcs, configs, E, 45)
         @test res < 1e-9
         ktw = findfirst(s -> s.key.L_S == 1 && s.key.Lf == 0, b.salcs)
         @test ktw !== nothing
@@ -256,7 +256,7 @@ _rc_unit(rng) = normalize(randn(rng, 3))
         # negative: the L_S = 0 subset cannot express the twist
         b0 = SLCE.build_salc_basis(xtalB, sgB, csB, mkspec(false); neighbors = nlB)
         @test all(s -> s.key.L_S == 0, b0.salcs)
-        _, res0 = _rc_fit(b0.salcs, cfgs, E, 45)
+        _, res0 = _rc_fit(b0.salcs, configs, E, 45)
         @test res0 > 1e-2
     end
 
@@ -292,10 +292,10 @@ _rc_unit(rng) = normalize(randn(rng, 3))
             return E0 + dot(ur, P0 * ur) + dot(e[:, 1], e[:, 2]) * dot(ur, P1 * ur)
         end
         rng = MersenneTwister(0xa4)
-        cfgs = [(reduce(hcat, [_rc_unit(rng) for _ = 1:2]), randn(rng, 3, 2))
+        configs = [(reduce(hcat, [_rc_unit(rng) for _ = 1:2]), randn(rng, 3, 2))
                 for _ = 1:80]
-        E = [gt(e, u) for (e, u) in cfgs]
-        β, res = _rc_fit(b.salcs, cfgs, E, 60)
+        E = [gt(e, u) for (e, u) in configs]
+        β, res = _rc_fit(b.salcs, configs, E, 60)
         @test res < 1e-9
         # probe recovery: unit stretches along and across the bond, spins
         # aligned (+) and antialigned (−) separate Φ⁰ from Φ¹
