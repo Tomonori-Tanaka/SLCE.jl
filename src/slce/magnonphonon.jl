@@ -176,7 +176,9 @@ function _fill_mpv_tensor!(T::Matrix{Float64}, weight::Float64, t::SALCTerm, id:
             i == is && continue                        # this one is differentiated below
             sl = t.slots[i]
             l = sl.factor.l
-            w *= Harmonics.Zlm(l, midx[i] - l - 1, _mpv_spin(e, mem.atoms[sl.site]))
+            # Unchecked: `_resolve_spins` is this path's door (see forceconstants.jl).
+            w *= Harmonics.Zlm_unsafe(l, midx[i] - l - 1,
+                                      _mpv_spin(e, mem.atoms[sl.site]))
             w == 0.0 && break
         end
         w == 0.0 && continue
@@ -186,7 +188,7 @@ function _fill_mpv_tensor!(T::Matrix{Float64}, weight::Float64, t::SALCTerm, id:
         poly = get!(() -> SolidHarmonics.solid_harmonic_poly(pk[1], pk[2], pk[3]),
                     polycache, pk)
         # the spin axis: the TANGENTIAL gradient, radial part projected out
-        g = Harmonics.grad_Zlm(bl, midx[is] - bl - 1, eb)
+        g = Harmonics.grad_Zlm_unsafe(bl, midx[is] - bl - 1, eb)
         for α = 1:3
             dα = _site_derivative(poly, (α,))
             dα == 0.0 && continue

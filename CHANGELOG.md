@@ -6,6 +6,45 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — the derivative readouts validate `spins` at the door, by the package's own rule
+
+`_resolve_spins` — the funnel for `force_constants`, `strain_derivatives`,
+`magnon_phonon_vertices` and `grid_strain_derivative` — checked the SHAPE of `spins`
+and nothing else, while everything behind it called the CHECKED harmonics, whose band
+is `1e-8`. So the readouts accepted a different set of magnetic states than the
+dataset boundary, in both directions:
+
+- **too strict**: a state `5e-7` off unit norm built a dataset, fitted and predicted,
+  then `force_constants(model; spins = e)` threw `"direction must be a unit vector"`
+  from inside the accumulation, naming neither the argument nor the atom;
+- **too lax**: `‖e‖ = 1.7` succeeded *silently* whenever the requested order carried
+  no spin-dressed term, and the bogus vector was stored on `ForceConstantSet.spins`,
+  which `write_alamode` uses as its cross-set consistency key.
+
+Each door now validates through the shared rule and the kernels below it use the
+unchecked entries. Concretely: `_validate_config`'s per-column body is factored into
+`_validate_direction` (finite, `|‖e‖ − 1| ≤ atol` at the package's `1e-6`, and
+`max|component| ≤ 1`), `_resolve_spins` calls it — conditioned on `_basis_has_spin`,
+exactly like `_validate_config_pair`, so the all-zero omission marker of the spin-free
+entry path stays legal — and the two entry points that were their own doors and had no
+check at all, `site_rows!` and `predict_energy(::EffectiveModel, e, du)`, now call it
+too. The five inner call sites (`_fill_fcs_tensor!`, `magnonphonon.jl` ×2,
+`effective.jl`, `rowlayout.jl`) moved to `Zlm_unsafe`/`grad_Zlm_unsafe`.
+
+Two notes on why it is stated this way. The **component bound**, not the tolerance, is
+what establishes the kernel's precondition: `Zlm` reaches `dnPl`, whose domain is
+`|e_z| ≤ 1`, and near a pole any `δ > 0` can push past it — a column `5e-9` off norm
+clears a `1e-8` band and still throws a bare `DomainError`. And `site_rows!` is
+documented as the reference filler "which a consumer's own version must reproduce",
+yet every mirror that exists (SLCEMonteCarlo's `_zlm_row!` and its device replica,
+SLCETools' samplers) reaches `Zlm_unsafe` and validates nothing — so the reference was
+the only implementation that threw, and at a tolerance no other door used. It now
+states the same domain its consumers do.
+
+Gates in `test/unit/test_forceconstants.jl` "spins is validated at the door": both
+halves of the reported defect, the pole hazard, the message naming argument + atom +
+readout, and the spin-free path still accepting both `zeros(3, nat)` and `nothing`.
+
 ### Fixed — `grad_Zlm`'s tangency is now an identity in the input, not an approximation
 
 `Harmonics._grad_zlm_assemble` removed the radial component as `u(u·∂Z)` instead of

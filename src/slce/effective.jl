@@ -357,11 +357,21 @@ function predict_energy(em::EffectiveModel, e::AbstractMatrix{<:Real},
     size(du) == size(e) || throw(ArgumentError(
         "displacement increment du has size $(size(du)); expected $(size(e)) " *
         "(same 3 × n_atoms column convention as the spin configuration)"))
+    # `EffectiveModel` is not a `SLCEModel`, so it does not funnel through
+    # `_resolve_spins`; it is its own door and needs the same rule. Conditioned on
+    # the terms rather than on a basis predicate, because a re-expansion carries no
+    # `SALCKey`s — the question "does anything here read a spin?" is answerable only
+    # from the term list. Below this line every spin factor reaches the CHECKED
+    # `Zlm`, i.e. the harmonics' `1e-8` band with no component bound at all.
+    any(t -> !isempty(t.spins), em.terms) &&
+        _validate_config(e, nat; label = "spin configuration")
     total = em.j0
     @inbounds for t in em.terms
         w = t.scaled_coef
         for (a, l, m) in t.spins
-            w *= Harmonics.Zlm(l, m, SVector{3,Float64}(e[1, a], e[2, a], e[3, a]))
+            # Unchecked: the `_validate_config` above is this function's own door.
+            w *= Harmonics.Zlm_unsafe(l, m,
+                                      SVector{3,Float64}(e[1, a], e[2, a], e[3, a]))
             w == 0.0 && break
         end
         w == 0.0 && continue

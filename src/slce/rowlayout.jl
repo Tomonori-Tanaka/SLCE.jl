@@ -151,8 +151,19 @@ function site_rows!(rows::AbstractVector{Float64}, layout::RowLayout,
     length(rows) >= layout.nrows || throw(DimensionMismatch(
         "rows has $(length(rows)) entries; the layout needs $(layout.nrows)"))
     ev = SVector{3,Float64}(e[1], e[2], e[3])
+    # A reference implementation is also the statement of the accepted DOMAIN, not
+    # only of the values — its docstring tells consumers to reproduce it, and every
+    # mirror that exists (SLCEMonteCarlo's `_zlm_row!` / its device replica,
+    # SLCETools' samplers) reaches `Zlm_unsafe` and validates nothing, so before
+    # this the reference was the only implementation that threw, and it threw from
+    # inside the kernel at the harmonics' own `1e-8` rather than at the package's
+    # `1e-6`. Validate at the shared rule instead, naming the argument. This is not
+    # on any hot path: nothing in `src/` calls `site_rows!` — it exists for the
+    # bitwise gate and for people writing their own filler.
+    layout.spin_lmax >= 0 && _validate_direction(ev, "site_rows! `e`")
     @inbounds for l = 0:layout.spin_lmax, m = -l:l
-        rows[Harmonics.lm_index(l, m)] = Harmonics.Zlm(l, m, ev)
+        # Unchecked: the `_validate_direction` above is this function's own door.
+        rows[Harmonics.lm_index(l, m)] = Harmonics.Zlm_unsafe(l, m, ev)
     end
     isempty(layout.disp_factors) && return rows
     uv = SVector{3,Float64}(u[1], u[2], u[3])

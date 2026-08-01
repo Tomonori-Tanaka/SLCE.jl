@@ -126,6 +126,31 @@ Easy to break silently — confirm before touching the algorithm.
 - `basis/Harmonics.jl` (`Zlm`, `grad_Zlm`) ↔ the on-sphere central-difference and
   closed-form agreement tests (`test/unit/test_harmonics.jl`). Normalization / sign
   drift silently biases `X`.
+- **Unit-norm validation is a DOOR's job, never a kernel's** (`slce/model.jl`
+  `_validate_direction`/`_validate_config` ↔ `slce/forceconstants.jl`
+  `_resolve_spins` ↔ `slce/rowlayout.jl` `site_rows!` ↔ `slce/effective.jl`
+  `predict_energy(::EffectiveModel, …)` ↔ `fitting/fit.jl` `_validate_config_pair` ↔
+  `io/dftsource.jl` `TrainingDatum`): "this is a unit vector" is an invariant with no
+  representation — it lives only as a rule each door must remember — so the rule is
+  stated ONCE (`_validate_direction`: finite, `|‖e‖ − 1| ≤ atol` at the package's
+  `1e-6`, and `max|component| ≤ 1`) and every door calls it. Below a door, kernels
+  use `Zlm_unsafe`/`grad_Zlm_unsafe`; the checked entries exist for callers who
+  cannot guarantee `(l, m)`, which is a SEPARATE hazard (`|m| > l` reaches
+  `_plm_norm`'s zero division and returns `NaN`) that no door discharges.
+  **The component bound is the load-bearing half and the tolerance is not**: `Zlm`
+  reaches `dnPl`, whose domain is `|e_z| ≤ 1`, and near a pole any `δ > 0` can push
+  past it — measured, a column `5e-9` off norm clears a `1e-8` band and still throws
+  a bare `DomainError` from inside the accumulation. Tightening `atol` therefore
+  cannot establish the precondition; only the component bound can, and it rejects
+  nothing harmless (a column off norm by `1e-7` whose largest component is `0.8`
+  passes). `_resolve_spins`'s validation is conditioned on `_basis_has_spin` for the
+  same reason `_validate_config_pair`'s is: the spin-free entry path's omission
+  marker is deliberately an all-ZERO matrix, which is not a unit configuration.
+  Adding a new entry point that reaches a spin factor means adding a door — the
+  audited defect was exactly a door added without one, and NOTHING downstream can
+  catch it: measured, the acoustic modes of `D(0)` and `asr_residual` are completely
+  blind to an off-unit spin state (the ASR's rows are keyed per spin monomial, so
+  `Aβ = 0` is an identity in `e` and holds for a wrong `e` too).
 - **Energy kernel `evaluate_salc` ↔ gradient kernel `accumulate_grad!`** (`basis/salc.jl`):
   identical `μ = idx[i] − ls[i] − 1` mapping, `ls`, `folded`, and `(4π)^(N/2)` scale.
   The gate is the finite-difference self-consistency `predict_torque ≈ −e × ∇E_FD`

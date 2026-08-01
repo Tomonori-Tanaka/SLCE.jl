@@ -819,17 +819,29 @@ function _validate_config(c::AbstractMatrix{<:Real}, nat::Int; atol::Real = 1e-6
         throw(DimensionMismatch("$label has $(size(c, 2)) atoms, basis expects $nat"))
     @inbounds for a in axes(c, 2)
         u = SVector{3,Float64}(c[1, a], c[2, a], c[3, a])
-        all(isfinite, u) ||
-            throw(ArgumentError("$label column $a is not finite ($(Tuple(u)))"))
-        abs(norm(u) - 1) <= atol ||
-            throw(ArgumentError("$label column $a is not a unit vector (‖e‖ = $(norm(u)))"))
-        maximum(abs, u) <= 1 || throw(ArgumentError(
-            "$label column $a has a component outside [-1, 1] " *
-            "($(Tuple(u)), ‖e‖ = $(norm(u))) — the harmonic kernel's Legendre " *
-            "recursion is defined only for |e_z| ≤ 1, so this would throw from inside " *
-            "the design assembly. Normalize the column (`u ./= norm(u)`) rather than " *
-            "widening `atol`, which cannot fix it"))
+        _validate_direction(u, "$label column $a"; atol = atol)
     end
+    return nothing
+end
+
+# One direction's three checks, factored out of `_validate_config` so that the
+# doors taking a SINGLE direction rather than a whole configuration — `site_rows!`,
+# the readout entry `_resolve_spins` funnels through — state the same rule instead
+# of restating two thirds of it. `what` names the offending thing (an argument, or
+# a column of one) and is interpolated as written; every message below is
+# character-identical to the per-column form this replaced.
+function _validate_direction(u::SVector{3,Float64}, what::AbstractString;
+                             atol::Real = 1e-6)
+    all(isfinite, u) ||
+        throw(ArgumentError("$what is not finite ($(Tuple(u)))"))
+    abs(norm(u) - 1) <= atol ||
+        throw(ArgumentError("$what is not a unit vector (‖e‖ = $(norm(u)))"))
+    maximum(abs, u) <= 1 || throw(ArgumentError(
+        "$what has a component outside [-1, 1] " *
+        "($(Tuple(u)), ‖e‖ = $(norm(u))) — the harmonic kernel's Legendre " *
+        "recursion is defined only for |e_z| ≤ 1, so this would throw from inside " *
+        "the design assembly. Normalize the column (`u ./= norm(u)`) rather than " *
+        "widening `atol`, which cannot fix it"))
     return nothing
 end
 

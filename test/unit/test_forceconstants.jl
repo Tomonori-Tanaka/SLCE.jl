@@ -290,6 +290,62 @@ end
         @test f2.spins == e2 && fcs.spins == e
     end
 
+    # `_resolve_spins` is the funnel for `force_constants` / `strain_derivatives` /
+    # `magnon_phonon_vertices` / `grid_strain_derivative`. It used to check the SHAPE
+    # of `spins` and nothing else, while everything behind it called the CHECKED
+    # harmonics — a band of `1e-8` — so the readouts accepted a different set of
+    # magnetic states than the dataset boundary, in both directions.
+    @testset "spins is validated at the door, by the package's own rule" begin
+        # (1) TOO STRICT. Every other door in the package accepts `1e-6`; a state
+        # `5e-7` off unit norm builds a dataset and fits, so a readout must not be
+        # the one place it dies. The expected value is not read off the code: the
+        # boundary's own documented contract is that `atol` is the caller-declared
+        # error budget, and 5e-7 is inside it.
+        near = copy(e)
+        near[:, 1] .*= (1 + 5e-7)
+        @test SLCE._validate_config(near, nat) === nothing        # the shared rule accepts it
+        @test force_constants(model; spins = near, order = 2) isa SLCE.ForceConstantSet
+        @test magnon_phonon_vertices(model; spins = near) isa Any
+
+        # (2) TOO LAX. `‖e‖ = 1.7` used to succeed SILENTLY whenever the requested
+        # order carried no spin-dressed term, and the bogus vector was stored on the
+        # set, where `write_alamode` uses it as a cross-set consistency key.
+        far = copy(e)
+        far[:, 1] .*= 1.7
+        err = try
+            force_constants(model; spins = far, order = 2)
+            nothing
+        catch ex
+            ex
+        end
+        @test err isa ArgumentError
+        # the message must name the ARGUMENT, the ATOM, and the readout — the old one
+        # said only "direction must be a unit vector", from inside the kernel
+        @test occursin("spins", err.msg) && occursin("column 1", err.msg) &&
+              occursin("force constants", err.msg)
+
+        # (3) The POLE hazard, which no tolerance can close: `|e_z| > 1` is a hard
+        # precondition of the Legendre recursion, and a column `5e-9` off norm clears
+        # any sane band and still throws a bare `DomainError` from inside the
+        # accumulation. The component bound is what makes it an ArgumentError here.
+        pole = copy(e)
+        pole[:, 1] = [0.0, 0.0, 1 + 5e-9]
+        @test abs(norm(pole[:, 1]) - 1) < 1e-8       # inside the harmonics' own band
+        @test_throws ArgumentError force_constants(model; spins = pole, order = 2)
+
+        # (4) The spin-free entry path is untouched: the all-zero omission marker is
+        # deliberately not a unit matrix, so the validation must be conditioned on
+        # the basis carrying spin, exactly like `_validate_config_pair`.
+        lattice = SLCEModel(SLCEBasis(cr, BasisSpec(cr; lmax = 0, pmax = 2, sectors = [
+            Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)])), 0.0,
+            randn(rng, n_salcs(SLCEBasis(cr, BasisSpec(cr; lmax = 0, pmax = 2,
+                sectors = [Sector(disp = (degree = 2,), sites = 1:2, cutoff = 1.1)])))))
+        @test force_constants(lattice; spins = zeros(3, nat), order = 2) isa
+              SLCE.ForceConstantSet
+        @test force_constants(lattice; spins = nothing, order = 2) isa
+              SLCE.ForceConstantSet
+    end
+
     @testset "order 3 against a third derivative" begin
         b3 = SLCEBasis(cr, BasisSpec(cr; lmax = 1, pmax = 3, sectors = [
             Sector(disp = (degree = 3,), sites = 1:2, cutoff = 1.1)]))

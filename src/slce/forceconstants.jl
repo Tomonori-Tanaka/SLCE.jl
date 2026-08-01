@@ -79,7 +79,31 @@ function _resolve_spins(model::SLCEModel,
     end
     size(spins) == (3, nat) || throw(DimensionMismatch(
         "spins is $(size(spins)); expected (3, $nat) — one unit column per atom"))
-    return Matrix{Float64}(spins)
+    e = Matrix{Float64}(spins)
+    # Validate through the SAME function the dataset boundary uses, at the SAME
+    # `atol`, so a magnetic state that builds a dataset and fits also evaluates the
+    # readouts. This used to check the shape and nothing else, which broke in both
+    # directions. Too strict: everything behind here calls the CHECKED `Zlm` /
+    # `grad_Zlm`, whose band is `1e-8`, so a column off unit norm by `5e-7` passed
+    # `_validate_config`, fitted, predicted — and then died inside the readout with
+    # "direction must be a unit vector", naming neither the argument nor the atom.
+    # Too lax: `‖e‖ = 1.7` succeeded silently whenever the requested order carried
+    # no spin-dressed term, and the bogus vector was stored in
+    # `ForceConstantSet.spins`, which `write_alamode` uses as its cross-set key.
+    # `_validate_config`'s component bound is the half that matters most here: the
+    # norm band CANNOT establish the kernel's hard precondition (`dnPl` needs
+    # `|e_z| ≤ 1`, and near a pole any `δ > 0` can push past it — measured, a column
+    # `5e-9` off norm passes a `1e-8` band and still throws a `DomainError` from
+    # inside the accumulation), so tightening a tolerance was never the fix.
+    #
+    # Conditioned on `_basis_has_spin`, exactly like `_validate_config_pair`
+    # (fitting/fit.jl): a lattice-only model reads no spin, and the all-zero
+    # omission marker this function returns above is deliberately NOT a unit
+    # matrix — validating it unconditionally would reject the package's own
+    # spin-free entry path.
+    _basis_has_spin(model.basis) &&
+        _validate_config(e, nat; label = "`spins` (evaluating $what)")
+    return e
 end
 
 # Derivative of one site's displacement factor at u = 0: the site factor is the
@@ -389,7 +413,12 @@ function _fill_fcs_tensor!(T::Array{Float64}, weight::Float64, t::SALCTerm,
                 sl.factor.channel == SPIN || continue
                 l = sl.factor.l
                 a = mem.atoms[sl.site]
-                w *= Harmonics.Zlm(l, midx[i] - l - 1,
+                # Unchecked: `_resolve_spins` established the precondition at the
+                # door (unit within the package's `atol`, components in [-1, 1]).
+                # The checked kernel here used to be the ONLY validation, one layer
+                # too deep — it fired mid-accumulation, at a tolerance no other door
+                # uses, naming neither the argument nor the atom.
+                w *= Harmonics.Zlm_unsafe(l, midx[i] - l - 1,
                                    SVector{3,Float64}(e[1, a], e[2, a], e[3, a]))
                 w == 0.0 && break
             end
