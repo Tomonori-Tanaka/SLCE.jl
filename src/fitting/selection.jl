@@ -396,6 +396,21 @@ _gcv_neff(f::SLCEFit)::Int =
 _penalty_beta(f::SLCEFit, rep::Union{Nothing,ASRReparam})::Vector{Float64} =
     rep === nothing ? f.jphi : f.jphi .- rep.beta_p
 
+# `effective_dof`/`gcv` reconstruct the FULL design from `dataset` + `reparam`; a
+# `refit` solved on a column support (under a re-derived sub-stage that is not
+# stored), so the reconstruction describes a model the refit did not return —
+# measured: df 40.0 where ≈ 5 was honest, and `gcv` a silent `Inf` through the
+# `n − df` guard (review 2026-08-11 M3). Refuse by name rather than answer wrong.
+function _refuse_refit_diagnostic(f::SLCEFit, what::AbstractString)
+    f.support === nothing || throw(ArgumentError(
+        "$what on a `refit` result: the diagnostic reconstructs the full " *
+        "$(length(f.jphi))-column design, not the $(length(f.support))-column " *
+        "support the refit solved on, so its value would describe a model that " *
+        "was not returned. Score the REGULARIZED fit before de-biasing (that is " *
+        "what selects λ), and validate the refit by holdout or `cross_validate`."))
+    return nothing
+end
+
 """
     effective_dof(f::SLCEFit) -> Float64
 
@@ -404,16 +419,31 @@ X(X'X + λ·Diagonal(w))⁻¹X'` is the hat matrix of the assembled (centered / 
 problem with the penalty diagonal frozen at the fitted coefficients, and the `+1`
 counts the analytic intercept `j0`. For an unpenalized fit ([`OLS`](@ref), or
 `lambda = 0`) this is the design rank `+1`. Distinct from [`dof`](@ref), the raw
-parametric count. Linear estimators only ([`islinear`](@ref)); the adaptive members
-([`AdaptiveRidge`](@ref) / [`GroupAdaptiveRidge`](@ref)) are handled in the standard
-converged-weight sense. On an ASR-constrained fit the hat matrix lives in the
-reparameterized (γ) space — the β-space penalty compresses to `Z'·D·Z` — so the
-value is bounded by `p − rank(A) + 1`.
+parametric count. Linear estimators only ([`islinear`](@ref)). On an
+ASR-constrained fit the hat matrix lives in the reparameterized (γ) space — the
+β-space penalty compresses to `Z'·D·Z` — so the value is bounded by
+`p − rank(A) + 1`.
+
+!!! warning "Adaptive estimators: a lower bound"
+    For the adaptive members ([`AdaptiveRidge`](@ref) /
+    [`GroupAdaptiveRidge`](@ref)) the penalty diagonal is **frozen** at the
+    fitted coefficients (the standard converged-weight treatment). That ignores
+    the selection the data-dependent weights perform, so the value is a **lower
+    bound** on the true `tr(∂ŷ/∂y)` — measured up to 14 % low at small λ against
+    a numerical trace — and a [`gcv`](@ref) built on it is correspondingly
+    **optimistic**, most where the weights select hardest. Grouped
+    cross-validation ([`select_fit`](@ref)`(...; criterion = :cv)`) is the
+    honest criterion.
+
+A [`refit`](@ref) result is **refused**: the diagnostics reconstruct the full
+design, not the support the refit solved on, so the value would describe a model
+that was not returned. Score the regularized fit before de-biasing.
 """
 function effective_dof(f::SLCEFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "effective_dof requires a linear estimator (`islinear`); " *
         "got $(typeof(f.estimator))"))
+    _refuse_refit_diagnostic(f, "effective_dof")
     rep = f.reparam                       # the STAGE's Z on a staged fit
     X, _, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight, rep)
     # The weight map must be evaluated where the SOLVER evaluated it: at β = Z·γ,
@@ -423,7 +453,10 @@ function effective_dof(f::SLCEFit)::Float64
     lambda, w = _penalty_diagonal(f.estimator, _penalty_beta(f, rep))
     df = w === nothing ? _rank_df(X) :
          (rep === nothing ? _effective_dof_gram(X, lambda, w) : _effective_dof_nullspace(X, lambda, w, rep.Z))
-    return df + 1.0
+    # The intercept is charged only when the energy block carries weight — at
+    # `w + wF == 1` j0 is estimated from rows GCV's n_eff does not count (same
+    # zero test as `_gcv_neff` / the assembly's scale expression).
+    return df + (max(0.0, 1 - f.torque_weight - f.force_weight) == 0.0 ? 0.0 : 1.0)
 end
 
 # The GCV score (and the effective dof it used, intercept included) on an already-
@@ -439,11 +472,16 @@ function _gcv_score(X::Matrix{Float64}, y::Vector{Float64}, beta::Vector{Float64
                     XtX::Union{Nothing,Matrix{Float64}} = nothing,
                     Z::Union{Nothing,Matrix{Float64}} = nothing,
                     n_eff::Int = size(X, 1),
+                    intercept::Float64 = 1.0,
                     )::Tuple{Float64,Float64}
     n = n_eff
+    # `intercept` is 0.0 when the energy block carries zero weight (`w + wF == 1`):
+    # j0 is then estimated from rows `n_eff` does not count, so charging it to the
+    # counted rows inflated the score by ((n−df)/(n−df−1))² — ~3 % at n_eff = 72
+    # and unbounded as df → n_eff (review 2026-08-11).
     df = (w === nothing ? _rank_df(X) :
           (Z === nothing ? _effective_dof_gram(X, lambda, w; XtX = XtX) :
-           _effective_dof_nullspace(X, lambda, w, Z))) + 1.0
+           _effective_dof_nullspace(X, lambda, w, Z))) + intercept
     n - df < max(1.0, 1e-8 * n) && return (Inf, df)
     rss = sum(abs2, y .- X * beta)
     return (n * rss / (n - df)^2, df)
@@ -466,10 +504,21 @@ Linear estimators only ([`islinear`](@ref)).
     is then optimistic (the same leak configuration-grouped CV folds avoid). For a
     co-fit, prefer the grouped cross-validation criterion
     ([`select_fit`](@ref)`(...; criterion = :cv)`); use this GCV as a fast reference.
+
+!!! warning "Adaptive estimators"
+    For [`AdaptiveRidge`](@ref) / [`GroupAdaptiveRidge`](@ref) the `df` in the
+    denominator is the frozen-weight value — a lower bound (see
+    [`effective_dof`](@ref)) — so the score is **optimistic**, and most so at
+    small λ, where the data-dependent weights are doing the most selecting.
+    `select_fit(...; criterion = :cv)` is the honest criterion; use this GCV as
+    a fast reference.
+
+A [`refit`](@ref) result is **refused** — see [`effective_dof`](@ref).
 """
 function gcv(f::SLCEFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "gcv requires a linear estimator (`islinear`); got $(typeof(f.estimator))"))
+    _refuse_refit_diagnostic(f, "gcv")
     rep = f.reparam                       # the STAGE's Z on a staged fit
     X, y, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight, rep)
     lambda, w = _penalty_diagonal(f.estimator, _penalty_beta(f, rep))
@@ -477,7 +526,9 @@ function gcv(f::SLCEFit)::Float64
     beta = rep === nothing ? f.jphi : rep.Z' * _penalty_beta(f, rep)
     return first(_gcv_score(X, y, beta, lambda, w;
                             Z = rep === nothing ? nothing : rep.Z,
-                            n_eff = _gcv_neff(f)))
+                            n_eff = _gcv_neff(f),
+                            intercept = max(0.0, 1 - f.torque_weight -
+                                                 f.force_weight) == 0.0 ? 0.0 : 1.0))
 end
 
 # --- λ-path driver with the cost-aware Pareto selection rule ----------------------
@@ -675,12 +726,19 @@ per-λ table and the selected fit (re-solved cold, so it is reproducible by a pl
 is ignored** (the path is `lambdas`). Scoring:
 
 - `criterion = :gcv` (default) — the [`gcv`](@ref) score from the closed-form hat
-  matrix; fast, no refitting. See the co-fit caveat in the [`gcv`](@ref) docstring:
-  with `torque_weight > 0` prefer `:cv`.
+  matrix; fast, no refitting. Two caveats from the [`gcv`](@ref) docstring apply
+  here with force: with `torque_weight > 0` prefer `:cv` (row-correlation leak),
+  and the frozen-weight df of the adaptive penalty makes the score **optimistic
+  exactly where it matters for this driver** — most at small λ, where the weights
+  select hardest — so `:gcv` leans toward keeping extra groups alive and the
+  Pareto rule then buys real Monte-Carlo cost against a biased score. `:cv` is the
+  honest criterion; use `:gcv` for fast scans.
 - `criterion = :cv` — `nfolds`-fold configuration-grouped cross-validation (folds
   never split a configuration's energy/torque rows; deterministic seeded fold
   assignment). The centering/whitening constants stay global — the score ranks λ, it
-  is not an unbiased error estimate.
+  is not an unbiased error estimate. The reported score is the held-out SSE per
+  informative row (the same objective scale [`cross_validate`](@ref)'s
+  `pooled_score` and [`select_support`](@ref)'s `score` report).
 
 A group is **alive** at a given λ when any of its columns clears the
 scaled-magnitude rule `|jϕⱼ|·‖X[:, j]‖ > threshold` on the assembled design (the same
@@ -843,18 +901,20 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
     # shared definition is `_gcv_neff`, and the energy block's weight is
     # `1 - w - wF`, not `1 - w`.
     neff = n - (max(0.0, 1 - w - wF) == 0.0 ? length(dataset.y_E) : 0)
+    icpt = max(0.0, 1 - w - wF) == 0.0 ? 0.0 : 1.0
     if criterion === :gcv
         wv = Vector{Float64}(undef, length(Xty))
         normsq = Vector{Float64}(undef, G)
         for i = 1:nl
             if lams[i] == 0.0
                 score[i], edof[i] = _gcv_score(X, y, betas[i], 0.0, nothing;
-                                               n_eff = neff)
+                                               n_eff = neff, intercept = icpt)
             else
                 _group_adaptive_weights!(wv, betas[i], estimator.column_groups, estimator.group_weights,
                               estimator.group_sizes, estimator.epsilon, normsq)
                 score[i], edof[i] = _gcv_score(X, y, betas[i], lams[i], wv;
-                                               XtX = XtX, n_eff = neff)
+                                               XtX = XtX, n_eff = neff,
+                                               intercept = icpt)
             end
         end
     else
@@ -925,11 +985,19 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
                                estimator.group_weights, estimator.group_sizes, estimator.epsilon,
                                estimator.max_iter, estimator.tol; beta0 = prevf)
                 end
+                # Same frozen-column zeroing as the full-data path: the two paths
+                # must state the same thing about identically-zero design columns
+                # (their holdout contribution is ~1e-17, but consistency is free).
+                isempty(frozen_cols) || (bf[frozen_cols] .= 0.0)
                 prevf = bf
                 sse[i] += sum(abs2, yho .- Xho * bf)
             end
         end
-        score .= sse ./ n
+        # Per INFORMATIVE row (`neff`), matching `cross_validate.pooled_score` and
+        # `select_support.score` — `n` counts zero-weight energy rows at
+        # `w + wF == 1`, and dividing by it put this score on a scale the other
+        # two selectors' users cannot compare against (review 2026-08-11).
+        score .= sse ./ neff
     end
 
     sel = _select_pareto(score, cost, Float64(score_rtol))
@@ -947,16 +1015,29 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
     if criterion === :gcv
         if lams[sel] == 0.0
             score[sel], edof[sel] = _gcv_score(X, y, fsel.jphi, 0.0, nothing;
-                                               n_eff = neff)
+                                               n_eff = neff, intercept = icpt)
         else
             wv = Vector{Float64}(undef, length(Xty))
             normsq = Vector{Float64}(undef, G)
             _group_adaptive_weights!(wv, fsel.jphi, estimator.column_groups, estimator.group_weights,
                           estimator.group_sizes, estimator.epsilon, normsq)
             score[sel], edof[sel] = _gcv_score(X, y, fsel.jphi, lams[sel], wv;
-                                               XtX = XtX, n_eff = neff)
+                                               XtX = XtX, n_eff = neff,
+                                               intercept = icpt)
         end
     end
+    # The cold re-derivation above mutated `score[sel]`/`n_alive[sel]`/`cost[sel]`
+    # AFTER `_select_pareto` ran on the warm table. Warm and cold agree within the
+    # IRLS tol, so the selection is expected to stand — but the docstring's rule
+    # ("the cheapest λ within score_rtol of the minimum") must hold on the table the
+    # caller sees, so re-check and say so if a knife-edge case ever moves it.
+    sel2 = _select_pareto(score, cost, Float64(score_rtol))
+    sel2 == sel ||
+        @warn "select_fit: the cold re-derivation of the selected row moved the " *
+              "Pareto choice — the returned table's rule-based pick is index " *
+              "$sel2 (λ = $(lams[sel2])) while the returned fit is index $sel " *
+              "(λ = $(lams[sel])). The two solves differ only within the IRLS " *
+              "tolerance; tighten `tol` or thin the λ grid near the tie." maxlog = 1
     return LambdaPath(lams, score, criterion, edof, n_alive, cost, Float64(score_rtol),
                       t_sel, sel, fsel)
 end
@@ -972,6 +1053,10 @@ end
 # points can come back (always ≥ 1: the anchor).
 function _support_thresholds(n::Integer, m_g::Vector{Float64})::Vector{Float64}
     n >= 2 || throw(ArgumentError("npoints must be ≥ 2; got $n"))
+    # An empty group vector would reach `log(0)` below and die with a range error
+    # naming nothing the caller holds.
+    isempty(m_g) && throw(ArgumentError(
+        "the fit has no coefficient groups to threshold (zero-SALC basis)"))
     ms = sort(m_g; rev = true)
     G = length(ms)
     thr = Float64[]

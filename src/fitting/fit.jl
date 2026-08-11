@@ -370,7 +370,7 @@ function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator
     # type — a `Bool` flag would leave `Union{Nothing,ASRReparam}` for JET.)
     resid = rep === nothing || size(rep.A, 1) == 0 ? 0.0 : _asr_residual(rep, jphi)
     return SLCEFit(dataset, j0, jphi, estimator, residuals, w, wF,
-                   rep !== nothing && size(rep.A, 1) > 0, resid, rep, staged)
+                   rep !== nothing && size(rep.A, 1) > 0, resid, rep, staged, nothing)
 end
 
 # Is this fit STAGED (`frozen` / `sector_mask`), as opposed to merely ASR-constrained?
@@ -490,6 +490,14 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
                threshold::Real = 0.0)::SLCEFit
     threshold >= 0 || throw(ArgumentError("refit threshold must be ≥ 0; got $threshold"))
     _reject_fixed_coefficients(estimator)
+    # Same shape of up-front refusal: the group labels are indexed by the FULL basis
+    # design, and a support has been chosen — letting it through died deeper with a
+    # DimensionMismatch blaming "labels built on a different SLCEBasis", which is
+    # not what happened (review 2026-08-11).
+    estimator isa GroupAdaptiveRidge && throw(ArgumentError(
+        "refit does not accept a GroupAdaptiveRidge: its column_groups are indexed " *
+        "by the full basis design, not the chosen support. De-bias with OLS() (the " *
+        "default) or Ridge — the group structure already did its job selecting."))
     dataset = f.dataset
     w = f.torque_weight
     wF = f.force_weight
@@ -579,7 +587,8 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
     residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
     resid = rep === nothing || size(rep.A, 1) == 0 ? 0.0 : _asr_residual(rep, jphi)
     return SLCEFit(dataset, j0, jphi, estimator, residuals, w, wF,
-                   rep !== nothing && size(rep.A, 1) > 0, resid, rep, _is_staged(f))
+                   rep !== nothing && size(rep.A, 1) > 0, resid, rep, _is_staged(f),
+                   sort(support))
 end
 
 # A `FixedCoefficients` carries a fixed, full-design coefficient vector. `refit` and

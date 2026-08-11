@@ -815,6 +815,12 @@ end
 # largest component is `0.8` is still accepted.
 function _validate_config(c::AbstractMatrix{<:Real}, nat::Int; atol::Real = _DIRECTION_ATOL,
                           label::AbstractString = "spin config")
+    # The cap binds HERE especially: this door validates without projecting, so past
+    # `_DIRECTION_ATOL_MAX` a moment-scaled vector would not merely be silently
+    # projected (the projecting doors' complaint) — it would enter the design matrix
+    # raw, biasing every fitted jϕ by C_l·δ (review 2026-08-11 M2: atol = 0.5
+    # accepted ‖e‖ = 0.6 columns and fit a ~98 %-biased design).
+    _check_atol(atol)
     size(c, 1) == 3 ||
         throw(ArgumentError("$label must have 3 rows (got $(size(c, 1)))"))
     size(c, 2) == nat ||
@@ -1120,4 +1126,13 @@ struct SLCEFit
     # the basis has unresolvable columns to freeze. `select_support` then refuses an
     # ordinary ablation fit with a message about staging that is simply false.
     staged::Bool
+    # The support a `refit` solved on (design-column indices), or `nothing` for a
+    # direct `fit`. Recorded so `effective_dof`/`gcv` can REFUSE a refit result by
+    # name (review 2026-08-11 M3): they reconstruct the FULL design from `dataset` +
+    # `reparam`, which is not the problem the refit solved — the df came back as the
+    # full-design rank (40 where ≈ 5 was honest) and `gcv` as a silent `Inf`. A
+    # constrained refit solves under a RE-DERIVED sub-stage that is deliberately not
+    # stored (only the original `reparam` is), so restricting the diagnostics is not
+    # a matter of slicing columns; refusal is the honest option.
+    support::Union{Nothing,Vector{Int}}
 end

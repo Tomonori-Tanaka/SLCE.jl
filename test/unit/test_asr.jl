@@ -479,8 +479,12 @@ end
         Xw, yw, _, _, _ = _assemble_problem(ds, 1.0, 0.0)
         neff = size(Xw, 1) - length(ds.y_E)
         lam, wv = SLCE._penalty_diagonal(fw1.estimator, fw1.jphi)
+        # at w_T = 1 the intercept is NOT charged either (review 2026-08-11:
+        # j0 is estimated from the zero-weight energy rows n_eff excludes)
         @test gcv(fw1) == first(_gcv_score(Xw, yw, fw1.jphi, lam, wv;
-                                           n_eff = neff))
+                                           n_eff = neff, intercept = 0.0))
+        @test gcv(fw1) != first(_gcv_score(Xw, yw, fw1.jphi, lam, wv;
+                                           n_eff = neff))   # the drop is active
         @test neff < size(Xw, 1)                  # the correction is active
         # the affine slot moves the known contribution to the target side:
         # ỹ = y − X_β·beta_p, applied BEFORE centering (so the centered block is

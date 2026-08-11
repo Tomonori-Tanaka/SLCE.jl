@@ -97,12 +97,11 @@ struct TrainingDatum
             throw(ArgumentError("`magmoms` length $(length(magmoms)) ≠ n_atoms $nat"))
         @inbounds for a = 1:nat
             e = SVector{3,Float64}(directions[1, a], directions[2, a], directions[3, a])
-            all(isfinite, e) ||
-                throw(ArgumentError("`directions` column $a is not finite"))
-            abs(norm(e) - 1) <= _DIRECTION_ATOL ||
-                throw(ArgumentError("`directions` column $a is not a unit vector " *
-                                    "(‖e‖ = $(norm(e))); the direction carries the " *
-                                    "spin sign, `magmoms` the magnitude"))
+            # The family's ONE non-projecting rule (finite + band + the |component| ≤ 1
+            # kernel precondition) — a hand-rolled copy here used to omit the component
+            # bound, letting a near-pole datum through to a later door's error that
+            # named the dataset index instead of the datum (review 2026-08-11).
+            _validate_direction(e, "`directions` column $a")
             (isfinite(magmoms[a]) && magmoms[a] >= 0) ||
                 throw(ArgumentError("`magmoms[$a]` = $(magmoms[a]) must be a finite " *
                                     "magnitude ≥ 0; a collinear adapter must lift a " *

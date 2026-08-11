@@ -136,7 +136,7 @@ include("io/input.jl")
 include("io/dftsource.jl")
 include("io/embset.jl")
 include("io/phonopy.jl")   # (see below)
-include("io/alamode.jl")   # harmonic + anharmonic -> ALAMODE FCSXML for anphon   # harmonic force constants -> phonopy FORCE_CONSTANTS
+include("io/alamode.jl")   # harmonic + anharmonic -> ALAMODE FCSXML for anphon
 
 # --- Public API (exported) --------------------------------------------------------
 # The fitting workflow a user reaches for. Construction internals (cluster / neighbor /

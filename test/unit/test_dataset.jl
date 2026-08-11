@@ -188,3 +188,32 @@ using Random
         @test occursin("image of ITSELF", err.msg)
     end
 end
+
+@testset "the atol cap binds the dataset door (review 2026-08-11 M2)" begin
+    # `_validate_config` validates WITHOUT projecting — the raw columns enter the
+    # design matrix — so past `_DIRECTION_ATOL_MAX` a moment-scaled vector is not
+    # merely silently projected (the projecting doors' complaint): it enters raw and
+    # biases every fitted jϕ by C_l·δ. This door used to accept ANY atol
+    # (`atol = 0.5` admitted ‖e‖ = 0.6 columns into a ~98 %-biased design).
+    lat = Lattice(Matrix(3.0 * I(3)))
+    crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+    basis = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
+                                        soc = false))
+    rng = MersenneTwister(11)
+    configs = [randcfg(rng, 2) for _ = 1:4]
+    energies = collect(1.0:4)
+    scaled = [c .* 0.6 for c in configs]
+    err = try
+        SLCEDataset(basis, scaled, energies; atol = 0.5)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("exceeds the hard cap", err.msg)
+    # a widened-but-capped band still serves the 4-decimal-MAGMOM demand …
+    near = [c .* (1 + 2e-5) for c in configs]
+    @test length(SLCEDataset(basis, near, energies; atol = 1e-4)) == 4
+    # … and just past the cap is refused regardless of the data
+    @test_throws ArgumentError SLCEDataset(basis, near, energies; atol = 2e-2)
+end

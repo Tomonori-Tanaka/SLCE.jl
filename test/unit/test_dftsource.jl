@@ -150,6 +150,20 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         @test_throws ArgumentError TrainingDatum(; energy = 0.5,
                                                  directions = 2.0 .* dirs,
                                                  magmoms = [1.0, 1.0])
+        # the family rule's COMPONENT half binds at this door too (review
+        # 2026-08-11): a near-pole column inside the norm band but past |z| = 1
+        # used to sail through here and die one layer out with a message naming
+        # the dataset config index instead of the datum
+        dirs_pole = [0.0 0.0; 0.0 0.0; 1.0 + 5e-9 -1.0]
+        errp = try
+            TrainingDatum(; energy = 0.5, directions = dirs_pole,
+                          magmoms = [1.0, 1.0])
+            nothing
+        catch e
+            e
+        end
+        @test errp isa ArgumentError
+        @test occursin("column 1", errp.msg) && occursin("[-1, 1]", errp.msg)
         @test_throws ArgumentError TrainingDatum(; energy = NaN, directions = dirs,
                                                  magmoms = [1.0, 1.0])
         @test_throws ArgumentError TrainingDatum(; energy = 0.0, directions = dirs,

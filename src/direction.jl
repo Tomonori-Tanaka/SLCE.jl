@@ -39,10 +39,13 @@
 # kernel call sites to a handful of named doors, and makes "no magnetic state"
 # type-checkable. It does not make the invariant true by construction family-wide.
 
-# The default band. Public through `SLCEDataset(...; atol = ...)` and friends, and with
-# the projection in place widening it no longer degrades any number — the harmonics
-# error budget it used to buy is zero once the stored value is exactly unit, so `atol`
-# is now purely "how far from unit may a thing be and still be called this direction".
+# The default band. Public through `SLCEDataset(...; atol = ...)` and friends. On the
+# PROJECTING doors (`UnitVector3` / `SpinConfiguration`) widening it no longer degrades
+# any number — the harmonics error budget it used to buy is zero once the stored value
+# is exactly unit. The `SLCEDataset` door is NOT one of those: `_validate_config`
+# validates without projecting and the raw columns enter the design matrix, so there a
+# widened band buys a `C_l·δ` design bias directly (see the comment above
+# `_validate_config`) — which is why the cap below binds every door, projecting or not.
 # There is real demand for widening it: a MAGMOM written to four decimals
 # (`0.5774 0.5774 0.5774`) is ~2e-5 off unit, which is a file format, not a bug.
 const _DIRECTION_ATOL = 1.0e-6

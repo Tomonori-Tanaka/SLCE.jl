@@ -6,6 +6,59 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — the `atol` keyword can no longer bypass the direction-door cap (review 2026-08-11 M2)
+
+`SLCEDataset(...; atol)` reached `_validate_direction` without `_check_atol`, so
+the `_DIRECTION_ATOL_MAX = 1e-2` cap bound only the projecting doors
+(`UnitVector3` / `SpinConfiguration`) — and the dataset door is the one that
+validates WITHOUT projecting, so past the cap a moment-scaled vector (`‖e‖ = 0.6`
+at `atol = 0.5`) entered the design matrix raw and biased every fitted `jϕ` by
+`C_l·δ` (~98 % on the demonstration). `_validate_config` now enforces the cap;
+`direction.jl`'s "widening no longer degrades any number" rationale is corrected
+to name which doors that is true for. `TrainingDatum` now validates through the
+family's `_validate_direction` (it hand-rolled the rule and omitted the
+`|component| ≤ 1` half); `Harmonics._validate_unit`'s restated band gains a
+behavioral tripwire pinning it to `_DIRECTION_ATOL`.
+
+### Fixed — `effective_dof`/`gcv` refuse a `refit` result by name (review 2026-08-11 M3)
+
+Both diagnostics reconstruct the FULL design from `dataset` + `reparam`, which is
+not the problem a `refit` solved (it solves on a support, under a re-derived
+sub-stage that is deliberately not stored) — `effective_dof(refit)` returned the
+full-design rank (40.0 where ≈ 5 was honest) and `gcv` a silent `Inf` through the
+`n − df` guard. `SLCEFit` now records the refit `support` (a new trailing field;
+`nothing` for a direct fit) and both diagnostics refuse a refit result with the
+remedy named. `refit` also refuses a `GroupAdaptiveRidge` up front (its
+`column_groups` index the full design, not the chosen support — the old failure
+was a `DimensionMismatch` blaming a "different SLCEBasis").
+
+### Fixed — GCV accounting corrections (review 2026-08-11)
+
+**Changes `gcv`/`effective_dof`/`select_fit` numbers in the named regimes.**
+
+- The `+1` intercept is charged only when the energy block carries weight: at
+  `torque_weight + force_weight == 1`, `j0` is estimated from rows GCV's
+  `n_eff` does not count, inflating the score by `((n−df)/(n−df−1))²` — ~3 % at
+  `n_eff = 72` and unbounded as `df → n_eff`.
+- `select_fit`'s `:cv` score is the held-out SSE **per informative row**
+  (`sse/neff`, not `sse/n`), putting it on the same objective scale as
+  `cross_validate.pooled_score` and `select_support.score`.
+- The frozen-weight optimism of the adaptive estimators' df (a lower bound —
+  measured −14 % at small λ against a numerical `∂ŷ/∂y` trace) is now documented
+  on `gcv`/`effective_dof`/`select_fit` with its direction and the `:cv` remedy;
+  the math is the standard converged-weight treatment and is unchanged.
+- `select_fit` re-checks the Pareto rule after the cold re-derivation mutates
+  the selected row (warns if a knife-edge case ever moves the choice); the `:cv`
+  fold path zeroes frozen columns like the full-data path; `_support_thresholds`
+  refuses an empty group vector by name instead of dying in `log(0)`.
+
+### Fixed — smaller review items
+
+- `wignerD_real` asserts its least-squares residual (a degenerate Fibonacci
+  sample matrix would have returned a non-representation silently; measured
+  `cond(A) ≤ 3.82`, so this is latent-risk insurance).
+- Stray leftover phonopy comment fragment removed from the alamode include line.
+
 ### Fixed — the displacement-radius guard's reference distance on non-reduced cells
 
 `_min_reference_distance` scanned lattice shifts over a fixed `[-1, 1]³` box, so

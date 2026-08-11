@@ -135,7 +135,12 @@ Easy to break silently — confirm before touching the algorithm.
   representation — it lives only as a rule each door must remember — so the rule is
   stated ONCE (`_validate_direction`: finite, `|‖e‖ − 1| ≤ atol` at the package's
   `1e-6`, and `max|component| ≤ 1`) and every door calls it — increasingly by
-  constructing a `SpinConfiguration`, which cannot exist without it. **The two
+  constructing a `SpinConfiguration`, which cannot exist without it. **The
+  `_DIRECTION_ATOL_MAX` cap binds EVERY door that takes an `atol`, projecting or
+  not** (since the 2026-08-11 review): `_validate_config` is a non-projecting door
+  whose raw columns enter the design matrix, so a widened band there buys a
+  `C_l·δ` design bias directly — it used to accept any `atol`, which let
+  `atol = 0.5` fit a ~98 %-biased design from moment-scaled columns. **The two
   constructors are not a convenience pair**: the projecting one is for data entering
   the package, the `Trusted` one for a value an evolution already placed on the
   sphere, and conflating them breaks a bit-identical resume, because `normalize` is
@@ -1000,7 +1005,11 @@ Easy to break silently — confirm before touching the algorithm.
 - **GCV ↔ `_assemble_problem` ↔ `islinear` ↔ the GAR weight map** (`fitting/selection.jl`,
   `fitting/estimators.jl`): `gcv`/`effective_dof` reassemble the design through
   `_assemble_problem` (change the centering/whitening and the score moves with `fit`),
-  are gated by `islinear`, and recompute the converged penalty diagonal through the
+  are gated by `islinear`, **refuse a `refit` result by name** (`SLCEFit.support`,
+  recorded at refit since the 2026-08-11 review — the reconstruction is the FULL
+  design, not the support the refit solved on, and the sub-stage is not stored),
+  charge the `+1` intercept only when the energy block carries weight, and
+  recompute the converged penalty diagonal through the
   **same** functions the solvers iterate — `_gar_weights!` (the single definition of
   `wⱼ = v_g/(‖β_g‖² + p_g·ε)`; `_penalty_diagonal` has one method per linear estimator,
   and `AdaptiveRidge`'s `1/(β² + ε)` must stay in sync with its solve loop). Change a

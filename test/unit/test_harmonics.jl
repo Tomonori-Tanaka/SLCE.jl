@@ -134,3 +134,16 @@ const gZ = Harmonics.grad_Zlm
         @test gallocs(4, 2, u, cache) == 0
     end
 end
+
+@testset "checked-entry band tracks the family _DIRECTION_ATOL (review 2026-08-11)" begin
+    # `Harmonics._validate_unit` restates the 1e-6 band literally (this submodule is
+    # included before direction.jl), and nothing pinned the two equal. Behavioral
+    # tripwire: an off-axis direction 0.9·atol off unit must pass, 2·atol must
+    # throw — widening OR tightening `_DIRECTION_ATOL` alone turns one case red.
+    atol_family = parentmodule(Harmonics)._DIRECTION_ATOL
+    base = [1.0, 1.0, 1.0] ./ sqrt(3.0)                  # components ≈ 0.577, far from ±1
+    u_in = base .* (1 + 0.9 * atol_family)
+    u_out = base .* (1 + 2.0 * atol_family)
+    @test Z(1, 1, u_in) isa Float64
+    @test_throws ArgumentError Z(1, 1, u_out)
+end

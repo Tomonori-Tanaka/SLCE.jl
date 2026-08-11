@@ -646,3 +646,45 @@ end
             pilot = FixedCoefficients(zeros(n_salcs(small)))))
     end
 end
+
+@testset "diagnostics refuse a refit result (review 2026-08-11 M3)" begin
+    # `effective_dof`/`gcv` reconstruct the FULL design from dataset + reparam; on a
+    # refit that is not the problem that was solved — measured before the guard:
+    # effective_dof(refit) = 40.0 where ≈ 5 was honest, gcv a silent Inf.
+    lat = Lattice(Matrix(3.0 * I(3)))
+    crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+    basis = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
+                                        soc = false))
+    rng = MersenneTwister(23)
+    configs = [randcfg(rng, 2) for _ = 1:30]
+    y = randn(rng, 30)
+    ds = SLCEDataset(basis, configs, y)
+    f = fit(SLCEFit, ds, Ridge(0.1))
+    @test f.support === nothing
+    @test isfinite(gcv(f)) && effective_dof(f) > 1.0     # the direct fit is served
+    r = refit(f)
+    @test r.support isa Vector{Int}
+    for diag in (effective_dof, gcv)
+        err = try
+            diag(r)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("refit", err.msg)
+    end
+    # a group estimator is refused up front with the actual cause named — it used
+    # to die deeper with a DimensionMismatch blaming a "different SLCEBasis"
+    gar = GroupAdaptiveRidge(basis; lambda = 1e-3)
+    fg = fit(SLCEFit, ds, gar)
+    errg = try
+        refit(fg, gar)
+        nothing
+    catch e
+        e
+    end
+    @test errg isa ArgumentError
+    @test occursin("column_groups", errg.msg)
+    @test refit(fg) isa SLCEFit                          # the default OLS de-bias works
+end

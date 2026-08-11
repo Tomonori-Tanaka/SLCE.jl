@@ -132,7 +132,17 @@ function wignerD_real(l::Integer, R::AbstractMatrix{<:Real})::Matrix{Float64}
         end
     end
     # Z(R·) = A·Δᵀ  ⇒  Δᵀ = A \ B  (least squares; residual ≈ 0).
-    return permutedims(A \ B)
+    Dt = A \ B
+    # The projector everything downstream builds on rides this matrix, and a
+    # rank-deficient / ill-conditioned sample matrix would return a
+    # non-representation SILENTLY (the only downstream fence is the idempotency
+    # assertion in salcbasis.jl). Measured: cond(A) ≤ 3.82 and the residual
+    # ≤ 1e-12 for l ≤ 10, so this is latent-risk insurance, not a live bound.
+    res = norm(A * Dt - B)
+    res <= 1e-8 * (1 + norm(B)) || error(
+        "wignerD_real: the Fibonacci sample matrix failed to represent the " *
+        "rotation at l = $l (LS residual $res) — the sampling is degenerate")
+    return permutedims(Dt)
 end
 
 # ---------------------------------------------------------------------------
