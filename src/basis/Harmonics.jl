@@ -86,10 +86,21 @@ end
     return nothing
 end
 
-@inline function _validate_unit(u::AbstractVector{<:Real}; atol::Real = 1e-8)
+# The checked entries' unit-direction rule — the FAMILY band (1e-6, the value of
+# `SLCE._DIRECTION_ATOL`, restated because this submodule is included before
+# `direction.jl`) plus the component bound that establishes `dnPl`'s `|z| ≤ 1`
+# domain, which no norm band can (a direction `5e-9` off unit at the pole clears
+# even a `1e-8` band with `|z| > 1`). Until 2026-08 this was a bare `1e-8` band:
+# stricter than every door in the package on the harmless axis and blind on the
+# load-bearing one (audit 2026-08-01 #1, rank 4).
+@inline function _validate_unit(u::AbstractVector{<:Real}; atol::Real = 1e-6)
     length(u) == 3 || throw(ArgumentError("direction must have length 3 (got $(length(u)))"))
     abs(norm(u) - 1) <= atol ||
         throw(ArgumentError("direction must be a unit vector (‖u‖ = $(norm(u)))"))
+    maximum(abs, u) <= 1 || throw(ArgumentError(
+        "direction has a component outside [-1, 1] ($(Tuple(u))) — the Legendre " *
+        "recursion is defined only for |u_z| ≤ 1; normalize the vector " *
+        "(`u ./= norm(u)`) rather than widening the tolerance, which cannot fix it"))
     return nothing
 end
 
@@ -108,13 +119,14 @@ allocation-free; the returned value is identical with or without it.
     `2l + 1` poisons its whole accumulation rather than adding nothing. Use the checked
     [`Zlm`](@ref) when the indices are not yours to guarantee.
 
-    `‖u‖ = 1` fails differently, and the checked entry does NOT cover all of it: the
-    polar recursion reaches `LegendrePolynomials.dnPl`, whose domain is `|z| ≤ 1`, so
-    `|u_z| > 1` throws a **`DomainError`** from inside the recursion — from either
-    entry point, since `Zlm`'s norm band cannot exclude it (a direction `5e-9` off
-    unit norm at the pole clears a `1e-8` band and still throws). Establish the
-    precondition by constructing a `SLCE.UnitVector3` instead of by choosing a
-    tolerance.
+    `‖u‖ = 1` fails differently: the polar recursion reaches
+    `LegendrePolynomials.dnPl`, whose domain is `|z| ≤ 1`, so `|u_z| > 1` throws a
+    bare **`DomainError`** from inside the recursion here — a norm band cannot
+    exclude it (a direction `5e-9` off unit norm at the pole clears even a `1e-8`
+    band). The checked [`Zlm`](@ref) covers it with the family rule (the `1e-6`
+    band AND the component bound), but the clean way to establish the
+    precondition is constructing a `SLCE.UnitVector3`, which repairs float noise
+    by projection instead of refusing it.
 """
 @inline function Zlm_unsafe(l::Integer, m::Integer, u::AbstractVector{<:Real},
                             cache::Vector{Float64})::Float64

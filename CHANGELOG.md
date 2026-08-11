@@ -6,6 +6,17 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — the checked harmonic entries validate by the family rule
+
+`Zlm` / `grad_Zlm` (the checked entries; the kernels behind doors use the
+`_unsafe` pair) validated the direction with a bare `1e-8` norm band — stricter
+than every door in the package on the harmless axis and blind on the
+load-bearing one. `_validate_unit` now applies the family rule: the `1e-6` band
+plus the `max|component| ≤ 1` bound that establishes `dnPl`'s `|z| ≤ 1` domain,
+so a near-pole direction `5e-9` off unit is refused with a named `ArgumentError`
+instead of throwing a bare `DomainError` from inside the Legendre recursion
+(audit 2026-08-01 #1, rank 4 — the last of the four ranks).
+
 ### Changed — the lattice-only entry is `nothing`, and only `nothing`
 
 **Breaking**: `predict_energy` / `predict_force` / `affine_energy` / the
