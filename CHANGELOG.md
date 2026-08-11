@@ -6,6 +6,22 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — the displacement-radius guard's reference distance on non-reduced cells
+
+`_min_reference_distance` scanned lattice shifts over a fixed `[-1, 1]³` box, so
+on a strongly skewed (non-reduced) cell — where the shortest lattice translation
+needs `|n| ≥ 2` — it over-estimated the shortest reference distance and the
+`0.5·dmin` displacement-radius warning threshold was silently too permissive
+(audit 2026-08-01 #2; measured: `a₂ = 2.5·a₁ + 0.1·ŷ` has its shortest lattice
+vector `2a₂ − 5a₁` at `|n₁| = 5`, reported 1.0 for a true 0.2 — threshold 2.5×
+too lax). The scan now uses the neighbor list's two-pass idiom: a `[-1, 1]³`
+first pass bounds the minimum, `_sufficient_range` grows the box to a provably
+sufficient range, and one rescan finds the true minimum. Affects only when the
+warning fires — no fitted number moves. Gates: the hand-derived skewed cell
+(0.2, where the fixed box says 1.0), a two-atom skewed cell against an in-test
+brute force, the guard firing at the true threshold, and the slab / lone-atom
+no-image edge cases.
+
 ### Changed — the checked harmonic entries validate by the family rule
 
 `Zlm` / `grad_Zlm` (the checked entries; the kernels behind doors use the

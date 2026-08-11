@@ -828,23 +828,40 @@ function _joint_dataset(basis::SLCEBasis, data::AbstractVector{TrainingDatum},
 end
 
 # Shortest interatomic distance of the reference crystal under periodic images
-# (shifts in [-1, 1]³ — adequate for the mildly skewed cells the guard serves;
-# includes the self-image case, i.e. the shortest lattice translation).
+# (includes the self-image case, i.e. the shortest lattice translation). The image box
+# uses the neighbor list's two-pass idiom: a first scan over `[-1, 1]³` gives an upper
+# bound, and `_sufficient_range` grows the box to a range provably containing the true
+# minimum (`|n_d| ≤ ‖b_d‖·best + 1`; the bound only needs an UPPER bound on `best`, so
+# one refinement suffices — see `geometry/neighborlist.jl`). A fixed `[-1, 1]³` box
+# over-estimates on a non-reduced cell — measured: `a₂ = 2.5·a₁ + 0.1·ŷ` has its
+# shortest lattice vector `2a₂ − 5a₁ = (0, 0.2, 0)` at `|n₁| = 5`, so the fixed box
+# reported 1.0 for a true 0.2 and the `0.5·dmin` displacement-radius warning threshold
+# was 2.5× too permissive (audit 2026-08-01 #2).
 #
 # Non-periodic axes emit no shift, like everywhere else in the geometry layer: a slab given
 # a short placeholder vector along its vacuum axis has no image there, and counting one
 # invents a shorter "interatomic distance" and a correspondingly too-small warning threshold.
 function _min_reference_distance(crystal::Crystal)::Float64
+    lat = crystal.lattice
+    brow = SVector{3,Float64}(norm(lat.reciprocal[1, :]), norm(lat.reciprocal[2, :]),
+                              norm(lat.reciprocal[3, :]))
+    s0 = ntuple(d -> lat.pbc[d] ? 1 : 0, 3)
+    dmin = _min_reference_distance_scan(crystal, s0)
+    # A single atom with no periodic axis has no distance at all; `_sufficient_range`
+    # cannot take an infinite bound.
+    isfinite(dmin) || return dmin
+    s = _sufficient_range(brow, lat.pbc, dmin, s0)
+    s == s0 || (dmin = _min_reference_distance_scan(crystal, s))
+    return dmin
+end
+
+function _min_reference_distance_scan(crystal::Crystal, s::NTuple{3,Int})::Float64
     A = crystal.lattice.vectors
-    pbc = crystal.lattice.pbc
     nat = n_atoms(crystal)
-    r1 = pbc[1] ? (-1:1) : (0:0)
-    r2 = pbc[2] ? (-1:1) : (0:0)
-    r3 = pbc[3] ? (-1:1) : (0:0)
     dmin = Inf
     for a = 1:nat, b = a:nat
         df = crystal.frac_positions[:, b] .- crystal.frac_positions[:, a]
-        for s1 in r1, s2 in r2, s3 in r3
+        for s1 = -s[1]:s[1], s2 = -s[2]:s[2], s3 = -s[3]:s[3]
             (a == b && s1 == 0 && s2 == 0 && s3 == 0) && continue
             d = norm(A * (df .+ SVector{3,Float64}(s1, s2, s3)))
             d < dmin && (dmin = d)

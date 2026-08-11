@@ -515,3 +515,47 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
         @test SLCE._min_reference_distance(cr) ≈ 1.0 atol = 1e-12
     end
 end
+
+@testset "_min_reference_distance on non-reduced cells (audit #2)" begin
+    # Severely skewed cell: a₂ = 2.5·a₁ + 0.1·ŷ, so the shortest lattice vector is
+    # 2a₂ − 5a₁ = (0, 0.2, 0) at n = (−5, 2, 0) — outside any fixed [−1, 1]³ box,
+    # which reports ‖a₁‖ = 1.0 instead (the fixed-box mutation this testset resolves).
+    A = [1.0 2.5 0.0; 0.0 0.1 0.0; 0.0 0.0 10.0]
+    cr1 = Crystal(Lattice(A), reshape([0.0, 0.0, 0.0], 3, 1), [1], ["Fe"])
+    @test SLCE._min_reference_distance(cr1) ≈ 0.2 atol = 1e-12   # hand-derived above
+
+    # Two-atom skewed cell against an in-test brute force over [−8, 8]³ — an
+    # independent enumeration wide enough to certify the minimum for this geometry
+    # (the sufficient range at best ≈ 0.56 is well inside it).
+    B = [1.0 0.0 0.3; 0.35 1.1 0.0; 0.0 0.4 0.9]
+    fr = [0.0 0.12; 0.0 0.47; 0.0 0.81]
+    cr2 = Crystal(Lattice(B), fr, [1, 1], ["Fe"])
+    best = Inf
+    for a = 1:2, b = a:2, n1 = -8:8, n2 = -8:8, n3 = -8:8
+        (a == b && n1 == 0 && n2 == 0 && n3 == 0) && continue
+        df = cr2.frac_positions[:, b] .- cr2.frac_positions[:, a]
+        best = min(best, norm(B * (df .+ [n1, n2, n3])))
+    end
+    @test SLCE._min_reference_distance(cr2) ≈ best atol = 1e-12
+
+    # Consumer level: the displacement-radius guard must fire from the TRUE
+    # threshold 0.5·0.2 = 0.1 — an amplitude of 0.15 is silent under the old
+    # box's 0.5 and must warn now; 0.05 stays in regime.
+    ubig = zeros(3, 1); ubig[2, 1] = 0.15
+    @test_logs (:warn, r"half the shortest") match_mode = :any SLCE._check_displacement_radius(
+        cr1, [ubig])
+    usmall = zeros(3, 1); usmall[2, 1] = 0.05
+    @test_logs SLCE._check_displacement_radius(cr1, [usmall])
+
+    # Non-periodic axes still emit no shift: a slab's short placeholder c-vector
+    # must not fabricate a 0.4 "interatomic distance".
+    C = [3.0 0.0 0.0; 0.0 3.0 0.0; 0.0 0.0 0.4]
+    cs = Crystal(Lattice(C; pbc = (true, true, false)),
+                 reshape([0.0, 0.0, 0.0], 3, 1), [1], ["X"])
+    @test SLCE._min_reference_distance(cs) ≈ 3.0 atol = 1e-12
+    # …and a lone atom with no periodic axis has no distance (guard skips silently)
+    co = Crystal(Lattice(C; pbc = (false, false, false)),
+                 reshape([0.0, 0.0, 0.0], 3, 1), [1], ["X"])
+    @test SLCE._min_reference_distance(co) == Inf
+    @test SLCE._check_displacement_radius(co, [usmall]) === nothing
+end
