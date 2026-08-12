@@ -66,6 +66,16 @@ own atom content and nothing can cancel — but which content dies depends on ho
 relates the tied members, not on the tie alone, so the reliable statement is the measured
 one. [`unresolvable_columns`](@ref) reports it exactly for a given basis.
 
+A tie can also be *near* rather than exact: DFT-relaxed coordinates satisfy their space
+group only to within the symmetry tolerance, so distances that would tie exactly on ideal
+coordinates split by a small relative amount. When that split exceeds the same-distance
+band, symmetry-partner pairs keep *different* tie images, the candidate set loses group
+closure, and the build refuses ("cluster enumeration is not closed under the space
+group"). The remedy is `SLCEBasis(...; tie_tol)` — widen the band above the coordinate
+symmetry residual (relative to the bond length) so the near-ties re-merge; the frozen
+content of the merged shell is then classified here exactly as for an exact tie. Keep the
+band well below genuine shell spacings (hard cap `1e-2`).
+
 Everything in this subsection assumes the tied images end up in **one orbit**, which needs
 the point group to permute them. When it does not — low symmetry — the same tie takes a
 different algebraic form and costs more; that is the [next

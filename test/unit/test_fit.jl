@@ -72,12 +72,26 @@ struct _DummyEstimator <: SLCE.AbstractEstimator end
         Xd = randn(rng, 20, 4)
         Xd[:, 4] = Xd[:, 2]                       # exact collinearity
         yd = randn(rng, 20)
-        bo = solve_coefficients(OLS(), Xd, yd)
-        b0 = solve_coefficients(Ridge(lambda = 0.0), Xd, yd)
+        # Both routes must also SAY the design is deficient: a rank-deficient OLS
+        # solution is non-unique, so anything read off the coefficients is one
+        # arbitrary representative. The structural cases are frozen upstream by
+        # `unresolvable_columns`/`build_asr`; this warning is the backstop for what
+        # the classification cannot certify (the `asr = false` AllImages opt-out —
+        # previously the one route with no loud gate — and degenerate data).
+        # [Ported from the spin-only SCEFitting.jl fix.]
+        bo = @test_logs (:warn, r"rank deficient or severely ill-conditioned: only 3 of 4") match_mode = :any begin
+            solve_coefficients(OLS(), Xd, yd)
+        end
+        b0 = @test_logs (:warn, r"rank deficient") match_mode = :any begin
+            solve_coefficients(Ridge(lambda = 0.0), Xd, yd)
+        end
         @test b0 == bo                            # the same code path, not merely close
         @test norm(b0) < 10 * norm(bo)            # teeth: the pre-fix value was 1e16×
         # and a positive penalty still takes the penalized path
         @test solve_coefficients(Ridge(lambda = 1.0), Xd, yd) != bo
+        # a full-rank design must stay silent (no false positives from the rank gate)
+        Xf = randn(rng, 20, 4)
+        @test_logs solve_coefficients(OLS(), Xf, yd)
     end
 
     @testset "unknown estimator → friendly error" begin

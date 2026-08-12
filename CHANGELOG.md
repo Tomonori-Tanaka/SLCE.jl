@@ -6,6 +6,39 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — `tie_tol` exposed; OLS warns on a deficient design (2026-08-13, back-port from SCEFitting.jl)
+
+The MnTe(0001) slab cross-check (fixed first in the spin-only SCEFitting.jl)
+showed that DFT-relaxed coordinates symmetric to less than the same-distance band
+(slab residual ~2.4e-6 Å, tie splits ~2e-7 relative vs the 1e-8 band) split
+symmetry-partner minimum-image ties differently, so the candidate set loses group
+closure and the orbit builder's own refusal (d4660a7) fires with no remedy
+available — the slab could not be built at all.
+
+- **`SLCEBasis(...; tie_tol)`** exposes the relative same-distance band (default
+  unchanged at `1e-8`, hard cap `1e-2`), threaded to both the neighbor list and
+  the cluster-edge admission (`NeighborList.tol`), and carried by the TOML setup
+  (`[interaction].tie_tol`, `read_setup`, `SLCEBasis(path)`) so a build that
+  needed a widened band is reproducible from its own file. A widened band merges
+  the near-tie shell; the resolvability layer (`unresolvable_columns` →
+  `build_asr`) then freezes whatever the merged shell's aggregation cancels,
+  exactly as it does for exact WS-boundary ties. (On the bulk MnTe + SOC
+  cross-check fixture that layer already froze precisely the 14 aggregate-zero
+  columns of the 51-column anisotropic basis — SCEFitting's defect ② never
+  existed here; verified while porting.) The closure refusal now names the
+  remedy.
+- **`OLS` warns on a rank-deficient (or severely ill-conditioned) design**: the
+  solve is unchanged (explicit pivoted QR, bitwise-identical to `X \ y` on
+  rectangular designs), but a diagonal ratio below `1e-10` warns that the
+  coefficients are non-unique. One-sided conditioning gate (cannot fire while
+  `κ₂ < 1e10`). This is the backstop for what the resolvability classification
+  cannot certify — notably the `asr = false` AllImages opt-out
+  (`UnclassifiableBasis`), previously the one fit route with no loud gate at
+  all — and for degenerate training data.
+- The perturbed-honeycomb closure fixture (refusal + `tie_tol` heal, end to end
+  through `SLCEBasis`) is ported into `test/unit/test_clusters.jl`; the closure
+  gate itself had no regression test here.
+
 ### Fixed — the `atol` keyword can no longer bypass the direction-door cap (review 2026-08-11 M2)
 
 `SLCEDataset(...; atol)` reached `_validate_direction` without `_check_atol`, so

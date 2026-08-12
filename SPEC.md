@@ -70,6 +70,12 @@ capability consumed by both the introspection and the Sunny interop.
   (same spin ⇒ not an independent pair) — over an adaptive, skew-safe image box;
   `cutoff` may be `Inf` (whole WS cell). `AllImages()` is the every-image enumeration
   above (finite cutoff only), the generalized-Bloch / spin-spiral seam.
+  The relative same-distance band for tie/cutoff decisions is user-facing as
+  `SLCEBasis(...; tie_tol)` (default `1e-8`, hard cap `1e-2`): it rides on
+  `NeighborList.tol`, which the cluster-edge admission reads back, so one value
+  governs both sides; the TOML setup carries it as `[interaction].tie_tol`.
+  Widening it is the remedy the closure refusal names for relaxed/noisy
+  coordinates whose symmetry residual splits minimum-image ties.
 
 ### basis — `Harmonics` submodule (M2)
 - `Harmonics.Zlm(l, m, u)` — real tesseral harmonic (Drautz convention, per-site
@@ -789,6 +795,10 @@ capability consumed by both the introspection and the Sunny interop.
   The generics `coef`/`fit`/`nobs`/`dof`/`coeftable`/`islinear`/`predict`/`residuals`/`r2`
   **extend StatsAPI** (imported, not shadowed); `predict`/`residuals`/`r2` are thin
   wrappers defaulting to the energy block (`predict_energy`/`residuals_energy`/`r2_energy`).
+  `OLS` solves by explicit pivoted QR and **warns on a rank-deficient design**
+  (diagonal ratio below `1e-10`; the solution is returned unchanged — the backstop
+  for what the resolvability classification cannot certify, notably the
+  `asr = false` AllImages opt-out, and for degenerate data).
   `AbstractEstimator` with `OLS`/`Ridge` (validated: `lambda` finite and ≥ 0)/`AdaptiveRidge`
   (analytic `j0`; centered-`X` `solve_coefficients` contract).
 - Validated: OLS recovers an in-span target (R²=1); **a Heisenberg chain fit

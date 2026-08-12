@@ -314,11 +314,17 @@ end
         @test near == findall(j -> norm(@view rep.Z[j, :]) < 1e-12, 1:m)
         @test_logs (:warn, r"carry no information") match_mode = :any fit(
             SLCEFit, ds, OLS(); torque_weight = 1.0, asr = false)
-        # a fit whose data touch every column is silent (a rank-deficient design
-        # is NOT reported here — that is `identifiability`'s job): the plan-B
-        # design is deficient by 54 directions and yet has no dead COLUMN
+        # a fit whose data touch every column has no dead COLUMN, so the standing
+        # dead-column warning stays silent. Under the constraint the fit is silent
+        # outright (the reparameterization removes the deficient directions from
+        # the γ-space design); with `asr = false` the plan-B design is deficient
+        # by 54 whole directions — no dead column, a null COMBINATION — which the
+        # OLS conditioning gate reports loudly [ported from SCEFitting.jl]:
+        # previously this route had no loud gate at all. The expectation is the
+        # EXACT log list (not match_mode = :any), so the dead-column warning
+        # staying silent here is still pinned.
         @test_logs fit(SLCEFit, ds, OLS(); torque_weight = 0.4, force_weight = 0.6)
-        @test_logs fit(SLCEFit, ds, OLS(); torque_weight = 0.4, force_weight = 0.6,
-                       asr = false)
+        @test_logs (:warn, r"rank deficient or severely ill-conditioned: only 144 of 198") fit(
+            SLCEFit, ds, OLS(); torque_weight = 0.4, force_weight = 0.6, asr = false)
     end
 end

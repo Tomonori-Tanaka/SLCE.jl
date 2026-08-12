@@ -216,9 +216,20 @@ Easy to break silently — confirm before touching the algorithm.
   only at its atom-pair minimum-image distance with all atoms distinct; `AllImages` keeps
   every in-cutoff image and admits edges within the radial cutoff. The tie/cutoff
   tolerance is relative (`_SAME_DIST_RTOL`) on both sides so a degenerate WS-boundary
-  shell is never split. The minimum-image search box is adaptive — change it and re-check
+  shell is never split; it is user-facing as `SLCEBasis(...; tie_tol)` (default the
+  same constant, hard cap `_TIE_TOL_MAX = 1e-2`), riding on `NeighborList.tol` which
+  `candidate_clusters` reads back — one value, both sides. Widening it is the remedy
+  for relaxed/noisy coordinates whose symmetry residual splits ties (the orbit
+  builder's closure refusal names it; the MnTe(0001) slab case, fixed first in
+  SCEFitting.jl); the resolvability layer then freezes whatever the merged shell's
+  aggregation cancels, exactly as for exact WS ties. Gate: the perturbed-honeycomb
+  closure testset in `test/unit/test_clusters.jl` (refuses at the default band,
+  builds the ideal SALC keys end-to-end through `SLCEBasis(tie_tol = 1e-3)`).
+  The minimum-image search box is adaptive — change it and re-check
   the skewed-cell test. `images` is **not** persisted (the full SALC basis is stored and
-  reloaded verbatim), so only `read_setup`/`SLCEBasis` carry it. **At `N ≥ 3` the clique
+  reloaded verbatim), so only `read_setup`/`SLCEBasis` carry it — and the same rule
+  holds for `tie_tol` (`[interaction].tie_tol` in the TOML schema): both change the
+  emitted basis, so both must round-trip through the setup file. **At `N ≥ 3` the clique
   check is on the actual chosen images of *every* pair (not just the anchor edges): a
   cluster is admitted only when all `C(N,2)` edges sit at their atom-pair minimum image
   simultaneously** (the compact-cluster criterion). Having each pair individually

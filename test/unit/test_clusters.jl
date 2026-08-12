@@ -3,6 +3,15 @@ using SLCE
 using SLCE: _assemble_spacegroup, candidate_clusters, _canonical_key
 using StaticArrays
 using LinearAlgebra
+using Random: Xoshiro, randn
+
+# A backend returning a fixed, hand-assembled space group, so the SLCEBasis door
+# (and its `tie_tol` plumbing) can be exercised with the exact manual groups the
+# fixtures below construct — the extension seam `analyze_symmetry` documents.
+struct _FixedGroupBackend <: SLCE.AbstractSymmetryBackend
+    sg::SpaceGroup
+end
+SLCE.analyze_symmetry(b::_FixedGroupBackend, ::Crystal; tol::Real = 1e-5) = b.sg
 
 @testset "clusters" begin
     lat = Lattice(Matrix(3.0 * I(3)))
@@ -83,5 +92,113 @@ using LinearAlgebra
         cand = candidate_clusters(crystal, nl, 2; selection = AllImages())
         @test !isempty(cand[2])
         @test all(m -> m.shifts[1] == SVector{3,Int}(0, 0, 0), cand[2])
+    end
+
+    # The orbit builder must REFUSE a candidate list that is not closed under the
+    # space group, never skip the missing image: a skipped image leaves the orbit
+    # short — a biased design column — and the SALCs projected on a short orbit are
+    # not actually invariant. The failure is REACHABLE, not theoretical: coordinates
+    # that are symmetric only approximately (relaxed DFT output; the symmetry
+    # analysis at tol ~1e-3 still reports the ideal group) split minimum-image
+    # distance ties beyond the neighbor band (1e-8), so symmetry-partner pairs keep
+    # DIFFERENT tie images and the candidate set loses closure. On the MnTe(0001)
+    # 3×3 slab this silently produced 54 spurious Lf ≠ 0 SALCs whose model broke
+    # its own space group by ~4 meV (found 2026-08-12, in the spin-only
+    # SCEFitting.jl; the gate itself originated here as d4660a7 — this fixture and
+    # the `tie_tol` remedy are back-ported from the SCEFitting fix).
+    @testset "orbit build refuses a non-group-closed candidate list; tie_tol heals" begin
+        a = 1.0
+        hexlat = Matrix([3a 0 0; -3a/2 3a*sqrt(3)/2 0; 0 0 8.0]')
+        fr = Float64[]
+        sp = Int[]
+        for (s, (u, v)) in enumerate([(0.0, 0.0), (1 / 3, 2 / 3)]), i = 0:2, j = 0:2
+            append!(fr, [(u + i) / 3, (v + j) / 3, 0.0])
+            push!(sp, s)
+        end
+        frm = reshape(fr, 3, :)
+        # exact C3-about-origin × the nine supercell translations (27 ops); the
+        # honeycomb B sublattice at (1/3, 2/3) maps onto itself under this group
+        E3 = SMatrix{3,3,Float64}(I)
+        C3 = SMatrix{3,3,Float64}([0 -1 0; 1 -1 0; 0 0 1])
+        rots = SMatrix{3,3,Float64}[]
+        trans = SVector{3,Float64}[]
+        for W in (E3, C3, C3 * C3), i = 0:2, j = 0:2
+            push!(rots, W)
+            push!(trans, SVector{3,Float64}(i / 3, j / 3, 0))
+        end
+        spec_hc = BasisSpec(["Mn", "Te"]; nbody = 2, lmax = [2, 2], cutoff = Inf,
+                            lsum = [1 => 2, 2 => 2], soc = true)
+        function build_hc(frx; tie = nothing)
+            cr = Crystal(Lattice(hexlat; pbc = (true, true, false)), frx, sp,
+                         ["Mn", "Te"])
+            sg = _assemble_spacegroup(cr, rots, trans, "P3(manual)", 143; tol = 1e-3)
+            nl = tie === nothing ?
+                 build_neighbor_list(cr, SLCE._superset_cutoff(spec_hc),
+                                     MinimumImage()) :
+                 build_neighbor_list(cr, SLCE._superset_cutoff(spec_hc),
+                                     MinimumImage(); tol = tie)
+            return SLCE.build_clusters(cr, nl, sg; nbody = 2,
+                                       selection = MinimumImage(),
+                                       cutoff = spec_hc.cutoff)
+        end
+        # the ideal coordinates build (the fixture itself is legal)…
+        cl = build_hc(frm)
+        @test sum(length, values(cl.by_body)) == 10
+        # …and the 1e-5-perturbed ones — same group, split ties — are refused loudly
+        frp = frm .+ 1.0e-5 .* randn(Xoshiro(1), size(frm))
+        err = try
+            build_hc(frp)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ErrorException
+        @test occursin("not closed under the space group", err.msg)
+        @test occursin("tie_tol", err.msg)   # the message names the remedy
+        # The remedy works: a tie band wider than the split the perturbation causes
+        # (frac noise 1e-5 on bonds of a few Å ⇒ relative splits ≲ 1e-4; genuine
+        # shell spacings are percents) re-merges the ties, the candidate set closes,
+        # and the orbit STRUCTURE (per-body multiplicities and species, not just the
+        # total count) is the ideal one again.
+        clw = build_hc(frp; tie = 1e-3)
+        orbit_shape(cl) = sort([(N, o.multiplicity, o.species)
+                                for (N, os) in cl.by_body for o in os])
+        @test orbit_shape(clw) == orbit_shape(cl)
+        # And end to end through the SLCEBasis door — the assertion that fails if the
+        # `tie_tol` keyword were accepted but dropped on the floor: the perturbed
+        # crystal refuses at the default band and builds at the widened one, with
+        # the SAME SALC keys as the ideal-coordinate build (tensors depend only on
+        # the group operations, which the fixed backend pins).
+        cr_ideal = Crystal(Lattice(hexlat; pbc = (true, true, false)), frm, sp,
+                           ["Mn", "Te"])
+        cr_pert = Crystal(Lattice(hexlat; pbc = (true, true, false)), frp, sp,
+                          ["Mn", "Te"])
+        be_ideal = _FixedGroupBackend(_assemble_spacegroup(cr_ideal, rots, trans,
+                                                           "P3(manual)", 143;
+                                                           tol = 1e-3))
+        be_pert = _FixedGroupBackend(_assemble_spacegroup(cr_pert, rots, trans,
+                                                          "P3(manual)", 143;
+                                                          tol = 1e-3))
+        b_ideal = SLCEBasis(cr_ideal, spec_hc; backend = be_ideal)
+        @test_throws ErrorException SLCEBasis(cr_pert, spec_hc; backend = be_pert)
+        b_healed = SLCEBasis(cr_pert, spec_hc; backend = be_pert, tie_tol = 1e-3)
+        @test b_healed.salc_basis.keys == b_ideal.salc_basis.keys
+    end
+
+    # `SLCEBasis(...; tie_tol)` must validate its range — a band at/above the hard
+    # cap merges genuinely distinct shells — and thread the value to the neighbor
+    # list (candidate_clusters reads it back from `NeighborList.tol`, so one value
+    # governs both sides).
+    @testset "SLCEBasis tie_tol: validation" begin
+        cr = Crystal(Lattice(Matrix(3.0 * I(3))),
+                     [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        spec = BasisSpec(["Fe"]; nbody = 2, lmax = [1], cutoff = 1.5,
+                         lsum = [1 => 2, 2 => 2], soc = false)
+        @test_throws ArgumentError SLCEBasis(cr, spec; tie_tol = -1e-9)
+        @test_throws ArgumentError SLCEBasis(cr, spec; tie_tol = Inf)
+        @test_throws ArgumentError SLCEBasis(cr, spec; tie_tol = 1e-2)  # at the cap
+        b1 = SLCEBasis(cr, spec)
+        b2 = SLCEBasis(cr, spec; tie_tol = 1e-6)  # legal; same basis on clean coords
+        @test b2.salc_basis.keys == b1.salc_basis.keys
     end
 end

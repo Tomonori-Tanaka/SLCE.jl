@@ -18,7 +18,7 @@ models, volume grids, and phonopy / ALAMODE export. See `SPEC.md`.
 module SLCE
 
 using LinearAlgebra: norm, det, I, eigen, eigvals, svd, svdvals, cholesky, Symmetric,
-    Diagonal, dot, cross
+    Diagonal, dot, cross, qr, ColumnNorm
 using StaticArrays
 using Statistics: mean
 using Random: AbstractRNG, default_rng, MersenneTwister

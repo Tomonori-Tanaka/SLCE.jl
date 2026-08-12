@@ -24,6 +24,7 @@ Schema:
     lsum     = 4                  # optional Σl cap per body order (scalar or table)
     soc      = true               # optional; false = scalar (L_S = 0) channel only
     images   = "minimum_image"    # optional: "minimum_image" (default) or "all_images"
+    tie_tol  = 1e-8               # optional: relative same-distance band (see `SLCEBasis`)
 
     # Label-keyed alternatives ("*" = fallback; pair keys are unordered, resolved by
     # specificity: concrete > "A-*" > "*-*"; body orders outside nbody are errors):
@@ -168,20 +169,22 @@ function _image_selection_from_name(name)::AbstractImageSelection
 end
 
 """
-    read_setup(path) -> (; crystal, spec, backend, tol, images)
+    read_setup(path) -> (; crystal, spec, backend, tol, images, tie_tol)
 
 Parse a human-authored TOML input file (schema in the file-level docstring of
 `src/io/input.jl`) into the in-memory `crystal::Crystal`, `spec::BasisSpec` (from the
 file's `[interaction]` section), symmetry `backend::AbstractSymmetryBackend`,
-`tol::Float64`, and the periodic-image selection `images::AbstractImageSelection`.
-Training data and the estimator are **not** part of the file (see
-[`SLCEDataset`](@ref) / [`fit`](@ref)). See also `SLCEBasis(path)`.
+`tol::Float64`, the periodic-image selection `images::AbstractImageSelection`, and
+the same-distance band `tie_tol::Float64` (`[interaction].tie_tol`, defaulting to
+the `SLCEBasis` default). Training data and the estimator are **not** part of the
+file (see [`SLCEDataset`](@ref) / [`fit`](@ref)). See also `SLCEBasis(path)`.
 """
 function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
                                                        spec::BasisSpec,
                                                        backend::AbstractSymmetryBackend,
                                                        tol::Float64,
-                                                       images::AbstractImageSelection}
+                                                       images::AbstractImageSelection,
+                                                       tie_tol::Float64}
     doc = TOML.parsefile(path)
     haskey(doc, "structure") ||
         throw(ArgumentError("input file is missing the [structure] section"))
@@ -194,28 +197,36 @@ function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
                             "$(length(crystal.species_labels)) species"))
     images = haskey(doc["interaction"], "images") ?
         _image_selection_from_name(doc["interaction"]["images"]) : MinimumImage()
+    # `tie_tol` changes the emitted basis just like `images` does, so a setup that
+    # needed a widened band must be reproducible from its own file — it rides in
+    # `[interaction]` next to `images` (validated by the `SLCEBasis` constructor).
+    tie_tol = haskey(doc["interaction"], "tie_tol") ?
+        Float64(doc["interaction"]["tie_tol"]) : _SAME_DIST_RTOL
     sym = get(doc, "symmetry", Dict{String,Any}())
     backend = haskey(sym, "backend") ? _backend_from_name(sym["backend"]) : NoSymmetry()
     tol = haskey(sym, "tol") ? Float64(sym["tol"]) : 1e-5
-    return (; crystal, spec, backend, tol, images)
+    return (; crystal, spec, backend, tol, images, tie_tol)
 end
 
 """
-    SLCEBasis(path::AbstractString; backend = nothing, tol = nothing, images = nothing)
-        -> SLCEBasis
+    SLCEBasis(path::AbstractString; backend = nothing, tol = nothing, images = nothing,
+              tie_tol = nothing) -> SLCEBasis
 
 Build an [`SLCEBasis`](@ref) directly from a TOML input file ([`read_setup`](@ref)).
-The file's `[symmetry]` backend/tol and `[interaction].images` are used unless
-overridden by the keyword arguments (e.g. `backend = SpglibBackend()` forces Spglib
-regardless of the file). Using the Spglib backend requires `using Spglib`.
+The file's `[symmetry]` backend/tol and `[interaction]` `images`/`tie_tol` are used
+unless overridden by the keyword arguments (e.g. `backend = SpglibBackend()` forces
+Spglib regardless of the file). Using the Spglib backend requires `using Spglib`.
 """
 function SLCEBasis(path::AbstractString;
                   backend::Union{Nothing,AbstractSymmetryBackend} = nothing,
                   tol::Union{Nothing,Real} = nothing,
-                  images::Union{Nothing,AbstractImageSelection} = nothing)::SLCEBasis
+                  images::Union{Nothing,AbstractImageSelection} = nothing,
+                  tie_tol::Union{Nothing,Real} = nothing)::SLCEBasis
     inp = read_setup(path)
     be = backend === nothing ? inp.backend : backend
     tl = tol === nothing ? inp.tol : Float64(tol)
     im = images === nothing ? inp.images : images
-    return SLCEBasis(inp.crystal, inp.spec; backend = be, tol = tl, images = im)
+    tt = tie_tol === nothing ? inp.tie_tol : Float64(tie_tol)
+    return SLCEBasis(inp.crystal, inp.spec; backend = be, tol = tl, images = im,
+                     tie_tol = tt)
 end

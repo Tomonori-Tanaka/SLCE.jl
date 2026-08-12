@@ -186,7 +186,11 @@ function build_clusters(crystal::Crystal, neighbors::NeighborList, spacegroup::S
                     "cluster enumeration is not closed under the space group: the image " *
                     "$s of a candidate cluster is not itself a candidate. The orbit would " *
                     "be built short, silently biasing its design column — check the image " *
-                    "selection and the tie tolerance rather than proceeding")
+                    "selection and the tie tolerance rather than proceeding. If the " *
+                    "coordinates are relaxed/noisy (symmetric only to within the symprec " *
+                    "that recognized this space group), widen `SLCEBasis(...; tie_tol)` " *
+                    "above the coordinate symmetry residual relative to the bond length, " *
+                    "or symmetrize the coordinates")
                 append!(idxs, sig2members[s])
             end
             sort!(idxs)
