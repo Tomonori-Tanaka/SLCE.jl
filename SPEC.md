@@ -1040,7 +1040,7 @@ capability consumed by both the introspection and the Sunny interop.
   underdetermined regime + guards, warm/cold path consistency, the Pareto rule, and the
   end-to-end select → refit workflow.
 
-### Adiabatic moment channel — pointed basis (step 2, slices A–C)
+### Adiabatic moment channel — pointed basis (step 2, slices A–D)
 
 The site-moment expansion `m_i(e)` (design record: the adiabatic-moment brainstorm,
 D1–D10 + D8 addendum): a per-site scalar regression `y_a = ê_a · M_a` fitted on a
@@ -1072,8 +1072,31 @@ energy/torque/force pipeline is untouched (bit-identity gated).
   geometric enumeration, shell-sum normalization 2√3, G_i covariance with axes,
   bitwise TR, substitution locality, symbolic ≡ random-design rank.
 
-Next slices: the moment dataset/fit layer (uniform gate, per-orbit survival,
-coverage refuse, band-profile diagnostics) and the `salc_groups` mark-class key.
+- **`MomentDataset` / `fit(MomentFit, …)` / `MomentModel`**
+  (`fitting/momentfit.jl`; included after the io layer — its constructor signature
+  needs `TrainingDatum`): rows `(config, marked atom)`, `y = ê·M` under the mode
+  rule (mixed modes allowed; a mode-1 zero-axis marked atom is `defined = false`,
+  `y = NaN`, excluded from every fit and recorded). Doors: `moments_bare` +
+  `constraint_mode` required per datum, one setup AND one reference identity per
+  dataset, nonzero `displacements` refused (v1 is reference-geometry-only).
+  Decomposability gate `g = ‖M⊥‖²/|M| = |M| sin²θ ≤ gate_eps` (required keyword;
+  cancellation-free `M⊥ = M − y ê` form; `|M| = 0` passes; no `m_min`); per
+  marked-atom orbit (map_sym min-atom) survival + rms `‖M⊥‖` + antiparallel
+  census `n_anti` reported and `coverage_floor` refusal BEFORE the design build;
+  `moment_resolvability` runs at the same door (unclassifiable → refuse,
+  vanishing columns recorded, dependent combinations warned + stored). `X` built
+  for all rows with `defined`/`keep` masks; the fit solves gated and (for
+  disclosure) ungated rows with `row_groups = row_config`, freezes vanishing
+  columns to exact zero, and does no centering — the `l = 0` μ₀ `[MARK]` columns
+  are the per-orbit intercepts, and regularizers penalize them like any column
+  (v1 OLS-first). `MomentModel` carries basis + gated coefficients + provenance
+  (no mode flag); `predict_moment(model, e; axes = e)` defaults to the mode-4
+  identity and is a validating door (`e` unit everywhere, `axes` unit on marked
+  columns only).
+
+Next slices: the fast design path (mark→member index, bitwise-gated), band-profile
+diagnostics + the simple-feature nested lower bound, the `salc_groups` mark-class
+key.
 
 ## Not yet implemented (v0 follow-ups)
 - The v0 slice is feature-complete; no estimator/observable/IO follow-ups outstanding.

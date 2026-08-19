@@ -137,6 +137,7 @@ include("io/input.jl")
 include("io/dftsource.jl")
 include("io/embset.jl")
 include("io/extxyz.jl")    # extended-XYZ training-data container (ASE dialect)
+include("fitting/momentfit.jl")  # MomentDataset / fit / MomentModel (needs TrainingDatum)
 include("io/phonopy.jl")   # (see below)
 include("io/alamode.jl")   # harmonic + anharmonic -> ALAMODE FCSXML for anphon
 
@@ -206,6 +207,7 @@ export write_phonopy, write_alamode
 export EmbsetFile, read_embset, read_embset_pair
 export ExtxyzFile, read_extxyz, write_extxyz
 export MomentSpec, MomentBasis, moment_resolvability
+export MomentDataset, MomentFit, MomentModel, predict_moment, rmse_moment
 
 # --- Public, unexported -----------------------------------------------------------
 # Reachable as `SLCE.<name>` (and documented), but kept out of the flat `using`

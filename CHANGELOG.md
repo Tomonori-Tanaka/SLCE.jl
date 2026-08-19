@@ -6,6 +6,61 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — `MomentDataset` / `fit(MomentFit, …)` / `MomentModel`: the moment channel's regression layer (2026-08-20, step 2 slice D)
+
+The pointed basis's counterpart of `SLCEDataset` + `fit` (`src/fitting/momentfit.jl`)
+— an independent vertical slice with its own rows and coefficient vector; the
+energy/torque/force row bookkeeping is untouched.
+
+- **`MomentDataset(basis, data; gate_eps, coverage_floor = 0.5)`**: rows are
+  (configuration, marked atom); the target `y = ê·M` reads the bare moment with
+  the axis resolved by the **mode rule** (mode 4 → `directions`, so the
+  marked-column substitution is the identity; mode 1 → `constraint_axes`; modes
+  may be mixed). A mode-1 marked atom with an exactly-zero axis column has no
+  defined target: excluded from every fit (`defined = false`, `y = NaN` — loud on
+  raw use) and recorded per orbit. The **decomposability gate**
+  `g = |M| − y²/|M| = |M| sin²θ ≤ gate_eps` keeps rows (`|M| = 0` passes with
+  target 0; deliberately no `m_min` gate); `gate_eps` is a required keyword — the
+  tolerance is a statement about the source calculation's constraint quality.
+  Per marked-atom space-group orbit the constructor reports row counts, survival,
+  and rms `‖M⊥‖`, and refuses loudly when survival drops below `coverage_floor`
+  (before paying for the design build). `X` is built for ALL rows with
+  `defined`/`keep` masks, so gated and ungated coefficients are both disclosable.
+- **Doors and disclosures** (review round, same day): the constructor also
+  refuses nonzero `displacements` (v1 expands `m_i(e)` at the reference geometry
+  only) and mixed reference identities; it runs `moment_resolvability` before the
+  design build — an unclassifiable basis propagates that refusal, identically
+  vanishing columns land in `ds.vanishing`, structurally dependent combinations
+  are warned loudly and stored in `ds.dependent`; the per-orbit report counts
+  antiparallel mode-1 rows (`n_anti` — the gate is even in `y`, and the
+  even-mark-rank columns assume the recorded axis is oriented with the converged
+  moment); the gate/`‖M⊥‖` arithmetic uses the cancellation-free `M⊥ = M − y ê`
+  form (non-negative `g` by construction).
+- **`fit(MomentFit, ds, estimator = OLS())`**: no centering, no global intercept —
+  the `l = 0` 1-body `[MARK]` columns are the per-orbit intercepts μ₀ (never
+  shared across species; the `l = 2` 1-body columns are on-site ê anisotropies).
+  Solves the gated rows and, for disclosure, all defined rows (`coeffs` /
+  `coeffs_ungated`), passing `row_groups = row_config` so resampling estimators
+  never split one configuration's marked-atom rows across folds; columns named in
+  `ds.vanishing` are frozen to **exact zero** (the energy side's frozen-column
+  discipline). `residuals` / `rmse_moment` take `gated = …`. Note: regularized
+  estimators penalize the μ₀ columns like any other (v1 is OLS-first).
+- **`MomentModel`** (basis + gated coefficients + provenance; deliberately no
+  mode flag) and **`predict_moment(model, e; axes = e)`** — the runtime default
+  axis is the spin direction itself, exactly the mode-4 identity substitution.
+  `predict_moment` is a validating DOOR (the package's unit-norm rule for every
+  spin-reading entry point): `e` must be unit columns throughout, `axes` unit on
+  the MARKED columns only — unmarked axes columns are never read, so closed-form
+  component extraction at `ê = x̂, ŷ, ẑ` stays legal.
+
+Tests (`test/unit/test_momentfit.jl`): hand-arithmetic target/gate oracle,
+mode-1 ≡ mode-4 identity equivalence (bitwise), planted-model recovery via
+prediction equivalence (rank-robust; the FeGe primitive fixture's structural
+flat direction is cross-named by `moment_resolvability`), gate keep/reject with
+gated-vs-ungated disclosure, the `|M| = 0` pass, zero-axis exclusion, the
+coverage-floor refusal, setup-uniformity and requirement doors, dataset-level
+time reversal (bitwise), and μ₀ absorbing a per-orbit constant shift.
+
 ### Added — `TrainingDatum` carries the adiabatic-moment channel (2026-08-20, step 2 of the pointed moment expansion)
 
 Three optional fields (all default `nothing`; the energy/torque/force paths are
