@@ -1040,7 +1040,7 @@ capability consumed by both the introspection and the Sunny interop.
   underdetermined regime + guards, warm/cold path consistency, the Pareto rule, and the
   end-to-end select → refit workflow.
 
-### Adiabatic moment channel — pointed basis (step 2, slices A–D)
+### Adiabatic moment channel — pointed basis (step 2, slices A–E)
 
 The site-moment expansion `m_i(e)` (design record: the adiabatic-moment brainstorm,
 D1–D10 + D8 addendum): a per-site scalar regression `y_a = ê_a · M_a` fitted on a
@@ -1094,9 +1094,16 @@ energy/torque/force pipeline is untouched (bit-identity gated).
   identity and is a validating door (`e` unit everywhere, `axes` unit on marked
   columns only).
 
-Next slices: the fast design path (mark→member index, bitwise-gated), band-profile
-diagnostics + the simple-feature nested lower bound, the `salc_groups` mark-class
-key.
+- **Fast design path**: `_design_moment` skips dead (member, term) pairs via a
+  mark→term index (term granularity — one member's terms can carry the mark on
+  different sites); value-identical to the full path (`member_index = false`, the
+  in-tree oracle; elementwise-`==` gated). 22.7× on the FeGe 2×2×2 supercell.
+- **`moment_band_profile`**: per-config mean residuals (kept rows) along the
+  marked-sublattice `|⟨e⟩|` (`MomentDataset.order`) — equal-count bins + the
+  bin-free least-squares line + Pearson r.
+
+Next slices: the simple-feature nested lower-bound gate + |h₁| feature coverage
+(script-level today), the `salc_groups` mark-class key.
 
 ## Not yet implemented (v0 follow-ups)
 - The v0 slice is feature-complete; no estimator/observable/IO follow-ups outstanding.

@@ -357,7 +357,7 @@ function _eval_moment_entry(salc::SALC, esub::Matrix{Float64}, u::Matrix{Float64
 end
 
 """
-    _design_moment(mb, configs, axes) -> Matrix{Float64}
+    _design_moment(mb, configs, axes; member_index = true) -> Matrix{Float64}
 
 The moment channel's design matrix: rows are (configuration-major, marked-atom
 minor) pairs `(c, a)` over `mb.marked_atoms`, columns the pointed SALCs. `axes[c]`
@@ -365,9 +365,13 @@ is the per-atom evaluation-axis matrix of configuration `c` (the D8 addendum's
 mode rule resolves it at the dataset layer: mode 4 → the datum's `directions`,
 mode 1 → its `constraint_axes`); only the marked column of `e` is substituted per
 row, environment columns stay configuration coordinates in both modes.
+`member_index = true` (default) evaluates each row through the mark→term index —
+value-identical to the full per-SALC evaluation (`member_index = false`, the
+in-tree oracle path); see `_mark_term_index`.
 """
 function _design_moment(mb::MomentBasis, configs::Vector{Matrix{Float64}},
-                        axes::Vector{Matrix{Float64}})::Matrix{Float64}
+                        axes::Vector{Matrix{Float64}};
+                        member_index::Bool = true)::Matrix{Float64}
     length(configs) == length(axes) ||
         throw(ArgumentError("$(length(configs)) configs, $(length(axes)) axes"))
     sal = salcs(mb)
@@ -375,6 +379,7 @@ function _design_moment(mb::MomentBasis, configs::Vector{Matrix{Float64}},
     nat = n_atoms(mb.crystal)
     nrow = length(configs) * length(atoms)
     X = Matrix{Float64}(undef, nrow, length(sal))
+    idx = member_index ? _mark_term_index(sal, atoms) : nothing
     Threads.@threads for j = 1:length(sal)
         scratch = SALCScratch()
         esub = Matrix{Float64}(undef, 3, nat)
@@ -388,13 +393,73 @@ function _design_moment(mb::MomentBasis, configs::Vector{Matrix{Float64}},
                 esub[2, a] = axes[ci][2, a]
                 esub[3, a] = axes[ci][3, a]
                 u[1, a] = 1.0
-                X[(ci - 1) * length(atoms) + ai, j] =
-                    _eval_moment_entry(sal[j], esub, u, scratch)
+                X[(ci - 1) * length(atoms) + ai, j] = idx === nothing ?
+                    _eval_moment_entry(sal[j], esub, u, scratch) :
+                    _eval_moment_members(sal[j], idx[j][ai], esub, u, scratch)
                 u[1, a] = 0.0
             end
         end
     end
     return X
+end
+
+# ── fast design path: mark → term index ────────────────────────────────────────────
+
+# For each pointed SALC and each marked atom, the (member, term) pairs whose mark
+# sits on that atom: the design row (c, a) reads exactly these — every other term
+# dies on its |u|² = 0 factor before contributing. The granularity is the TERM,
+# not the member: a member's terms enumerate distinct decor→site assignments, so
+# one member can carry its mark on different sites in different terms. Skipping
+# the dead terms removes only exact-zero additions from each accumulated sum
+# (live terms keep their relative order), so the fast path is VALUE-IDENTICAL to
+# the full evaluation up to the sign of a zero; the equality gates in
+# test_momentbasis.jl/test_momentfit.jl hold both paths to elementwise ==.
+function _mark_term_index(sal::Vector{SALC},
+                          atoms::Vector{Int})::Vector{Vector{Vector{Tuple{Int,Int}}}}
+    pos = Dict(a => i for (i, a) in enumerate(atoms))
+    idx = [[Tuple{Int,Int}[] for _ in atoms] for _ in sal]
+    for (j, s) in enumerate(sal), (mi, m) in enumerate(s.members),
+        (ti, t) in enumerate(m.terms)
+
+        # One mark per pointed label (the marked-column-substitution invariant):
+        # the FIRST DISP slot is therefore THE mark, the same slot every other
+        # consumer (e.g. moment_resolvability) sees. The exact-zero skip argument
+        # additionally needs the mark's radial power k ≥ 1 (0.0^0 == 1.0 would
+        # make skipped terms nonzero) — pinned loudly, not assumed.
+        site = 0
+        for sl in t.slots
+            if sl.factor.channel == DISP
+                sl.factor.k >= 1 ||
+                    error("pointed SALC $j member $mi term $ti: mark radial " *
+                          "power k = $(sl.factor.k) < 1 breaks the dead-term skip")
+                site = sl.site
+                break
+            end
+        end
+        site == 0 && error("pointed SALC $j member $mi term $ti carries no mark")
+        a = m.atoms[site]
+        # A mark on an atom outside `atoms` contributes to no design row in either
+        # path (no row ever raises its |u|²); it is simply absent from the index.
+        haskey(pos, a) && push!(idx[j][pos[a]], (mi, ti))
+    end
+    return idx
+end
+
+# Subset-sum evaluation of a pointed SALC over the terms marked at the row's
+# atom — same scale and same relative accumulation order as
+# `evaluate_salc(salc, e, u, scratch)` restricted to the live terms.
+function _eval_moment_members(salc::SALC, tids::Vector{Tuple{Int,Int}},
+                              esub::Matrix{Float64}, u::Matrix{Float64},
+                              scratch::SALCScratch)::Float64
+    n_spin = count(has_spin, salc.decors)
+    scale = (4π)^(n_spin / 2)
+    total = 0.0
+    @inbounds for (mi, ti) in tids
+        m = salc.members[mi]
+        t = m.terms[ti]
+        total += _eval_term_mixed(t.folded, t.slots, m.atoms, esub, u, scratch)
+    end
+    return scale * total
 end
 
 # ── pointed resolvability gate ─────────────────────────────────────────────────────

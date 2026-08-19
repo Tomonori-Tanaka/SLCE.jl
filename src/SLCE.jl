@@ -207,7 +207,8 @@ export write_phonopy, write_alamode
 export EmbsetFile, read_embset, read_embset_pair
 export ExtxyzFile, read_extxyz, write_extxyz
 export MomentSpec, MomentBasis, moment_resolvability
-export MomentDataset, MomentFit, MomentModel, predict_moment, rmse_moment
+export MomentDataset, MomentFit, MomentModel, predict_moment, rmse_moment,
+    moment_band_profile
 
 # --- Public, unexported -----------------------------------------------------------
 # Reachable as `SLCE.<name>` (and documented), but kept out of the flat `using`

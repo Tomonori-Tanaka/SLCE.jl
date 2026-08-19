@@ -335,8 +335,8 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         # for the frozen column and the reduced solve for the rest
         ds2 = MomentDataset(ds.basis, ds.X, ds.y, ds.defined, ds.keep, ds.gate,
                             ds.row_config, ds.row_atom, ds.orbit_rep,
-                            ds.orbit_report, [2], ds.dependent, ds.gate_eps,
-                            ds.coverage_floor, ds.provenance)
+                            ds.orbit_report, ds.order, [2], ds.dependent,
+                            ds.gate_eps, ds.coverage_floor, ds.provenance)
         f2 = fit(MomentFit, ds2)     # dropping col 2 removes the tie: no warning
         @test f2.coeffs[2] == 0.0 && f2.coeffs_ungated[2] == 0.0
         act = [1, 3, 4, 5]
@@ -413,5 +413,88 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
             ex
         end
         @test err isa ArgumentError && occursin("orbit 5", err.msg)
+    end
+
+    @testset "fast design path ≡ full evaluation" begin
+        # the member-index path must be value-identical to evaluating every
+        # member (dead members only ever add exact zeros)
+        for trial = 1:3
+            e = _mb_unit(rng, nat)
+            ax = trial == 1 ? e : _mb_unit(rng, nat)
+            Xf = SLCE._design_moment(mb, [e], [ax])
+            Xs = SLCE._design_moment(mb, [e], [ax]; member_index = false)
+            @test Xf == Xs
+        end
+        # and through a 3-body star basis (multi-member orbits, both species env)
+        psp = MomentSpec(; lmax_env = [1, 1], sampled = [true, true],
+                         lmax_mark = 1, nbody = 3, cutoff_pair = 3.0,
+                         marked = [true, false])
+        mbs = MomentBasis(xt, psp; backend = bk)
+        e = _mb_unit(rng, nat)
+        @test SLCE._design_moment(mbs, [e], [e]) ==
+              SLCE._design_moment(mbs, [e], [e]; member_index = false)
+    end
+
+    @testset "band-profile diagnostic" begin
+        data = _mf_data(24)
+        ds = _mf_ds(mb, data; gate_eps = 1e-8)
+        f = _mf_fit(ds)
+        # the order coordinate is the marked-sublattice |⟨e⟩| — hand oracle
+        for c in (1, 24)
+            m = sum(data[c].directions[:, a] for a in marked)
+            @test ds.order[c] ≈ norm(m) / nm rtol = 1e-12
+        end
+        prof = moment_band_profile(f)
+        # hand re-computation of the whole profile from public fields
+        pred = ds.X * coef(f)
+        mres = [sum((ds.y .- pred)[(c-1)*nm+1:c*nm]) / nm for c = 1:24]
+        @test prof.mean_residual ≈ mres atol = 1e-12
+        @test sum(b.n for b in prof.bands) == 24
+        @test prof.bands[1].hi <= prof.bands[end].lo   # ordered bins
+        # bin-free line: independent least-squares via the normal equations
+        A = [ones(24) ds.order]
+        ab = (A' * A) \ (A' * mres)
+        @test prof.intercept ≈ ab[1] atol = 1e-10
+        @test prof.slope ≈ ab[2] atol = 1e-10
+        @test abs(prof.r) <= 1 + 1e-12
+        # a planted linear-in-order corruption is recovered by the slope
+        data2 = TrainingDatum[]
+        for (c, d) in enumerate(data)
+            M = copy(d.moments_bare)
+            for a in marked
+                M[:, a] .+= (0.5 * ds.order[c]) .* d.directions[:, a]
+            end
+            push!(data2, TrainingDatum(; energy = d.energy,
+                                       directions = d.directions,
+                                       magmoms = d.magmoms, moments_bare = M,
+                                       constraint_mode = 4,
+                                       provenance = d.provenance))
+        end
+        ds2 = _mf_ds(mb, data2; gate_eps = 1e-8)
+        prof2 = moment_band_profile(MomentModel(f), ds2)
+        @test prof2.slope ≈ prof.slope + 0.5 atol = 1e-6
+        # gated rows are excluded from the profile: a config whose rows are all
+        # gate-rejected disappears
+        data3 = _mf_data(6; ndirty = 1)
+        ds3 = @test_logs (:warn, r"structurally dependent") (:info,
+            r"excluded") match_mode = :any MomentDataset(mb, data3;
+                                                         gate_eps = 1e-6,
+                                                         coverage_floor = 0.5)
+        prof3 = moment_band_profile(MomentModel(f), ds3)
+        @test length(prof3.mean_residual) == 5
+        @test_throws ArgumentError moment_band_profile(f; nbins = 0)
+        # fewer configs than bins: every config still lands in a band (the naive
+        # div-by-nbins binning dropped the high-|⟨e⟩| end — review 2026-08-20)
+        ds4 = _mf_ds(mb, _mf_data(3); gate_eps = 1e-8)
+        prof4 = moment_band_profile(MomentModel(f), ds4; nbins = 4)
+        @test sum(b.n for b in prof4.bands) == 3
+        @test length(prof4.bands) == 3
+        # a model on a different basis object is refused (same-width nonsense door)
+        spec_alt = MomentSpec(; lmax_env = [1, 1], sampled = [true, true],
+                              lmax_mark = 1, nbody = 2, cutoff_pair = 3.0,
+                              marked = [true, false])
+        mb_alt = MomentBasis(xt, spec_alt; backend = bk)
+        malt = MomentModel(mb_alt, coef(f), f.dataset.provenance)
+        @test_throws ArgumentError moment_band_profile(malt, ds3)
     end
 end

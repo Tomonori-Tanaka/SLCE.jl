@@ -86,6 +86,7 @@ struct MomentDataset
     orbit_report::Vector{@NamedTuple{orbit::Int, atoms::Vector{Int}, n_rows::Int,
                                      n_defined::Int, n_kept::Int, n_anti::Int,
                                      survival::Float64, mperp_rms::Float64}}
+    order::Vector{Float64}
     vanishing::Vector{Int}
     dependent::Vector{Vector{Tuple{Int,Float64}}}
     gate_eps::Float64
@@ -257,12 +258,24 @@ function MomentDataset(basis::MomentBasis, data::AbstractVector{TrainingDatum};
         @warn msg combinations = mr.null_combinations
     end
 
+    # Per-config coverage coordinate: the marked-sublattice order parameter
+    # |⟨e⟩| = ‖Σ_a e_a‖ / n_marked — the axis of the band-profile diagnostic
+    # (design record M2-8/L2-2).
+    order = Vector{Float64}(undef, ncfg)
+    for (ci, e) in enumerate(configs)
+        s1 = 0.0; s2 = 0.0; s3 = 0.0
+        for a in atoms
+            s1 += e[1, a]; s2 += e[2, a]; s3 += e[3, a]
+        end
+        order[ci] = sqrt(s1^2 + s2^2 + s3^2) / nmark
+    end
+
     X = _design_moment(basis, configs, axes)
     ident = DatumProvenance(; reference_id = p1.reference_id,
                             reference_fingerprint = p1.reference_fingerprint,
                             setup_id = p1.setup_id, soc = p1.soc)
     return MomentDataset(basis, X, y, defined, keep, gate, row_config, row_atom,
-                         orbit_rep, report, collect(Int, mr.vanishing),
+                         orbit_rep, report, order, collect(Int, mr.vanishing),
                          mr.null_combinations, Float64(gate_eps),
                          Float64(coverage_floor), ident)
 end
@@ -427,3 +440,76 @@ end
 predict_moment(f::MomentFit, e::AbstractMatrix{<:Real};
                axes::AbstractMatrix{<:Real} = e)::Vector{Float64} =
     predict_moment(MomentModel(f), e; axes)
+
+# ── band-profile diagnostic ────────────────────────────────────────────────────────
+
+"""
+    moment_band_profile(model::MomentModel, ds::MomentDataset; nbins = 4)
+    moment_band_profile(f::MomentFit; nbins = 4)
+
+The coverage-band residual profile (design record M2-8/L2-2): per-configuration
+mean residuals of the moment channel, organized along the marked-sublattice order
+parameter `|⟨e⟩|` (`ds.order`). Returns
+
+- `bands` — `nbins` equal-count bins in order of increasing `|⟨e⟩|`, each
+  `(; lo, hi, mean_residual, n)`;
+- `slope`, `intercept` — the least-squares line of per-config mean residual vs
+  `|⟨e⟩|` (the bin-free statement of the same trend);
+- `r` — the Pearson correlation of the two;
+- `order`, `mean_residual` — the underlying per-config points (plot fodder).
+
+Residuals are `y − X·V` over the KEPT rows only; a configuration with no kept
+row is absent from the profile, and every present configuration counts once
+regardless of how many of its rows survived the gate. The per-config mean runs
+over ALL marked orbits together — on a multi-species marked basis a trend in a
+small-moment orbit can be masked by a large-moment one (disaggregate by
+`ds.orbit_rep` when that matters). NaN conventions: a degenerate order spread
+(`sxx = 0`) gives `slope = r = NaN` with the intercept still the plain mean
+residual; a perfect fit (`syy = 0`) gives `slope = 0` with `r = NaN`. A
+systematic band trend on held-out data is the basis-insufficiency signature the
+design record's L2-2 reinterpretation names — report it next to any σ.
+"""
+function moment_band_profile(model::MomentModel, ds::MomentDataset; nbins::Int = 4)
+    nbins >= 1 || throw(ArgumentError("nbins = $nbins must be ≥ 1"))
+    model.basis === ds.basis || throw(ArgumentError(
+        "the model and the dataset carry different bases — a same-width mismatch " *
+        "would profile nonsense silently, so identity is required"))
+    pred = ds.X * model.coeffs
+    ncfg = length(ds.order)
+    sums = zeros(ncfg)
+    counts = zeros(Int, ncfg)
+    for r in eachindex(ds.y)
+        ds.keep[r] || continue
+        c = ds.row_config[r]
+        sums[c] += ds.y[r] - pred[r]
+        counts[c] += 1
+    end
+    cfgs = [c for c = 1:ncfg if counts[c] > 0]
+    isempty(cfgs) && throw(ArgumentError("no configuration has a kept row"))
+    mres = [sums[c] / counts[c] for c in cfgs]
+    ord = ds.order[cfgs]
+    q = sortperm(ord)
+    n = length(cfgs)
+    bands = @NamedTuple{lo::Float64, hi::Float64, mean_residual::Float64, n::Int}[]
+    nb = min(nbins, n)          # effective bin count: every config lands in a bin
+    for b = 1:nb
+        sel = q[div((b - 1) * n, nb)+1:div(b * n, nb)]
+        isempty(sel) && continue
+        push!(bands, (; lo = minimum(ord[sel]), hi = maximum(ord[sel]),
+                      mean_residual = sum(mres[sel]) / length(sel), n = length(sel)))
+    end
+    mo = sum(ord) / n
+    mr_ = sum(mres) / n
+    sxx = sum((o - mo)^2 for o in ord)
+    sxy = sum((ord[i] - mo) * (mres[i] - mr_) for i = 1:n)
+    syy = sum((v - mr_)^2 for v in mres)
+    slope = sxx == 0.0 ? NaN : sxy / sxx
+    r = (sxx == 0.0 || syy == 0.0) ? NaN : sxy / sqrt(sxx * syy)
+    # Degenerate order spread (sxx = 0): the slope is undefined (NaN), but the
+    # intercept is still the plain mean residual — never NaN-poisoned.
+    intercept = sxx == 0.0 ? mr_ : mr_ - slope * mo
+    return (; bands, slope, intercept, r, order = ord, mean_residual = mres)
+end
+
+moment_band_profile(f::MomentFit; nbins::Int = 4) =
+    moment_band_profile(MomentModel(f), f.dataset; nbins)

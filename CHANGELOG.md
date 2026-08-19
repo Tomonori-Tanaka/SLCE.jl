@@ -6,6 +6,25 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — moment channel: fast design path + band-profile diagnostic (2026-08-20, step 2 slice E)
+
+- **`_design_moment(…; member_index = true)`**: the design build now skips, per
+  row, every (member, term) whose mark does not sit on the row's atom — the
+  granularity is the TERM (one member's terms can carry the mark on different
+  sites), and skipping removes only exact-zero additions, so the fast path is
+  value-identical to the full evaluation (gated elementwise-`==` in the tests;
+  `member_index = false` keeps the full path as the oracle). Measured 22.7× on
+  the FeGe 2×2×2 supercell (181 columns, 32 marked atoms).
+- **`moment_band_profile(model, ds; nbins = 4)` / `(f::MomentFit)`**: the
+  coverage-band residual profile (M2-8/L2-2) — per-configuration mean residuals
+  over kept rows along the marked-sublattice order parameter `|⟨e⟩|` (now stored
+  as `MomentDataset.order`), as equal-count bins plus the bin-free least-squares
+  line (`slope`, `intercept`, Pearson `r`). A systematic band trend on held-out
+  data is the basis-insufficiency signature; report it next to any σ.
+- Deferred, recorded: the simple-feature nested lower-bound gate and the |h₁|
+  feature-coverage check stay script-level for now; `salc_groups` mark-class key
+  not yet added.
+
 ### Added — `MomentDataset` / `fit(MomentFit, …)` / `MomentModel`: the moment channel's regression layer (2026-08-20, step 2 slice D)
 
 The pointed basis's counterpart of `SLCEDataset` + `fit` (`src/fitting/momentfit.jl`)
