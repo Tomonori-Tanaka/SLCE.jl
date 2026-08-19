@@ -841,7 +841,15 @@ capability consumed by both the introspection and the Sunny interop.
   `TrainingDatum` (per-configuration observables: required energy + spin channel,
   optional displacements / forces / constraining field with the derived torque
   target `τ_a = m_a × B_a`, the physical / Landau–Lifshitz torque; `nothing` =
-  not observed, distinct from an observed zero) with its `DatumProvenance`
+  not observed, distinct from an observed zero; plus the adiabatic-moment channel
+  trio `moments_bare` — bare `M_int` vectors, finiteness-only validation because
+  the signed projection target `y = ê·M` legitimately crosses zero —
+  `constraint_axes` (unit columns or exactly-zero = "no axis"), and
+  `constraint_mode` ∈ {1 = transverse-penalty type, 4 = direction-pinning type}:
+  the moment channel's evaluation axis is keyed by the mode — mode 4 reads `ê`
+  from `directions`, mode 1 from `constraint_axes` (required there) —
+  deliberately never by which fields happen to be present, and `constraint_axes`
+  without a declared mode is refused for the same reason) with its `DatumProvenance`
   (`torque_qualified` gates X_T rows, auto-derived from the field; `setup_id`/`soc`
   enforce one computational setup per dataset; `reference_id` +
   `reference_fingerprint` = `crystal_fingerprint`, a hand-rolled stable FNV-1a over

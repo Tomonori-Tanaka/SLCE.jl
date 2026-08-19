@@ -51,6 +51,31 @@ distinct from an observed zero):
   a caller passing `torques` directly (a code that emits torques without exposing
   `B`) must match this exact convention — `τ = m × B`, the same sign as the model's
   `predict_torque = −e × ∇E`, NOT the energy-rotation gradient `+e × ∇E`.
+- `moments_bare` — `3 × n_atoms` **bare** (non-smoothed) magnetic moment vectors
+  `M_a` (μ_B; VASP `M_int`), the projection target of the adiabatic site-moment
+  channel `y_a = ê_a · M_a`. Kept as a raw vector — components may be negative and
+  the magnitude may pass through zero (only finiteness is validated), because the
+  signed readout is exactly what makes the target analytic where `‖M‖ → 0`.
+  Distinct from the smoothed decomposition `magmoms · directions` (VASP `MW_int`):
+  the constraining penalty acts on `MW`, so `MW` supplies the configuration
+  coordinates `e` and the torque channel, while `M_int` supplies the moment
+  target — their ratio is configuration-dependent, so neither substitutes for the
+  other and both are stored.
+- `constraint_axes` — `3 × n_atoms` constraint axes `ê_a^c` (unit columns; an
+  exactly-zero column means "no axis for this atom"). For a transverse-penalty
+  constraint (`constraint_mode = 1`) this is the axis the constrained DFT run
+  evaluated the adiabatic map along (VASP `M_CONSTR`), and it is **required**;
+  for a direction-pinning constraint (`constraint_mode = 4`) it is optional but
+  recommended — it feeds the axis-consistency gates at the dataset boundary.
+- `constraint_mode` — which class of constrained-DFT scheme produced this datum:
+  `1` = transverse-penalty type (the axis is prescribed, the sign of the moment
+  along it is free) or `4` = direction-pinning type (the full direction is
+  pinned). The numbers follow VASP's `I_CONSTRAINED_M`, but the key is the
+  physical class — another code's scheme maps onto one of the two. `nothing`
+  means "no constraint information": the datum can never feed the moment
+  channel's evaluation-axis rule (mode 4 reads `ê` from `directions`, mode 1
+  from `constraint_axes` — keyed here, deliberately never by which fields happen
+  to be present).
 - `provenance::DatumProvenance` — see [`DatumProvenance`](@ref). When omitted it is
   derived exactly as in [`spin_datum`](@ref): `constrained = torque_qualified =
   any(!iszero, field)`, and explicitly passed `torques` set
@@ -80,6 +105,9 @@ struct TrainingDatum
     forces::Union{Matrix{Float64},Nothing}
     field::Union{Matrix{Float64},Nothing}
     torques::Union{Matrix{Float64},Nothing}
+    moments_bare::Union{Matrix{Float64},Nothing}
+    constraint_axes::Union{Matrix{Float64},Nothing}
+    constraint_mode::Union{Int,Nothing}
     provenance::DatumProvenance
 
     function TrainingDatum(energy::Float64, directions::Matrix{Float64},
@@ -88,6 +116,9 @@ struct TrainingDatum
                            forces::Union{Matrix{Float64},Nothing},
                            field::Union{Matrix{Float64},Nothing},
                            torques::Union{Matrix{Float64},Nothing},
+                           moments_bare::Union{Matrix{Float64},Nothing},
+                           constraint_axes::Union{Matrix{Float64},Nothing},
+                           constraint_mode::Union{Int,Nothing},
                            provenance::DatumProvenance)
         isfinite(energy) || throw(ArgumentError("`energy` is not finite ($energy)"))
         size(directions, 1) == 3 ||
@@ -109,14 +140,49 @@ struct TrainingDatum
                                     "magnitude |m|"))
         end
         for (name, ch) in (("displacements", displacements), ("forces", forces),
-                           ("field", field), ("torques", torques))
+                           ("field", field), ("torques", torques),
+                           ("moments_bare", moments_bare))
             ch === nothing && continue
             size(ch) == (3, nat) ||
                 throw(ArgumentError("`$name` must be 3 × $nat (got $(size(ch)))"))
             all(isfinite, ch) || throw(ArgumentError("`$name` contains non-finite entries"))
         end
+        # `moments_bare` is deliberately validated for finiteness only (above): the bare
+        # moment is a signed vector whose magnitude legitimately passes through zero —
+        # that analyticity is the whole point of the projection target y = ê·M.
+        if constraint_axes !== nothing
+            size(constraint_axes) == (3, nat) ||
+                throw(ArgumentError("`constraint_axes` must be 3 × $nat " *
+                                    "(got $(size(constraint_axes)))"))
+            @inbounds for a = 1:nat
+                u = SVector{3,Float64}(constraint_axes[1, a], constraint_axes[2, a],
+                                       constraint_axes[3, a])
+                # An exactly-zero column asserts "no axis for this atom" (the VASP
+                # M_CONSTR convention); anything else must be a unit axis. Near-zero
+                # noise is neither — it is refused rather than silently normalized.
+                u == SVector{3,Float64}(0, 0, 0) && continue
+                _validate_direction(u, "`constraint_axes` column $a")
+            end
+        end
+        if constraint_mode !== nothing
+            constraint_mode in (1, 4) ||
+                throw(ArgumentError("`constraint_mode` must be 1 (transverse-penalty " *
+                                    "type) or 4 (direction-pinning type); got " *
+                                    "$constraint_mode"))
+            constraint_mode == 1 && constraint_axes === nothing &&
+                throw(ArgumentError("`constraint_mode = 1` (transverse-penalty type) " *
+                                    "requires `constraint_axes`: the moment readout " *
+                                    "axis cannot be reconstructed from the converged " *
+                                    "moment direction where ‖M‖ → 0, so the " *
+                                    "constraint axis must be carried explicitly"))
+        elseif constraint_axes !== nothing
+            throw(ArgumentError("`constraint_axes` without `constraint_mode`: the " *
+                                "evaluation-axis rule is keyed by the constraint " *
+                                "class (1 or 4), deliberately never by which fields " *
+                                "happen to be present — declare the mode"))
+        end
         return new(energy, directions, magmoms, displacements, forces, field,
-                   torques, provenance)
+                   torques, moments_bare, constraint_axes, constraint_mode, provenance)
     end
 end
 
@@ -126,6 +192,9 @@ function TrainingDatum(; energy::Real, directions::AbstractMatrix{<:Real},
                        forces::Union{AbstractMatrix{<:Real},Nothing} = nothing,
                        field::Union{AbstractMatrix{<:Real},Nothing} = nothing,
                        torques::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                       moments_bare::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                       constraint_axes::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                       constraint_mode::Union{Integer,Nothing} = nothing,
                        provenance::Union{DatumProvenance,Nothing} = nothing)::TrainingDatum
     _mat(x) = x === nothing ? nothing : Matrix{Float64}(x)
     dirs = Matrix{Float64}(directions)
@@ -175,7 +244,10 @@ function TrainingDatum(; energy::Real, directions::AbstractMatrix{<:Real},
         end
     end
     return TrainingDatum(Float64(energy), dirs, mags, _mat(displacements),
-                         _mat(forces), fld, trq, provenance)
+                         _mat(forces), fld, trq, _mat(moments_bare),
+                         _mat(constraint_axes),
+                         constraint_mode === nothing ? nothing : Int(constraint_mode),
+                         provenance)
 end
 
 function Base.show(io::IO, d::TrainingDatum)
@@ -183,6 +255,7 @@ function Base.show(io::IO, d::TrainingDatum)
     d.displacements === nothing || push!(chans, "u")
     d.forces === nothing || push!(chans, "f")
     d.torques === nothing || push!(chans, "τ")
+    d.moments_bare === nothing || push!(chans, "M")
     print(io, "TrainingDatum(E = ", d.energy, ", n_atoms = ", size(d.directions, 2),
           isempty(chans) ? "" : ", +" * join(chans, "+"), ")")
 end
@@ -306,9 +379,11 @@ end
 
 """
     spin_datum(energy, moments, field; zero_moment_atol = 1e-10,
-              provenance = nothing) -> TrainingDatum
+              moments_bare = nothing, constraint_axes = nothing,
+              constraint_mode = nothing, provenance = nothing) -> TrainingDatum
     spin_datum(energy, moments; zero_moment_atol = 1e-10,
-              provenance = nothing) -> TrainingDatum
+              moments_bare = nothing, constraint_axes = nothing,
+              constraint_mode = nothing, provenance = nothing) -> TrainingDatum
 
 Build a spin-only [`TrainingDatum`](@ref) from raw per-atom magnetic moment vectors
 `moments` (`3 × n_atoms`, μ_B) — the convenience entry point for DFT spin data
@@ -332,6 +407,11 @@ The two-argument form is for sources with no field/torque output at all (colline
 runs, codes without constrained noncollinear magnetism): `field` and `torques` are
 absent (`nothing`), so the datum can only contribute energy rows.
 
+Both forms pass `moments_bare` / `constraint_axes` / `constraint_mode` through to
+[`TrainingDatum`](@ref) unchanged (see there): `moments` here is the smoothed
+decomposition source (VASP `MW_int` — the quantity the constraint acts on), while
+`moments_bare` is the bare `M_int` the adiabatic moment channel targets.
+
 The torque target carries the per-config moment magnitude `‖m_a‖`, while the SLCE
 model torque depends on directions only — so a co-fit assumes the moment magnitudes
 are roughly constant across configurations (large longitudinal variation would bias
@@ -342,6 +422,9 @@ value to its `zero_moment_atol` so the guard stays aligned.)
 """
 function spin_datum(energy::Real, moments::AbstractMatrix{<:Real},
                    field::AbstractMatrix{<:Real}; zero_moment_atol::Real = 1e-10,
+                   moments_bare::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                   constraint_axes::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                   constraint_mode::Union{Integer,Nothing} = nothing,
                    provenance::Union{DatumProvenance,Nothing} = nothing)::TrainingDatum
     size(field) == size(moments) ||
         throw(ArgumentError("`field` $(size(field)) must match `moments` $(size(moments))"))
@@ -367,17 +450,27 @@ function spin_datum(energy::Real, moments::AbstractMatrix{<:Real},
                                       provenance.reference_fingerprint,
                                   setup_id = provenance.setup_id,
                                   soc = provenance.soc) : provenance)
+    _m(x) = x === nothing ? nothing : Matrix{Float64}(x)
     return TrainingDatum(Float64(energy), dirs, mags, nothing, nothing,
-                         Matrix{Float64}(field), torq, provenance)
+                         Matrix{Float64}(field), torq, _m(moments_bare),
+                         _m(constraint_axes),
+                         constraint_mode === nothing ? nothing : Int(constraint_mode),
+                         provenance)
 end
 
 function spin_datum(energy::Real, moments::AbstractMatrix{<:Real};
                    zero_moment_atol::Real = 1e-10,
+                   moments_bare::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                   constraint_axes::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                   constraint_mode::Union{Integer,Nothing} = nothing,
                    provenance::Union{DatumProvenance,Nothing} = nothing)::TrainingDatum
     dirs, mags = _moments_to_dirs(moments; zero_moment_atol = zero_moment_atol)
     provenance === nothing && (provenance = DatumProvenance())
+    _m(x) = x === nothing ? nothing : Matrix{Float64}(x)
     return TrainingDatum(Float64(energy), dirs, mags, nothing, nothing, nothing,
-                         nothing, provenance)
+                         nothing, _m(moments_bare), _m(constraint_axes),
+                         constraint_mode === nothing ? nothing : Int(constraint_mode),
+                         provenance)
 end
 
 """
@@ -440,7 +533,9 @@ end
 """
     joint_datum(energy; moments, field = nothing, displacements = nothing,
                 forces = nothing, reference = nothing, reference_id = "reference",
-                zero_moment_atol = 1e-10, provenance = nothing) -> TrainingDatum
+                zero_moment_atol = 1e-10, moments_bare = nothing,
+                constraint_axes = nothing, constraint_mode = nothing,
+                provenance = nothing) -> TrainingDatum
 
 A [`TrainingDatum`](@ref) carrying **both** channels: a magnetic state from raw DFT
 moments and a displaced structure. The third sibling of [`spin_datum`](@ref) and
@@ -477,6 +572,9 @@ function joint_datum(energy::Real;
                      reference::Union{Crystal,Nothing} = nothing,
                      reference_id::AbstractString = "reference",
                      zero_moment_atol::Real = 1e-10,
+                     moments_bare::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                     constraint_axes::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                     constraint_mode::Union{Integer,Nothing} = nothing,
                      provenance::Union{DatumProvenance,Nothing} = nothing)::TrainingDatum
     field === nothing || size(field) == size(moments) ||
         throw(ArgumentError("`field` $(size(field)) must match `moments` " *
@@ -492,7 +590,9 @@ function joint_datum(energy::Real;
     # cannot disagree about which rows are admissible.
     return TrainingDatum(; energy = energy, directions = dirs, magmoms = mags,
                          displacements = displacements, forces = forces,
-                         field = field, provenance = provenance)
+                         field = field, moments_bare = moments_bare,
+                         constraint_axes = constraint_axes,
+                         constraint_mode = constraint_mode, provenance = provenance)
 end
 
 """

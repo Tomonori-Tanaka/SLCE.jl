@@ -360,4 +360,106 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
                               magmoms = [2.0, 2.0], forces = zeros(3, 2))
         @test_logs (:warn, r"pure-spin") SLCE._check_reference(bspin, [withf])
     end
+
+    @testset "adiabatic-moment fields: moments_bare / constraint_axes / constraint_mode" begin
+        n = 3
+        dirs = repeat([0.0, 0.0, 1.0], 1, n)
+        mags = fill(1.2, n)
+        M = [0.1 -0.2 0.0; 0.0 0.3 -0.1; 1.1 -1.0 0.02]     # signed, one near-zero: legal
+        ax = repeat([0.0, 0.0, 1.0], 1, n)
+
+        # defaults: absent, and the datum is what it was before the extension
+        d0 = TrainingDatum(; energy = -1.0, directions = dirs, magmoms = mags)
+        @test d0.moments_bare === nothing
+        @test d0.constraint_axes === nothing
+        @test d0.constraint_mode === nothing
+
+        # moments_bare: finiteness is the ONLY value constraint (signed, zero-crossing
+        # magnitudes are the point of the vector storage)
+        d = TrainingDatum(; energy = -1.0, directions = dirs, magmoms = mags,
+                          moments_bare = M)
+        @test d.moments_bare == M
+        Mbad = copy(M); Mbad[2, 2] = Inf
+        @test_throws ArgumentError TrainingDatum(; energy = -1.0, directions = dirs,
+                                                 magmoms = mags, moments_bare = Mbad)
+        @test_throws ArgumentError TrainingDatum(; energy = -1.0, directions = dirs,
+                                                 magmoms = mags,
+                                                 moments_bare = zeros(3, n + 1))
+
+        # constraint_mode: only the two physical classes exist
+        for bad in (0, 2, 3, 5, -1)
+            @test_throws ArgumentError TrainingDatum(; energy = -1.0, directions = dirs,
+                                                     magmoms = mags,
+                                                     constraint_mode = bad)
+        end
+        d4 = TrainingDatum(; energy = -1.0, directions = dirs, magmoms = mags,
+                           moments_bare = M, constraint_mode = 4)
+        @test d4.constraint_mode == 4 && d4.constraint_axes === nothing
+
+        # mode 1 (transverse-penalty type) requires the axes; axes without a declared
+        # mode are refused (the axis rule is keyed by mode, never by field presence)
+        @test_throws ArgumentError TrainingDatum(; energy = -1.0, directions = dirs,
+                                                 magmoms = mags, moments_bare = M,
+                                                 constraint_mode = 1)
+        @test_throws ArgumentError TrainingDatum(; energy = -1.0, directions = dirs,
+                                                 magmoms = mags, constraint_axes = ax)
+        d1 = TrainingDatum(; energy = -1.0, directions = dirs, magmoms = mags,
+                           moments_bare = M, constraint_axes = ax, constraint_mode = 1)
+        @test d1.constraint_mode == 1 && d1.constraint_axes == ax
+
+        # axes columns: unit vectors, or exactly zero (= "no axis for this atom");
+        # near-zero noise is refused, not normalized
+        axz = copy(ax); axz[:, 2] .= 0.0
+        dz = TrainingDatum(; energy = -1.0, directions = dirs, magmoms = mags,
+                           constraint_axes = axz, constraint_mode = 1)
+        @test dz.constraint_axes[:, 2] == zeros(3)
+        axbad = copy(ax); axbad[:, 2] .= 0.5
+        @test_throws ArgumentError TrainingDatum(; energy = -1.0, directions = dirs,
+                                                 magmoms = mags, constraint_axes = axbad,
+                                                 constraint_mode = 1)
+        axnan = copy(ax); axnan[1, 1] = NaN
+        @test_throws ArgumentError TrainingDatum(; energy = -1.0, directions = dirs,
+                                                 magmoms = mags, constraint_axes = axnan,
+                                                 constraint_mode = 1)
+
+        # the two construction paths of one type carry the fields identically
+        moments = 1.2 .* dirs
+        B = zeros(3, n); B[1, 1] = 0.05
+        sd = spin_datum(-1.0, moments, B; moments_bare = M, constraint_axes = ax,
+                        constraint_mode = 1)
+        kd = TrainingDatum(; energy = -1.0, directions = dirs, magmoms = mags,
+                           field = B, moments_bare = M, constraint_axes = ax,
+                           constraint_mode = 1)
+        for f in (:moments_bare, :constraint_axes, :constraint_mode)
+            @test getfield(sd, f) == getfield(kd, f)
+        end
+        sd2 = spin_datum(-1.0, moments; moments_bare = M, constraint_axes = ax,
+                         constraint_mode = 4)
+        @test sd2.moments_bare == M && sd2.constraint_mode == 4
+        jd = joint_datum(-1.0; moments = moments, moments_bare = M,
+                         constraint_axes = ax, constraint_mode = 4)
+        @test jd.moments_bare == M && jd.constraint_mode == 4
+
+        # show: the moment channel is announced like the others
+        @test occursin("+M", sprint(show, d4))
+        @test !occursin("+M", sprint(show, d0))
+
+        # the E path is inert to the new fields: identical energy design + targets
+        bspin_m = SLCEBasis(Crystal(Lattice(3.0 * [1.0 0 0; 0 1 0; 0 0 1]),
+                                    [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"]),
+                            BasisSpec(; nbody = 2, lmax = [1], cutoff = 3.0))
+        _cfg(seed) = (m = randn(MersenneTwister(seed), 3, 2);
+                      for a = 1:2; m[:, a] ./= norm(m[:, a]); end; m)
+        cfgs = [_cfg(7 + i) for i = 1:4]
+        mk_plain = [TrainingDatum(; energy = 0.1i, directions = cfgs[i],
+                                  magmoms = [2.0, 2.0]) for i = 1:4]
+        mk_mom = [TrainingDatum(; energy = 0.1i, directions = cfgs[i],
+                                magmoms = [2.0, 2.0],
+                                moments_bare = 2.0 .* cfgs[i], constraint_mode = 4)
+                  for i = 1:4]
+        dsp = SLCEDataset(bspin_m, mk_plain; use_torque = false)
+        dsm = SLCEDataset(bspin_m, mk_mom; use_torque = false)
+        @test dsp.X_E == dsm.X_E
+        @test dsp.y_E == dsm.y_E
+    end
 end

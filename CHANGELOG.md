@@ -6,6 +6,35 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — `TrainingDatum` carries the adiabatic-moment channel (2026-08-20, step 2 of the pointed moment expansion)
+
+Three optional fields (all default `nothing`; the energy/torque/force paths are
+bit-identical when absent — gated in `test_dftsource.jl`):
+
+- **`moments_bare`** (`3 × n_atoms`, μ_B): the bare per-atom moment vectors (VASP
+  `M_int`), target of the adiabatic site-moment channel `y_a = ê_a · M_a`.
+  Finiteness is the only value constraint — the signed readout crossing zero is
+  the point of storing the vector (the non-analytic `‖M‖` target was rejected at
+  design time). Distinct from the smoothed `magmoms · directions` decomposition
+  (`MW_int`, which the constraint acts on and the torque channel reads); their
+  ratio is configuration-dependent, so both are stored.
+- **`constraint_axes`** (`3 × n_atoms`): per-atom constraint axes, unit columns
+  or exactly-zero ("no axis for this atom"); near-zero noise is refused, never
+  normalized.
+- **`constraint_mode`** (`1 | 4`): the physical class of the constrained-DFT
+  scheme — `1` = transverse-penalty type (axis prescribed, sign free; VASP
+  `I_CONSTRAINED_M = 1`), `4` = direction-pinning type. The moment channel's
+  evaluation axis is keyed by this mode (mode 4 → `directions`, mode 1 →
+  `constraint_axes`), **deliberately never by which fields happen to be
+  present** — an availability-keyed fallback would silently drop a mode-1 datum
+  with missing axes into the broken `ê_MW` coordinate (measured σ 2.1× on FeRh).
+  Hence the ctor invariants: mode 1 requires `constraint_axes`; `constraint_axes`
+  without a declared mode is refused.
+
+`spin_datum` (both arities) and `joint_datum` pass the trio through unchanged, so
+the construction paths cannot disagree. Consumers (extxyz I/O, `MomentBasis`,
+the moment dataset/fit layer) land in subsequent slices.
+
 ### Added — `tie_tol` exposed; OLS warns on a deficient design (2026-08-13, back-port from SCEFitting.jl)
 
 The MnTe(0001) slab cross-check (fixed first in the spin-only SCEFitting.jl)
