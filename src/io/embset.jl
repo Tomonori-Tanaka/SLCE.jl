@@ -73,6 +73,24 @@ function read_embset(path::AbstractString; n_atoms::Union{Integer,Nothing} = not
                      zero_moment_atol::Real = 1e-10,
                      setup_id::Union{AbstractString,Nothing} = nothing,
                      )::Vector{TrainingDatum}
+    energies, moments, fields = _read_embset_blocks(path; n_atoms = n_atoms)
+    data = Vector{TrainingDatum}(undef, length(energies))
+    for c in eachindex(energies)
+        c_flag = any(!iszero, fields[c])   # same derivation as spin_datum's default
+        prov = DatumProvenance(; constrained = c_flag, torque_qualified = c_flag,
+                               setup_id = setup_id)
+        data[c] = spin_datum(energies[c], moments[c], fields[c];
+                            zero_moment_atol = zero_moment_atol, provenance = prov)
+    end
+    return data
+end
+
+# The parsing core, shared with `read_embset_pair`: raw per-configuration blocks —
+# `(energies, moments, fields)` with `moments[c]`/`fields[c]` the exact 3 × n_atoms
+# parsed values (no direction/magnitude decomposition, so a bitwise cross-file
+# comparison compares what the file said).
+function _read_embset_blocks(path::AbstractString;
+                             n_atoms::Union{Integer,Nothing} = nothing)
     isfile(path) || throw(ArgumentError("no such EMBSET file: $path"))
     lines = String[]
     for raw in eachline(path)
@@ -90,12 +108,14 @@ function read_embset(path::AbstractString; n_atoms::Union{Integer,Nothing} = not
                             "a multiple of n_atoms + 1 = $blk"))
 
     nconf = length(lines) ÷ blk
-    data = Vector{TrainingDatum}(undef, nconf)
-    moments = Matrix{Float64}(undef, 3, nat)
-    field = Matrix{Float64}(undef, 3, nat)
+    energies = Vector{Float64}(undef, nconf)
+    moments = Vector{Matrix{Float64}}(undef, nconf)
+    fields = Vector{Matrix{Float64}}(undef, nconf)
     for c = 1:nconf
         base = blk * (c - 1)
-        energy = _embset_number(lines[base + 1], "config $c: energy line", path)
+        energies[c] = _embset_number(lines[base + 1], "config $c: energy line", path)
+        m = Matrix{Float64}(undef, 3, nat)
+        b = Matrix{Float64}(undef, 3, nat)
         for i = 1:nat
             tok = split(lines[base + 1 + i])
             length(tok) >= 7 ||
@@ -106,18 +126,103 @@ function read_embset(path::AbstractString; n_atoms::Union{Integer,Nothing} = not
                 throw(ArgumentError("EMBSET file $path, config $c, atom line $i: " *
                                     "index column is \"$(tok[1])\", expected $i"))
             for k = 1:3
-                moments[k, i] = _embset_number(tok[1 + k],
-                                               "config $c, atom $i, moment", path)
-                field[k, i] = _embset_number(tok[4 + k],
-                                             "config $c, atom $i, field", path)
+                m[k, i] = _embset_number(tok[1 + k],
+                                         "config $c, atom $i, moment", path)
+                b[k, i] = _embset_number(tok[4 + k],
+                                         "config $c, atom $i, field", path)
             end
         end
-        c_flag = any(!iszero, field)   # same derivation as spin_datum's default
+        moments[c] = m
+        fields[c] = b
+    end
+    return energies, moments, fields
+end
+
+"""
+    read_embset_pair(mw_path, mint_path; n_atoms = nothing, zero_moment_atol = 1e-10,
+                     setup_id = nothing, constraint_mode = nothing,
+                     constraint_axes = nothing, sign_gate_min = 5e-3,
+                     axis_angle_p99_max = 5.0) -> Vector{TrainingDatum}
+
+The **legacy archive reader**: an `EMBSET` file carrying the smoothed moments (VASP
+`MW_int` — the quantity the constraint acts on) paired with its `EMBSET_mint`
+sibling carrying the bare moments (`M_int`). New data should be generated as
+extended-XYZ ([`write_extxyz`](@ref)); this exists so archived pairs remain
+ingestible without regeneration.
+
+Both files are parsed with the full [`read_embset`](@ref) validation (so the index
+columns of both files are independently pinned to 1…n_atoms), then the pairing is
+verified loudly: same configuration count, same block shape, and the **field blocks
+bitwise identical** (both files were written from the same runs, so their
+constraining fields must agree to the last bit — a mismatch means the files are not
+siblings). The **energy lines are deliberately NOT compared**: the two writers'
+energy conventions differ (measured ΔE = 0.148 eV on the FeRh archive), and the
+`mw_path` energy is the one used.
+
+The result is [`spin_datum`](@ref)s built from the `mw_path` observables with
+`moments_bare` from `mint_path`. `constraint_mode` / `constraint_axes` (a single
+`3 × n_atoms` matrix applied to every configuration, or one matrix per
+configuration) attach the axis information the EMBSET format cannot carry — for a
+mode-1 archive the axes come from the archived per-sample inputs, and the axis
+gates ([`check_moment_gates`](@ref)) re-verify them against the converged moments,
+exactly as the extxyz path does.
+"""
+function read_embset_pair(mw_path::AbstractString, mint_path::AbstractString;
+                          n_atoms::Union{Integer,Nothing} = nothing,
+                          zero_moment_atol::Real = 1e-10,
+                          setup_id::Union{AbstractString,Nothing} = nothing,
+                          constraint_mode::Union{Integer,Nothing} = nothing,
+                          constraint_axes::Union{Nothing,AbstractMatrix{<:Real},
+                                                 AbstractVector{<:AbstractMatrix{<:Real}}} = nothing,
+                          sign_gate_min::Real = 5e-3,
+                          axis_angle_p99_max::Real = 5.0)::Vector{TrainingDatum}
+    e_mw, m_mw, b_mw = _read_embset_blocks(mw_path; n_atoms = n_atoms)
+    e_mint, m_mint, b_mint = _read_embset_blocks(mint_path; n_atoms = n_atoms)
+    length(e_mw) == length(e_mint) ||
+        throw(ArgumentError("EMBSET pair: $(length(e_mw)) configurations in " *
+                            "$mw_path vs $(length(e_mint)) in $mint_path — not " *
+                            "siblings (the FeRh EMBSET_mint_100 count-mismatch " *
+                            "class of provenance bug)"))
+    for c in eachindex(e_mw)
+        size(m_mw[c]) == size(m_mint[c]) ||
+            throw(ArgumentError("EMBSET pair: config $c block shape " *
+                                "$(size(m_mw[c])) in $mw_path vs " *
+                                "$(size(m_mint[c])) in $mint_path"))
+        b_mw[c] == b_mint[c] ||
+            throw(ArgumentError("EMBSET pair: config $c constraining-field block " *
+                                "differs between $mw_path and $mint_path — the " *
+                                "files are not from the same runs (the field is " *
+                                "run-identical; only the moment columns differ " *
+                                "between the MW and M_int writers)"))
+    end
+    axes_for = if constraint_axes === nothing
+        _ -> nothing
+    elseif constraint_axes isa AbstractMatrix
+        ax = Matrix{Float64}(constraint_axes)
+        _ -> ax
+    else
+        length(constraint_axes) == length(e_mw) ||
+            throw(ArgumentError("EMBSET pair: $(length(constraint_axes)) " *
+                                "constraint_axes matrices for $(length(e_mw)) " *
+                                "configurations"))
+        axv = [Matrix{Float64}(a) for a in constraint_axes]
+        c -> axv[c]
+    end
+    data = Vector{TrainingDatum}(undef, length(e_mw))
+    for c in eachindex(e_mw)
+        c_flag = any(!iszero, b_mw[c])
         prov = DatumProvenance(; constrained = c_flag, torque_qualified = c_flag,
                                setup_id = setup_id)
-        data[c] = spin_datum(energy, moments, field;
-                            zero_moment_atol = zero_moment_atol, provenance = prov)
+        data[c] = spin_datum(e_mw[c], m_mw[c], b_mw[c];
+                            zero_moment_atol = zero_moment_atol,
+                            moments_bare = m_mint[c],
+                            constraint_axes = axes_for(c),
+                            constraint_mode = constraint_mode,
+                            provenance = prov)
     end
+    check_moment_gates(data; sign_gate_min = sign_gate_min,
+                       axis_angle_p99_max = axis_angle_p99_max,
+                       label = "read_embset_pair($mw_path, $mint_path)")
     return data
 end
 

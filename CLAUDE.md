@@ -380,6 +380,33 @@ Easy to break silently — confirm before touching the algorithm.
   (`spin_datum` / `lattice_datum` / `joint_datum`) are functions returning
   `TrainingDatum`, deliberately snake_case: `SpinDatum` was a type once, and the
   UpperCamelCase spelling kept promising a type that no longer exists.
+- **The moment channel's evaluation axis is keyed by `constraint_mode`, never by
+  field presence** (`io/dftsource.jl` `TrainingDatum` ctor invariants ↔
+  `check_moment_gates` ↔ `io/extxyz.jl` reader/writer ↔ `io/embset.jl`
+  `read_embset_pair` ↔ the future moment dataset layer): mode 4
+  (direction-pinning type) reads `ê` from `directions`, mode 1
+  (transverse-penalty type) from `constraint_axes` — an availability-keyed
+  fallback ("use `mconstr` if present, else MW") would silently drop a mode-1
+  datum with missing axes into the broken `ê_MW` coordinate (`‖M‖ → 0` folds the
+  MW direction; measured σ 2.1× on FeRh), so the ctor REFUSES mode 1 without
+  axes AND axes without a declared mode. The gates (`check_moment_gates`) run at
+  every boundary an axis-carrying datum crosses — extxyz generation, extxyz
+  load, the EMBSET pair reader — because archived axes are re-verified, never
+  believed. Two subtleties the tests pin (`test_extxyz.jl`): a whole-axis flip
+  in mode 1 flips `y` with it (the axis sign is a GAUGE — the sign gate must NOT
+  fire, and "fixing" it to fire would refuse every legitimately re-gauged
+  archive), and the angle gate is a PERCENTILE (p99 < 5°), because collapse rows
+  legitimately carry large single-row angles (FeGe τ0.5 max 5.6° at p99 0.14°).
+  The same never-trust-the-flag rule shapes the extxyz reader: spin-only vs
+  joint is MEASURED from positions (bitwise across frames), `config_type` is
+  only a cross-checked claim. `moments_bare` (bare `M_int`) and the smoothed
+  `magmoms·directions` (`MW_int`) are BOTH stored and neither substitutes for
+  the other: the constraint acts on MW (τ and the configuration coordinates),
+  the projection target reads M_int, and their ratio is configuration-dependent
+  (0.691 ± 0.017 on FeGe τ0.5). VASP vocabulary (OSZICAR/INCAR parsing, λ
+  printing, SAXIS, sign conventions) stays in SLCETools' generator; the
+  `constraint_mode` numbers follow `I_CONSTRAINED_M`, but the KEY is the
+  physical class — another code's scheme maps onto class 1 or 4 at its adapter.
 - **Persistence schema ↔ the serialized structs** (`io/persist.jl`): `_to_doc` /
   `_from_doc` mirror the fields of `Crystal` / `Lattice` / `SpaceGroup` / `BasisSpec`
   / `SALCKey` / `SALCTerm` / `SALCMember` / `SALC` / `SLCEBasis` / `SLCEModel`. Add or

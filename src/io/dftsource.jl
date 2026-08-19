@@ -596,6 +596,87 @@ function joint_datum(energy::Real;
 end
 
 """
+    check_moment_gates(data; sign_gate_min = 5e-3, axis_angle_p99_max = 5.0,
+                       label = "training data") -> Nothing
+
+The moment channel's axis-consistency gates, run at every boundary an axis-carrying
+datum crosses (extxyz generation, extxyz load, the legacy EMBSET pair reader) — the
+archived constraint axes are never *believed*, they are re-verified against the
+converged moment directions every time. Throws `ArgumentError` on violation; a
+collection with nothing to gate passes silently.
+
+Rows gated: atoms with a nonzero `constraint_axes` column in a datum with a declared
+`constraint_mode`. Per row the readout is `y = ê_c · M` (`M = moments_bare`; for a
+mode-4 datum without `moments_bare`, `magmoms` stands in for `|y|`), and only rows
+with `|y| > sign_gate_min` are *decomposable* — below that the converged direction is
+noise by construction and carries no sign information (measured on FeRh: the largest
+`|y|` with a flipped sign is 6.5e-4 μ_B, noise model σ_flip ≈ 8e-4 μ_B; the default
+5e-3 keeps ≈ 8× margin while gating > 90 % of rows — the general prescription is
+`10 σ_flip`).
+
+1. **Sign-consistency** (mode 1, needs `moments_bare`): on every decomposable row,
+   `sign(ê_MW · ê_c) == sign(y)` **exactly** — the constrained run's converged moment
+   must point to the same side of the constraint plane as the signed readout says.
+2. **Axis angle p99** (both modes): the angle between the converged direction `ê_MW`
+   and the signed axis (`sign(y)·ê_c` for mode 1, `+ê_c` for mode 4) has its 99th
+   percentile over all decomposable rows below `axis_angle_p99_max` degrees
+   (measured: FeRh 3.6°, FeGe p99 0.14° with collapse-row outliers to 5.6° — which is
+   why the gate is a percentile, not a max). This catches small-angle staleness the
+   sign gate cannot.
+"""
+function check_moment_gates(data::AbstractVector{TrainingDatum};
+                            sign_gate_min::Real = 5e-3,
+                            axis_angle_p99_max::Real = 5.0,
+                            label::AbstractString = "training data")::Nothing
+    sign_gate_min > 0 ||
+        throw(ArgumentError("sign_gate_min must be > 0 (got $sign_gate_min)"))
+    angles = Float64[]
+    for (c, d) in enumerate(data)
+        d.constraint_mode === nothing && continue
+        d.constraint_axes === nothing && continue
+        d.constraint_mode == 1 && d.moments_bare === nothing && continue
+        ax = d.constraint_axes
+        M = d.moments_bare
+        nat = size(d.directions, 2)
+        for a = 1:nat
+            e_c = SVector{3,Float64}(ax[1, a], ax[2, a], ax[3, a])
+            e_c == SVector{3,Float64}(0, 0, 0) && continue
+            y = M !== nothing ?
+                e_c[1]*M[1, a] + e_c[2]*M[2, a] + e_c[3]*M[3, a] : d.magmoms[a]
+            abs(y) > sign_gate_min || continue
+            e_mw = SVector{3,Float64}(d.directions[1, a], d.directions[2, a],
+                                      d.directions[3, a])
+            proj = e_mw[1]*e_c[1] + e_mw[2]*e_c[2] + e_mw[3]*e_c[3]
+            s = d.constraint_mode == 1 ? sign(y) : 1.0
+            if d.constraint_mode == 1 && M !== nothing && sign(proj) != sign(y)
+                throw(ArgumentError("$label: sign-consistency gate violated (config " *
+                                    "$c, atom $a): the converged moment direction " *
+                                    "lies on the opposite side of the constraint " *
+                                    "plane from the signed readout y = ê_c·M = $y " *
+                                    "μ_B (ê_MW·ê_c = $proj, |y| > sign_gate_min = " *
+                                    "$sign_gate_min). The archived constraint axes " *
+                                    "do not match the run that produced these " *
+                                    "moments — stale or permuted axes"))
+            end
+            push!(angles, acosd(clamp(s * proj, -1.0, 1.0)))
+        end
+    end
+    isempty(angles) && return nothing
+    sort!(angles)
+    p99 = angles[clamp(ceil(Int, 0.99 * length(angles)), 1, length(angles))]
+    p99 <= axis_angle_p99_max ||
+        throw(ArgumentError("$label: axis-angle gate violated: p99 of the angle " *
+                            "between the converged moment direction and the " *
+                            "constraint axis over $(length(angles)) decomposable " *
+                            "rows is $(round(p99; digits = 2))° > " *
+                            "$(axis_angle_p99_max)° (max " *
+                            "$(round(angles[end]; digits = 2))°). The archived " *
+                            "axes are inconsistent with the run — small-angle " *
+                            "staleness the sign gate cannot see"))
+    return nothing
+end
+
+"""
     read_configs(src::AbstractDFTSource) -> Vector{TrainingDatum}
 
 Read all training configurations from a DFT source. Implemented per source type

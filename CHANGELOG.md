@@ -35,6 +35,38 @@ bit-identical when absent — gated in `test_dftsource.jl`):
 the construction paths cannot disagree. Consumers (extxyz I/O, `MomentBasis`,
 the moment dataset/fit layer) land in subsequent slices.
 
+### Added — extended-XYZ container, axis gates, EMBSET pair reader (2026-08-20, step 2 slice B)
+
+The canonical on-disk training-set format moves to extended-XYZ (ASE dialect),
+one self-contained file per set (`src/io/extxyz.jl`):
+
+- **`write_extxyz(path, data, crystal)` / `read_extxyz(path; reference)` /
+  `ExtxyzFile`**: the structure (lattice + positions) is ALWAYS stored, even for
+  spin-only data — self-containment removes the "which POSCAR pairs with which
+  EMBSET" provenance-bug class. Per-atom columns exist only when observed
+  (`species:pos:mw[:bcon][:mint][:mconstr][:forces]`, 1:1 with the datum's
+  `Union{…,Nothing}` channels); numbers print shortest-round-trip so every stored
+  value survives the file bit-exactly. **spin-only vs joint is measured from
+  positions** (bitwise identical across frames → spin-only; differing positions
+  need `reference::Crystal` and become displacements), and a `config_type` claim
+  contradicting the measurement is a loud error, as are cross-frame drift of
+  species/lattice/columns/mode/setup, `units_field ≠ eV/muB` (the "T" header
+  mislabel), and `mconstr` without a declared mode.
+- **`check_moment_gates`** (public unexported): the moment channel's
+  axis-consistency gates, run at generation AND at every load — archived
+  constraint axes are re-verified against the converged moment directions, never
+  believed. Sign-consistency (mode 1, decomposable rows `|y| > 5e-3 μ_B` ≈
+  10 σ_flip): `sign(ê_MW·ê_c) = sign(y)` exactly. Axis-angle p99 < 5° (both
+  modes) catches small-angle staleness the sign gate cannot. A whole-axis flip
+  in mode 1 flips `y` with it and correctly does NOT fire (the axis sign is a
+  gauge; gated in `test_extxyz.jl`).
+- **`read_embset_pair(mw_path, mint_path)`**: the legacy archive reader for
+  EMBSET (MW) + EMBSET_mint (bare M) siblings. Loud pairing checks: config
+  count, block shape, **field blocks bitwise identical**; energy lines are
+  deliberately NOT compared (the two writers' conventions differ — measured
+  ΔE = 0.148 eV on the FeRh archive). `constraint_mode`/`constraint_axes`
+  attach what the format cannot carry, and the axis gates run.
+
 ### Added — `tie_tol` exposed; OLS warns on a deficient design (2026-08-13, back-port from SCEFitting.jl)
 
 The MnTe(0001) slab cross-check (fixed first in the spin-only SCEFitting.jl)

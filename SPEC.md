@@ -864,9 +864,18 @@ capability consumed by both the introspection and the Sunny interop.
   package** (`SLCETools.VASP`: `read_poscar`/`write_poscar`, `Oszicar` with SAXIS rotation,
   and the INCAR writer), not in the core. Adding a DFT code is one sibling adapter there —
   neither the core nor its export list changes; the VASP parsers are cross-checked bit-for-bit
-  against Magesty in SLCETools's oracle. The one in-core concrete format is Magesty's
-  code-agnostic EMBSET training set (`io/embset.jl`): `read_embset` + the `EmbsetFile`
-  source, cross-checked against `Magesty.read_embset` in this package's oracle.
+  against Magesty in SLCETools's oracle. Two in-core concrete formats: (1) the
+  **extended-XYZ training container** (`io/extxyz.jl`, the canonical format for new
+  data): `write_extxyz` / `read_extxyz` / `ExtxyzFile`, self-contained (structure
+  always stored; spin-only vs joint **measured** from positions, claims never
+  override; per-atom columns 1:1 with the datum's optional channels; shortest
+  round-trip printing), with the moment channel's axis-consistency gates
+  (`check_moment_gates`: mode-1 sign consistency on decomposable rows + axis-angle
+  p99, run at generation and at every load). (2) Magesty's code-agnostic EMBSET
+  training set (`io/embset.jl`, legacy): `read_embset` + the `EmbsetFile` source,
+  cross-checked against `Magesty.read_embset` in this package's oracle, plus
+  `read_embset_pair` for MW + M_int sibling archives (loud pairing: config count /
+  block shape / field blocks bitwise; energies deliberately uncompared).
 - Validated: basis / model / fit round-trips (predictions bit-identical, coefficients
   re-paired by key under scrambled order, multi-op space-group ops, empty basis), input
   parsing + defaults + keyword overrides + error paths.

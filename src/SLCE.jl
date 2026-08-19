@@ -135,6 +135,7 @@ include("io/persist.jl")
 include("io/input.jl")
 include("io/dftsource.jl")
 include("io/embset.jl")
+include("io/extxyz.jl")    # extended-XYZ training-data container (ASE dialect)
 include("io/phonopy.jl")   # (see below)
 include("io/alamode.jl")   # harmonic + anharmonic -> ALAMODE FCSXML for anphon
 
@@ -201,7 +202,8 @@ export AbstractDFTSource, TrainingDatum, DatumProvenance,
        spin_datum, lattice_datum, joint_datum, read_configs
 export crystal_fingerprint
 export write_phonopy, write_alamode
-export EmbsetFile, read_embset
+export EmbsetFile, read_embset, read_embset_pair
+export ExtxyzFile, read_extxyz, write_extxyz
 
 # --- Public, unexported -----------------------------------------------------------
 # Reachable as `SLCE.<name>` (and documented), but kept out of the flat `using`
@@ -229,5 +231,6 @@ public RowLayout, row_layout, row_index, site_rows!   # sampler row-table contra
 # fitting core has no temperature of its own, it only owns the convention.
 public KB_EV, resolve_kt
 public save, load                                                    # TOML persistence
+public check_moment_gates                     # the moment channel's axis-consistency gates
 
 end # module SLCE
