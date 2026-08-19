@@ -1040,6 +1040,41 @@ capability consumed by both the introspection and the Sunny interop.
   underdetermined regime + guards, warm/cold path consistency, the Pareto rule, and the
   end-to-end select → refit workflow.
 
+### Adiabatic moment channel — pointed basis (step 2, slices A–C)
+
+The site-moment expansion `m_i(e)` (design record: the adiabatic-moment brainstorm,
+D1–D10 + D8 addendum): a per-site scalar regression `y_a = ê_a · M_a` fitted on a
+**pointed** (site-marked) SALC basis, an independent vertical slice — the
+energy/torque/force pipeline is untouched (bit-identity gated).
+
+- **Data boundary** (`io/dftsource.jl`, `io/extxyz.jl`, `io/embset.jl`): the
+  `TrainingDatum` trio `moments_bare` / `constraint_axes` / `constraint_mode`
+  (evaluation axis keyed by the MODE — 4 → `directions`, 1 → `constraint_axes` —
+  never by field presence), the extended-XYZ container (self-contained, measured
+  spin-only/joint), the axis-consistency gates (`check_moment_gates`, run at
+  generation and every load), the legacy EMBSET pair reader.
+- **`MomentSpec` / `MomentBasis`** (`basis/momentbasis.jl`): the mark is
+  `SiteDecor(disp = (1, 0))` riding the ordinary decor engine (one inert `admit`
+  kwarg on `_orbit_salcs_decors`); mark-aware admission (mark ê factor for any
+  species up to `lmax_mark`, environment spins only for `sampled` species up to
+  `lmax_env` — refused loudly when a spin-bearing species is unsampled);
+  1/2-body clusters from the ordinary enumeration at `cutoff_pair`, 3-body stars
+  MARK–ENVIRONMENT-BOND cut at `cutoff_star` (env–env edge free) with
+  `candidate_clusters`' all-orderings multiplicity convention; even-Σl (TR) only.
+  The 1-body `[MARK]` columns are the per-orbit intercepts μ₀.
+- **`_design_moment`**: rows `(config, marked atom)`, marked-column substitution
+  (exact — one mark per label), `Threads.@threads` per column.
+- **`moment_resolvability`**: the pointed periodic-resolvability gate — symbolic
+  signature rank in the independent variables, null combinations naming dependent
+  columns, mark-class census; refuses repeated-image environment members
+  (`UnclassifiableBasis`) rather than overcounting.
+- Oracles (`test_momentbasis.jl`): star closed form = 6.0 × an independent
+  geometric enumeration, shell-sum normalization 2√3, G_i covariance with axes,
+  bitwise TR, substitution locality, symbolic ≡ random-design rank.
+
+Next slices: the moment dataset/fit layer (uniform gate, per-orbit survival,
+coverage refuse, band-profile diagnostics) and the `salc_groups` mark-class key.
+
 ## Not yet implemented (v0 follow-ups)
 - The v0 slice is feature-complete; no estimator/observable/IO follow-ups outstanding.
 - **Joint (spin + lattice) training data — the gate on every M4/M5 physics

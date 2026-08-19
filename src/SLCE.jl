@@ -69,6 +69,7 @@ include("io/provenance.jl")       # DatumProvenance (SLCEDataset stores an ident
 include("slce/model.jl")          # pipeline types + constructors + config validation
 include("basis/sectorbasis.jl")   # sector-table → decor-engine basis construction
 include("basis/resolvability.jl")  # which SALCs a finite reference cell can resolve
+include("basis/momentbasis.jl")    # pointed (site-marked) basis for adiabatic moments
 include("fitting/asr.jl")        # ASR constraint builder + null-space machinery
 include("fitting/design.jl")     # design-matrix assembly (X_E / X_T / X_F)
 include("fitting/staged.jl")     # sector selectors + staged (frozen) reparameterization
@@ -204,6 +205,7 @@ export crystal_fingerprint
 export write_phonopy, write_alamode
 export EmbsetFile, read_embset, read_embset_pair
 export ExtxyzFile, read_extxyz, write_extxyz
+export MomentSpec, MomentBasis, moment_resolvability
 
 # --- Public, unexported -----------------------------------------------------------
 # Reachable as `SLCE.<name>` (and documented), but kept out of the flat `using`

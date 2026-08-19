@@ -146,7 +146,22 @@ function build_clusters(crystal::Crystal, neighbors::NeighborList, spacegroup::S
                               cutoff = cutoff)
     by_body = Dict{Int,Vector{ClusterOrbit}}()
     for body in sort(collect(keys(cand)))
-        members = cand[body]
+        by_body[body] = _orbits_from_members(crystal, spacegroup, cand[body], body)
+    end
+    return ClusterSet(by_body)
+end
+
+# The orbit-formation core of `build_clusters`, factored out so other candidate
+# enumerations (the pointed moment basis's mark–environment star clusters) can reuse
+# it verbatim: translation-class grouping, symmetry-orbit growth with the closure
+# assertion, canonical-key ordering. The candidate list must be closed under the
+# space group — every image of a candidate is a candidate — which any admission
+# rule built from symmetry-invariant data (species, min-image distances, tie bands)
+# satisfies by construction.
+function _orbits_from_members(crystal::Crystal, spacegroup::SpaceGroup,
+                              members::Vector{ClusterMember},
+                              body::Int)::Vector{ClusterOrbit}
+    begin
         # Group candidates into translation classes (anchor-variants of one cluster share
         # a signature). `order` keeps the first-seen (enumeration) order of the classes.
         sig2members = Dict{Any,Vector{Int}}()
@@ -198,10 +213,8 @@ function build_clusters(crystal::Crystal, neighbors::NeighborList, spacegroup::S
             push!(keyed, (_canonical_key(crystal, spacegroup, ms[1]), ms))
         end
         sort!(keyed; by = first)
-        orbits = ClusterOrbit[ClusterOrbit(body, ms[1], ms, length(ms),
-                              Int[crystal.species[a] for a in ms[1].atoms])
-                              for (_, ms) in keyed]
-        by_body[body] = orbits
+        return ClusterOrbit[ClusterOrbit(body, ms[1], ms, length(ms),
+                            Int[crystal.species[a] for a in ms[1].atoms])
+                            for (_, ms) in keyed]
     end
-    return ClusterSet(by_body)
 end

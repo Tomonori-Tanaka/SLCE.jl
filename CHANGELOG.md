@@ -35,6 +35,49 @@ bit-identical when absent — gated in `test_dftsource.jl`):
 the construction paths cannot disagree. Consumers (extxyz I/O, `MomentBasis`,
 the moment dataset/fit layer) land in subsequent slices.
 
+### Added — `MomentBasis`: the pointed SALC basis for adiabatic site moments (2026-08-20, step 2 slice C)
+
+The moment channel's counterpart of `SLCEBasis` (`src/basis/momentbasis.jl`):
+per marked reference-cell atom the design row is the pointed SALC vector, and one
+shared coefficient vector serves every symmetry-equivalent site. The MARK is the
+displacement decor `SiteDecor(disp = (1, 0))` (the polar `|u|²` factor evaluated
+on an indicator field), so the existing decor engine, evaluation kernels, and
+canonical-member machinery carry the basis unchanged; `_orbit_salcs_decors`
+gained one inert `admit` kwarg (a per-assignment predicate, mutually exclusive
+with the species caps — byte-identical behavior when absent).
+
+- **`MomentSpec`**: mark-aware truncation — the marked site's ê factor is
+  allowed for ANY species (`lmax_mark`; an E-inactive species' induced moment is
+  what the channel predicts), environment spin factors only for species the
+  consumer samples (`lmax_env` + the required `sampled` claim, refused loudly on
+  mismatch — M3-1 decision A). Time reversal keeps even-Σl labels only (the mark
+  rank counts).
+- **3-body stars are mark–environment-bond cut** (M2-5): both mark bonds
+  minimum-image within `cutoff_star`, the environment–environment edge free (the
+  triangle is pinned by the mark bonds). The enumeration expands every star to
+  all 3! site orderings — `candidate_clusters`' multiplicity convention, without
+  which the closed-star column came out at half the prototype's 6.0 geometric
+  oracle (caught by the oracle, fixed at the source).
+- **`_design_moment`** evaluates rows `(config, marked atom)` with the
+  marked-COLUMN substitution: the spin matrix's marked column is replaced by the
+  evaluation axis (identity for mode 4), exact because every pointed label
+  carries exactly one mark.
+- **`moment_resolvability`** (D9′, replaces nothing — the energy-side
+  `unresolvable_columns` is deliberately not reused): symbolic signature
+  expansion in the independent variables `(a, ê_a, e)` → vanishing columns,
+  numerical rank, and null combinations that NAME the dependent columns; plus
+  the mark-class census per cluster orbit (face-(b) hazard preregistration).
+  Members putting two environment spin factors on one reference-cell atom (two
+  periodic images of one neighbor) are refused as `UnclassifiableBasis` — the
+  monomial signature would overcount the rank there (measured 108 symbolic vs
+  98 actual on the FeGe primitive cell; harmonic products on one sphere reduce).
+
+Gated in `test_momentbasis.jl` against the design-record prototype's independent
+geometric references: star closed form = 6.0 × the geometry sum (spread 6e-14),
+shell-sum normalization 2√3, G_i covariance including the axes, bitwise time
+reversal, substitution locality, and signature rank ≡ independent random-design
+rank with null combinations annihilating the actual design.
+
 ### Added — extended-XYZ container, axis gates, EMBSET pair reader (2026-08-20, step 2 slice B)
 
 The canonical on-disk training-set format moves to extended-XYZ (ASE dialect),

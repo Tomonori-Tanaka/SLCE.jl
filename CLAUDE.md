@@ -407,6 +407,33 @@ Easy to break silently — confirm before touching the algorithm.
   printing, SAXIS, sign conventions) stays in SLCETools' generator; the
   `constraint_mode` numbers follow `I_CONSTRAINED_M`, but the KEY is the
   physical class — another code's scheme maps onto class 1 or 4 at its adapter.
+- **The pointed moment basis rides the decor engine, and three conventions keep it
+  honest** (`basis/momentbasis.jl` ↔ `basis/salcbasis.jl` `_orbit_salcs_decors`'s
+  `admit` kwarg ↔ `clusters/orbits.jl` `_orbits_from_members` ↔
+  `clusters/enumerate.jl` `candidate_clusters`): (1) **member multiplicity is the
+  engine's all-orderings convention** — `candidate_clusters` lists every physical
+  instance once per site ordering (3! for a 3-body), and the SALC value scales with
+  that count, so a pointed enumeration emitting fewer orderings silently rescales
+  its columns per orbit (measured: half the prototype's 6.0 star oracle) —
+  `_pointed_star_candidates` therefore expands every translation class to all 3!
+  re-anchored orderings, and any new candidate source must do the same. (2) an
+  `admit` predicate handed to `_orbit_salcs_decors` is judged on the lex-min
+  representative of each permutation orbit, so its verdict MUST be a
+  permutation-orbit invariant — anything built from (decor, species,
+  edge-lengths-from-site) data is, because stabilizer perms preserve species and
+  are isometries; a rule reading raw site indices is not. (3) the marked-column
+  substitution in `_design_moment` is exact only because every pointed label
+  carries exactly one mark (a member not marked at the row's atom dies on its
+  |u|² = 0 factor before reading the substituted column) — a future label with
+  two marks breaks the argument, not just the numbers.
+  `moment_resolvability` follows the energy side's refusal discipline: a member
+  with two ENVIRONMENT spin factors on one reference-cell atom (two periodic
+  images of one neighbor) is `UnclassifiableBasis` — the monomial signature would
+  overcount the rank (harmonic products on one sphere reduce by Clebsch–Gordan;
+  measured 108 symbolic vs 98 actual on the FeGe primitive cell). The gates in
+  `test_momentbasis.jl` are INDEPENDENT references (a geometric triangle
+  enumeration, the 2√3 shell sum, symbolic ≡ random-design rank) — keep them
+  that way; a reference through the SALC machinery gates nothing.
 - **Persistence schema ↔ the serialized structs** (`io/persist.jl`): `_to_doc` /
   `_from_doc` mirror the fields of `Crystal` / `Lattice` / `SpaceGroup` / `BasisSpec`
   / `SALCKey` / `SALCTerm` / `SALCMember` / `SALC` / `SLCEBasis` / `SLCEModel`. Add or

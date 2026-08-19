@@ -521,7 +521,17 @@ function _orbit_salcs_decors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
                              labels::Vector{Vector{SiteDecor}}, soc::Bool,
                              wcache::_WigCache;
                              lmax_by_species::Union{Nothing,Vector{Int}} = nothing,
-                             pmax_by_species::Union{Nothing,Vector{Int}} = nothing)::Vector{SALC}
+                             pmax_by_species::Union{Nothing,Vector{Int}} = nothing,
+                             admit::Union{Nothing,Function} = nothing)::Vector{SALC}
+    # `admit(t::Vector{SiteDecor})::Bool` replaces the per-species cap gate for callers
+    # whose admission rule is not expressible as per-species (lmax, pmax) — the pointed
+    # moment basis needs a MARK-AWARE rule (the marked site is exempt from the
+    # environment cap) plus a per-assignment mark–environment edge gate. The same
+    # correctness requirement as `_admit_assignment` applies: the verdict must be a
+    # permutation-orbit invariant (stabilizer perms preserve species AND edge-length
+    # geometry, so any rule built from (decor, species, edges-from-site) data is).
+    admit === nothing || lmax_by_species === nothing ||
+        throw(ArgumentError("give either species caps or an `admit` predicate, not both"))
     caps = lmax_by_species === nothing ?
         (pmax_by_species === nothing ? nothing :
          throw(ArgumentError("give lmax_by_species and pmax_by_species together"))) :
@@ -567,6 +577,7 @@ function _orbit_salcs_decors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
             caps === nothing ||
                 _admit_assignment(t, O.species, caps[1], caps[2]) ||
                 continue
+            admit === nothing || admit(t)::Bool || continue
             assignments = unique([t[p] for p in perms])
             slotlists = [_assignment_slots(a) for a in assignments]
             cbs = [_decor_coupled_bases(sl) for sl in slotlists]
