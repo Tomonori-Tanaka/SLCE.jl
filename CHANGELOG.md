@@ -6,6 +6,33 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the pin tier: change detectors over the SALC chain (2026-08-21)
+
+- **`test/pin/`** — a byte-level pin over five real crystals (bcc Fe, B2 FeRh,
+  hcp Co, wurtzite GaN, rocksalt MnO), with its own environment, its own driver,
+  and a CI job that runs it at 4 and at 1 thread. **Change detectors, not
+  correctness evidence** — every expected value was produced by this package;
+  `test/unit/test_normalization.jl` is the correctness half of the pair.
+  - Four layers, each with its own strictness and its own recapture rule:
+    **L0** structure (integers and labels — exact on every platform, and the
+    precondition for the two layers indexed by position), **L0′** the sign/support
+    pattern of `folded`, **L1** every `folded` entry as a raw IEEE-754 bit
+    pattern, **L2** `‖X_E‖_F²` / `r2` / `coef` / held-out energies.
+  - **The L0′ threshold is measured**: over 12,040 tensor entries, 7,728 are
+    exactly zero and the smallest survivor is 0.239, against a prune threshold of
+    1e-10 — a **9.38-decade gap**, with `eps = 5e-6` at its geometric mean. That
+    gap is what makes L0′ exact across platforms.
+  - **L1 is not declared portable**: the chain runs through `eigen` and BLAS, so
+    it is exact on the capture platform and `rtol = 1e-12` elsewhere, with the
+    platform recorded in each pin's `[meta]`. Byte-stability across *thread
+    counts* IS measured — captured at `-t 4`, exact at `-t 1`.
+  - **The runner names the layer that moved and the rule that applies.** There is
+    no branch protection and no pin-only-commit job, so that printout is the whole
+    enforcement mechanism; the rules are in `test/pin/PIN.md`.
+  - L2's targets are a seeded random vector, not energies pushed through this same
+    basis: measured, that round trip cancels and leaves `coef` and `r2` numerically
+    identical under a uniform rescale of the whole basis.
+
 ### Fixed — the benchmark suite could not run (2026-08-21)
 
 - **`bench/bench_solver.jl` had been dead since the export/public split**: it

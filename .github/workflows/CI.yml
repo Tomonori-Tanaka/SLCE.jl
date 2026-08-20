@@ -214,6 +214,38 @@ jobs:
         env:
           JULIA_NUM_THREADS: "4"
 
+  pins:
+    name: pin tier — change detectors over the SALC chain
+    runs-on: ubuntu-latest
+    steps:
+      # Byte-level change detectors, NOT correctness evidence: every expected
+      # value in `test/pin/pins/*.toml` was produced by this package. They exist
+      # because the numeric chain from the Reynolds projector to `evaluate_salc`
+      # can change silently — every gate that reaches it is gauge- or
+      # scale-invariant, so the output can move without anything going red.
+      # `test/unit/test_normalization.jl` is the correctness side of that pair.
+      #
+      # Runs on ubuntu while the pins were captured on aarch64-Darwin, so the
+      # numeric layers fall to the off-platform tolerance here — deliberately.
+      # Whether the values are bitwise portable across platforms is UNMEASURED;
+      # this job is what will measure it the day someone captures on Linux, and
+      # until then it still gates L0 (structure) and L0' (support pattern), which
+      # are exact everywhere.
+      #
+      # Both thread counts, every time: the basis build is threaded, and pinned
+      # values that depend on the thread count are a race, not a pin.
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.12"
+      - uses: julia-actions/cache@v2
+      - name: Instantiate the pin environment
+        run: julia --project=test/pin -e 'using Pkg; Pkg.instantiate()'
+      - name: Pins — 4 threads
+        run: julia --project=test/pin -t 4 test/pin/runtests.jl
+      - name: Pins — 1 thread
+        run: julia --project=test/pin -t 1 test/pin/runtests.jl
+
   docs:
     name: documentation build
     runs-on: ubuntu-latest

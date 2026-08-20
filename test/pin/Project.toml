@@ -1,0 +1,13 @@
+# Environment for the pin tier: change detectors over the SALC chain.  Separate
+# from the core suite because it needs Spglib -- the unit suite deliberately
+# hand-assembles its groups so `Pkg.test()` never depends on a symmetry backend.
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SLCE = "854eb3e0-bd75-4c3b-927c-573f5c6d8b1d"
+Spglib = "f761d5c5-86db-4880-b97f-9680a7cccfb5"
+TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[sources]
+SLCE = {path = "../.."}
