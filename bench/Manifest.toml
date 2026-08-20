@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "1f666b10f9c86b5f2849794ed068ee3693f03710"
+project_hash = "0613e34536683cebe513c201c210dbe63e8e5f26"
 
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
@@ -183,8 +183,12 @@ deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 version = "1.11.0"
 
+[[deps.SHA]]
+uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
+version = "0.7.0"
+
 [[deps.SLCE]]
-deps = ["LegendrePolynomials", "LinearAlgebra", "Random", "StaticArrays", "Statistics", "StatsAPI", "TOML", "Tables"]
+deps = ["LegendrePolynomials", "LinearAlgebra", "Printf", "Random", "StaticArrays", "Statistics", "StatsAPI", "TOML", "Tables"]
 path = ".."
 uuid = "854eb3e0-bd75-4c3b-927c-573f5c6d8b1d"
 version = "0.1.0"
@@ -198,10 +202,6 @@ version = "0.1.0"
     GLMNet = "8d5ece8b-de18-5317-b113-243142960cc6"
     Spglib = "f761d5c5-86db-4880-b97f-9680a7cccfb5"
     Sunny = "2b4a2ac8-8f8b-43e8-abf4-3cb0c45e8736"
-
-[[deps.SHA]]
-uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
-version = "0.7.0"
 
 [[deps.SpecialFunctions]]
 deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]

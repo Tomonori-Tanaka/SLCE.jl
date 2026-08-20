@@ -64,3 +64,10 @@ Append a before/after entry to [`../.claude/bench_log.md`](../.claude/bench_log.
 when you touch a hot path (`basis/salcbasis.jl`, `clusters/`, `slce/model.jl` design
 kernels, `fitting/estimators.jl`, `basis/Harmonics.jl`). Note machine, Julia version,
 thread count, and the fixture size (`n`, `lmax`, `m`).
+
+## Log
+
+Measured numbers, and the rule for what counts as a regression, live in
+[`BENCH_LOG.md`](BENCH_LOG.md). Append an entry whenever a change touches a hot
+path — the two gate scripts and their thresholds are named at the top of the
+2026-08-21 baseline entry.

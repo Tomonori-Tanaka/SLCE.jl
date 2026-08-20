@@ -6,6 +6,26 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — the benchmark suite could not run (2026-08-21)
+
+- **`bench/bench_solver.jl` had been dead since the export/public split**: it
+  calls `solve_coefficients`, which is `public` but not exported, so the script
+  died at load with `UndefVarError`. Nothing runs `bench/` in CI, so nothing
+  caught it. Fixed with an explicit `using <Pkg>: solve_coefficients`.
+- **`bench/Manifest.toml` no longer resolved**: the package gained a `Printf`
+  dependency after the manifest was last written (2026-07-30), so *every* bench
+  script failed at load. Re-resolved.
+
+### Added — benchmark baseline and regression rule (2026-08-21)
+
+- **`bench/BENCH_LOG.md`** — the measured baseline for all six scripts at their
+  stress defaults, plus an explicit rule for what counts as a regression: the two
+  gate scripts are `bench_salcbasis` and `bench_design_matrix`; **allocation
+  count is the primary gate at zero tolerance** (measured bit-identical across
+  three consecutive runs, so the quantity is deterministic) and **wall time is
+  secondary at 5%** (measured run-to-run spread at most 1.4%, so ~3.5x headroom).
+  The other four scripts are context, with the reason each is not a gate.
+
 ### Added — absolute-normalization oracles for the SALC chain (2026-08-21)
 
 - **`test/unit/test_normalization.jl`** — four closed-form gates over the stretch

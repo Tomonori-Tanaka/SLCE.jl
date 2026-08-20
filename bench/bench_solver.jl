@@ -6,6 +6,9 @@
 # centred and adds no intercept). Cheap enough for `@belapsed` sampling.
 
 using SLCE
+#  is public but unexported (the estimators drive it for you),
+# so it has to be named explicitly --  alone does not bring it in.
+using SLCE: solve_coefficients
 include(joinpath(@__DIR__, "fixtures.jl"))      # bench_header, @belapsed, mean, MersenneTwister
 
 bench_header("solve_coefficients — OLS vs Ridge")
