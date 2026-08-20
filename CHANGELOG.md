@@ -6,6 +6,33 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — absolute-normalization oracles for the SALC chain (2026-08-21)
+
+- **`test/unit/test_normalization.jl`** — four closed-form gates over the stretch
+  of the numeric chain that had no oracle: the Reynolds projector,
+  `_canonical_basis`, `_canonicalize_members`, the `folded` contraction, and
+  `evaluate_salc`. Everything that reached those stages before was gauge- or
+  scale-invariant, so a uniform rescale of the whole basis passed the entire
+  suite (measured: doubling every `folded` tensor left the orbit-sum invariance
+  check AND a member-resolved invariance check green at 1e-14).
+  - **O1** two sites, P1, `l₁ = l₂ = 1`: the Heisenberg channel is
+    `Φ(e) = 2√3 (e₁·e₂)` — from the real-harmonic normalization
+    (`test_harmonics.jl`), `‖C^{Lf}‖_F² = 2Lf+1` (`test_coupledbasis.jl`), the
+    `(4π)^{N/2}` scale, and the `N!` ordering fold.
+  - **O2a** one site, `l = 2`, P1: `Σ_b Φ_b(e) Φ_b(e′) = 5 P₂(e·e′)` (spherical
+    addition theorem). Gauge-free — invariant under any orthogonal remixing of
+    the five columns, so a legitimate `_canonical_basis` gauge change cannot
+    break it.
+  - **O2b** one pair member, P1, `l₁ = l₂ = l`: exactly `(2l+1)²` columns and
+    `Σ_all Φ² = 4(2l+1)²` (Clebsch–Gordan completeness), measured for
+    `l = 1…4`. This is the only gate in the suite that reaches `l ≥ 3`
+    absolute normalization.
+  - **O3** the C3v equilateral triangle: `Φ = 2√3 Σ_{i<j}(eᵢ·e_j)`, with the
+    reference side built from the three geometric bonds and never from
+    `s.members` — so member multiplicity is under test, which O1/O2 cannot see.
+  - **Teeth measured**, not asserted: each oracle has a source mutation that
+    kills it and leaves the other three green (table in the file header).
+
 ### Fixed — CI repair + moment-channel backlog (2026-08-20, post step 2)
 
 - **CI repair (the bd03517 push failed CI in two jobs the local default suite
