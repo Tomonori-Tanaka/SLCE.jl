@@ -557,6 +557,48 @@ EmbsetFile
 read_embset
 ```
 
+## Adiabatic site-moment channel
+
+An independent vertical slice that fits the **site-moment surrogate**
+`m_i(e) = Σ_φ V_φ Φ_φ(i; e)` — the magnitude (and sign) of atom `i`'s internal
+moment as a symmetry-adapted function of the spin-direction configuration — from
+constrained-DFT data. The basis is *pointed*: each column carries exactly one
+marked site (a DISP-decor mark), and design rows are (configuration, marked atom)
+pairs with target `y = ê·M_int`. The evaluation axis `ê` is keyed by the datum's
+`constraint_mode` (4 = direction-pinning → `directions`; 1 = transverse-penalty →
+`constraint_axes`), never by field availability. Rows pass a decomposability gate
+`|M| sin²θ ≤ gate_eps`; per-orbit survival is reported and a sublattice falling
+below the coverage floor refuses loudly. [`moment_resolvability`](@ref) runs at
+dataset construction: identically-vanishing columns are frozen to exact zero by
+[`fit`](@ref), structural dependencies are disclosed. `salc_groups(mb)` (documented with its
+energy-side method under *Model selection* above) and `GroupAdaptiveRidge(mb;
+lambda)` (under *Fitting*) provide group-adaptive shrinkage at mark-class
+granularity.
+
+```@docs
+MomentSpec
+MomentBasis
+moment_resolvability
+MomentDataset
+MomentFit
+MomentModel
+predict_moment
+rmse_moment
+moment_band_profile
+```
+
+The channel's training containers: an extended-XYZ archive (spin-only or joint,
+measured from positions, axis gates re-verified at every load) and the
+FeRh-style EMBSET pair reader.
+
+```@docs
+ExtxyzFile
+read_extxyz
+write_extxyz
+read_embset_pair
+check_moment_gates
+```
+
 ## Units
 
 A fitted model is a zero-temperature energy surface, so nothing in this package takes a

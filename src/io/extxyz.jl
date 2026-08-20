@@ -295,10 +295,11 @@ function read_extxyz(path::AbstractString;
         throw(ArgumentError("extxyz $path: constraint_mode differs across frames " *
                             "(one file = one constraint scheme)"))
     cmode = nothing
-    if modes[1] !== nothing
-        cmode = tryparse(Int, modes[1])
+    m1 = modes[1]              # bound local: the !== nothing narrowing must be
+    if m1 !== nothing          # inference-visible (JET: tryparse(Int, ::Nothing))
+        cmode = tryparse(Int, m1)
         cmode === nothing &&
-            throw(ArgumentError("extxyz $path: constraint_mode = \"$(modes[1])\" " *
+            throw(ArgumentError("extxyz $path: constraint_mode = \"$m1\" " *
                                 "is not an integer"))
     end
     haskey(frames[1].cols, "mconstr") && cmode === nothing &&
@@ -370,6 +371,11 @@ function read_extxyz(path::AbstractString;
           socs[1] in ("false", "F") ? false :
           throw(ArgumentError("extxyz $path: soc = \"$(socs[1])\" is not a boolean"))
 
+    # `joint ⇒ reference isa Crystal` (joint is only set in the reference branch),
+    # but that guard is a runtime fact inference cannot carry into the loop's
+    # ternary — hoist the fingerprint so the Nothing arm never reaches the call
+    # (JET: crystal_fingerprint(::Nothing)).
+    ref_fp = reference === nothing ? "" : crystal_fingerprint(reference)
     data = Vector{TrainingDatum}(undef, length(frames))
     for (f, fr) in enumerate(frames)
         haskey(fr.info, "energy") ||
@@ -380,8 +386,7 @@ function read_extxyz(path::AbstractString;
         prov = joint ?
                DatumProvenance(; reference_id = get(fr.info, "reference_id",
                                                     "reference"),
-                               reference_fingerprint =
-                                   crystal_fingerprint(reference),
+                               reference_fingerprint = ref_fp,
                                setup_id = setups[1], soc = soc) :
                DatumProvenance(; setup_id = setups[1], soc = soc,
                                constrained = haskey(fr.cols, "bcon") &&
