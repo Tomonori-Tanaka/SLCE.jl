@@ -424,6 +424,41 @@ Easy to break silently — confirm before touching the algorithm.
   the vanishing columns to EXACT zero — the same frozen-column discipline as the
   energy side, so `coef != 0` reads structure; weakening either half silently
   reintroduces arbitrary min-norm coefficients for columns no cell determines.
+  Three follow-ups ride that discipline (2026-08-20). (1) `moment_resolvability`
+  caches its default-`rtol` result ON the basis (`MomentBasis.resolvability`, a
+  `Ref` — the answer is a pure function of the basis and the dataset door runs
+  the gate at every construction); cached calls return the SAME object (`===` is
+  the tested contract), non-default `rtol` recomputes, an `UnclassifiableBasis`
+  refusal is never cached. (2) its null report must stay COMPLETE on a WIDE
+  signature block: the economy SVD's `V` lists only `min(r, c)` flat directions
+  and the complement of `span(V)` is read off a QR completion — dropping that
+  branch silently empties the dependency disclosure exactly when columns
+  outnumber signature rows (found at rank 20 of 74 kept, ZERO combinations
+  reported). (3) `fit(MomentFit, …)` hands column-structured estimators through
+  `_reduce_to_active`: full-basis `GroupAdaptiveRidge` labels must shrink with
+  the vanishing-column freeze. Group NORMS are exactly preserved (frozen
+  coefficients are exact zeros), but the group size `p_g` drops by the frozen
+  count, so `w_g = v_g/(‖β_g‖² + p_g·ε)` moves at O(ε) — material only for a
+  group already at the ε floor, and defensible there (ε is a per-coefficient
+  floor; a frozen column carries no coefficient). This deliberately DIVERGES
+  from the energy side, where ASR-frozen columns stay in `column_groups` and
+  keep their `p_g` contribution. Emptied groups are relabeled away. And the
+  pointed `salc_groups(mb)` key is `(body, orbit_id, decors, mark class)`, NOT
+  the energy-side `(body, orbit_id, decors)`: pointed keys sort the decoration
+  into a canonical multiset, so stabilizer-inequivalent mark placements — an
+  Fe–Ge pair marked on Fe vs on Ge, channels predicting different atoms — share
+  the energy key and differ only in `block`; folding them couples the adaptive
+  shrinkage of distinct physical channels (mixed-species mark classes have
+  provably disjoint design row support — the gate). The class fingerprint is
+  the representative member's DISP-slot atom set AND site-index set — the atom
+  set alone is NOT injective: a canonical member carrying two periodic images
+  of one atom projects two distinct mark placements onto one atom set
+  (review-reproduced on a 2-atom P1 cell at `nbody = 3`; regression-pinned).
+  Note for fixtures: no `soc = false` pointed face-(a) case is known — for
+  `Lf = 0` the transport matrix is `D⁰ = 1`, so every image of an assignment
+  carries an IDENTICAL folded weight and nothing of opposite sign exists to
+  cancel under the periodic fold (an argument for single-assignment `Lf = 0`
+  blocks, not a proven general theorem); use `soc = true` to build one.
 - **The pointed moment basis rides the decor engine, and three conventions keep it
   honest** (`basis/momentbasis.jl` ↔ `basis/salcbasis.jl` `_orbit_salcs_decors`'s
   `admit` kwarg ↔ `clusters/orbits.jl` `_orbits_from_members` ↔

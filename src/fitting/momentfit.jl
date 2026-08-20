@@ -255,7 +255,14 @@ function MomentDataset(basis::MomentBasis, data::AbstractVector{TrainingDatum};
               "structurally dependent column combination(s) on this cell — the " *
               "fitted coefficients along these directions are one arbitrary " *
               "min-norm representative (predictions on this cell are unaffected)"
-        @warn msg combinations = mr.null_combinations
+        # a WIDE signature block can carry O(columns) dense combinations; the
+        # log summarizes past a handful (full list stays on `ds.dependent`)
+        if length(mr.null_combinations) <= 8
+            @warn msg combinations = mr.null_combinations
+        else
+            cols = sort!(unique!([j for c in mr.null_combinations for (j, _) in c]))
+            @warn msg n_combinations = length(mr.null_combinations) columns = cols
+        end
     end
 
     # Per-config coverage coordinate: the marked-sublattice order parameter
@@ -276,7 +283,10 @@ function MomentDataset(basis::MomentBasis, data::AbstractVector{TrainingDatum};
                             setup_id = p1.setup_id, soc = p1.soc)
     return MomentDataset(basis, X, y, defined, keep, gate, row_config, row_atom,
                          orbit_rep, report, order, collect(Int, mr.vanishing),
-                         mr.null_combinations, Float64(gate_eps),
+                         # copied, like `vanishing`: the record is CACHED on the
+                         # basis, so storing the reference would alias one object
+                         # across the cache and every dataset built from it
+                         [copy(c) for c in mr.null_combinations], Float64(gate_eps),
                          Float64(coverage_floor), ident)
 end
 
@@ -331,13 +341,17 @@ function fit(::Type{MomentFit}, ds::MomentDataset,
     active = trues(p)
     active[ds.vanishing] .= false
     any(active) || throw(ArgumentError("every pointed column vanishes on this cell"))
+    est = _reduce_to_active(estimator, active)
     function _solve(mask::BitVector)::Vector{Float64}
-        c = solve_coefficients(estimator, ds.X[mask, active], ds.y[mask];
+        c = solve_coefficients(est, ds.X[mask, active], ds.y[mask];
                                row_groups = ds.row_config[mask])
         full = zeros(p)              # frozen columns: exact zero, not solver noise
         full[active] = c
         return full
     end
+    # the UN-reduced estimator is stored (user-facing provenance); the reduced
+    # one that actually produced the coefficients is a derived object — rebuild
+    # via _reduce_to_active if a future diagnostic needs it
     return MomentFit(ds, estimator, _solve(ds.keep), _solve(ds.defined))
 end
 
@@ -513,3 +527,106 @@ end
 
 moment_band_profile(f::MomentFit; nbins::Int = 4) =
     moment_band_profile(MomentModel(f), f.dataset; nbins)
+
+# --- group labels for group-adaptive shrinkage over pointed columns ----------------
+
+"""
+    salc_groups(mb::MomentBasis) -> Vector{Int}
+
+Per-design-matrix-column group labels for the pointed basis (contiguous `1:G`, one
+label per SALC in `SALCKey` order): columns grouped by
+`(key.body, key.orbit_id, key.decors, mark class)`, where the mark class is the
+stabilizer orbit of mark placements — read off as the sorted set of representative-
+member atoms that carry the DISP (mark) slot across the SALC's terms.
+
+The energy-side key `(body, orbit_id, decors)` is NOT enough here: pointed SALC keys
+sort the decoration into a canonical multiset, so two stabilizer-inequivalent mark
+placements of one cluster — e.g. an Fe–Ge pair marked on Fe versus marked on Ge,
+which predict different atoms' moments — share `(body, orbit_id, decors)` and differ
+only in `block`. Folding them into one group would couple the adaptive shrinkage of
+physically distinct channels. Gauge blocks (`L_S`/`Lf`/`block`) of ONE mark class
+still share a label, mirroring the energy-side convention.
+
+One SALC spans exactly one stabilizer orbit of assignments, so its terms' mark
+placements enumerate exactly one mark class. The class is fingerprinted on the
+FIRST member (deterministic: `_canonicalize_members` sorts members by
+`(atoms, shifts)`) by BOTH the marked reference-cell atoms AND the marked site
+indices: the atom set alone is not injective — a canonical member carrying two
+periodic images of one atom projects two distinct mark placements onto the same
+atom set (reproduced on a 2-atom P1 cell, `nbody = 3`: member atoms `[1, 1, 2]`,
+mark on site 1 vs site 2, both "atom 1"), and folding those couples physically
+distinct channels. The site set can in principle be finer than the true class
+partition across gauge blocks (zero-folded terms are dropped per block), which
+errs on the safe side: over-splitting adds a group, merging couples channels.
+Feed the labels to [`GroupAdaptiveRidge`](@ref), or use the
+`GroupAdaptiveRidge(mb; lambda, ...)` convenience (unit weights: the moment
+channel has no Monte-Carlo contraction cost to weight by).
+"""
+function salc_groups(mb::MomentBasis)::Vector{Int}
+    sal = salcs(mb)
+    labels = Vector{Int}(undef, length(sal))
+    seen = Dict{Tuple{Int,Int,Vector{SiteDecor},Vector{Int},Vector{Int}},Int}()
+    for (j, s) in enumerate(sal)
+        mem = s.members[1]                       # canonical representative member
+        marks = Int[]
+        sites = Int[]
+        for t in mem.terms
+            ms = findfirst(sl -> sl.factor.channel == DISP, t.slots)
+            ms === nothing && error("pointed SALC without a mark slot")
+            push!(sites, t.slots[ms].site)
+            push!(marks, mem.atoms[t.slots[ms].site])
+        end
+        key = (s.key.body, s.key.orbit_id, s.key.decors, sort!(unique!(marks)),
+               sort!(unique!(sites)))
+        labels[j] = get!(seen, key, length(seen) + 1)
+    end
+    return labels
+end
+
+"""
+    GroupAdaptiveRidge(mb::MomentBasis; lambda, epsilon = 1e-8, max_iter = 50,
+                       tol = 1e-6)
+
+Group-adaptive estimator for a pointed basis: [`salc_groups`](@ref)`(mb)` labels
+with UNIT weights (the moment channel has no MC contraction cost; the energy-side
+`cost_weights` story does not apply). See the primary [`GroupAdaptiveRidge`](@ref)
+constructor for the estimator itself. Note the ridge-family caveat of
+[`fit`](@ref)`(MomentFit, ...)`: the penalty also shrinks the μ₀ intercept columns.
+"""
+function GroupAdaptiveRidge(mb::MomentBasis; lambda::Real, epsilon::Real = 1e-8,
+                            max_iter::Integer = 50, tol::Real = 1e-6)
+    cg = salc_groups(mb)
+    return GroupAdaptiveRidge(cg, ones(maximum(cg)); lambda = lambda,
+                              epsilon = epsilon, max_iter = max_iter, tol = tol)
+end
+
+# Column-structured estimators must follow fit's vanishing-column reduction: the
+# frozen columns are removed from the solve, so per-column metadata has to shrink
+# with them. For GroupAdaptiveRidge the reduction preserves every group NORM
+# exactly (frozen coefficients are exact zeros), but the group SIZE p_g drops by
+# the frozen count, so the weight w_g = v_g/(‖β_g‖² + p_g·ε) moves at O(ε) —
+# material only for a group already at the ε floor, and defensible there: ε is
+# documented as a per-coefficient floor and a frozen column carries no
+# coefficient. Note the deliberate divergence from the energy side, where
+# ASR-frozen columns STAY in column_groups and keep their p_g contribution.
+# Groups emptied by the reduction are relabeled away (the estimator's
+# every-label-present contract). Every other estimator passes through unchanged.
+_reduce_to_active(estimator::AbstractEstimator, ::BitVector) = estimator
+function _reduce_to_active(estimator::GroupAdaptiveRidge,
+                           active::BitVector)::GroupAdaptiveRidge
+    all(active) && return estimator
+    length(estimator.column_groups) == length(active) || throw(DimensionMismatch(
+        "GroupAdaptiveRidge column_groups length $(length(estimator.column_groups)) " *
+        "does not match the pointed design column count $(length(active)); build " *
+        "the labels on THIS basis (salc_groups(mb))"))
+    sub = estimator.column_groups[findall(active)]
+    remap = Dict{Int,Int}()
+    labels = [get!(remap, g, length(remap) + 1) for g in sub]
+    old = Vector{Int}(undef, length(remap))
+    for (g, n) in remap
+        old[n] = g
+    end
+    return GroupAdaptiveRidge(labels, estimator.group_weights[old];
+                              lambda = estimator.lambda, epsilon = estimator.epsilon,
+                              max_iter = estimator.max_iter, tol = estimator.tol)
+end

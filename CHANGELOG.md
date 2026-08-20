@@ -6,6 +6,62 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — CI repair + moment-channel backlog (2026-08-20, post step 2)
+
+- **CI repair (the bd03517 push failed CI in two jobs the local default suite
+  does not run).** JET (`TEST_MODE=all`): two `read_extxyz` union splits were
+  runtime-guarded but not inference-visible — `tryparse(Int, modes[1])` (the
+  `!== nothing` narrowing does not survive a second `getindex`; bound local) and
+  `crystal_fingerprint(reference)` inside the datum loop (`joint ⇒ reference isa
+  Crystal` is a cross-branch fact; hoisted `ref_fp`). Docs (`:missing_docs`
+  strict): the 14 moment-channel / extxyz docstrings were not on any manual
+  page — `docs/src/api.md` gained an "Adiabatic site-moment channel" section.
+- **`moment_resolvability` under-enumerated flat directions on a WIDE signature
+  block** (more kept columns than signature rows): the economy SVD's `V` lists
+  only `min(r, c)` directions, so the null report came back EMPTY at rank 20 of
+  74 kept — the dataset door's "structurally dependent" disclosure silently
+  missed all 54. Found by the new P1 face-(b) control fixture. The complement of
+  `span(V)` is now read off a QR completion of `V` (never a full SVD — the row
+  side can be huge and its full `U` is never needed). The report is asserted
+  COMPLETE (`length(null_combinations) == length(kept) − rank`) and every
+  combination is gated against numerical design annihilation.
+
+### Added — moment-channel small backlog (2026-08-20)
+
+- **`moment_resolvability` default-`rtol` cache on the basis** (`MomentBasis`
+  gained a trailing `resolvability::RefValue` field): the answer is a pure
+  function of the basis and `MomentDataset` runs the gate at every construction,
+  so a train/held-out pair paid the symbolic expansion twice. Cached calls
+  return the SAME object (`===` is the tested contract); a non-default `rtol`
+  always recomputes; an `UnclassifiableBasis` refusal is deliberately not cached
+  (loud on every call).
+- **`salc_groups(mb::MomentBasis)`**: group labels for group-adaptive shrinkage
+  over pointed columns, keyed `(body, orbit_id, decors, mark class)` — the
+  energy-side key folds stabilizer-inequivalent mark placements (an Fe–Ge pair
+  marked on Fe vs on Ge predicts different atoms' moments) into one group;
+  the mark class (read off the representative member's DISP-slot atoms AND
+  site indices — review found the atom set alone merges two placements when a
+  member carries two periodic images of one atom; regression-pinned) splits
+  them while gauge blocks of one class still share a label. Design-side oracle:
+  mixed-species mark classes have disjoint row support. Plus a
+  `GroupAdaptiveRidge(mb; lambda)` convenience (unit weights — no MC cost story
+  on this channel).
+- **`fit(MomentFit, …)` reduces column-structured estimators to the active
+  mask** (`_reduce_to_active`): with vanishing columns frozen, full-basis GAR
+  labels used to die in `solve_coefficients` with a misleading
+  "different SLCEBasis" `DimensionMismatch`. Group norms are exactly preserved
+  (frozen coefficients are exact zeros); the group size `p_g` — hence the
+  per-coefficient ε floor — drops by the frozen count, an O(ε) effect and a
+  deliberate divergence from the energy side (ASR-frozen columns keep their
+  `p_g`). Emptied groups are relabeled away.
+- **Real end-to-end vanishing fixture** (no ctor injection): the energy side's
+  face-(a) mechanism transplanted to the pointed basis — a four-fold WS tie on a
+  3×3×6 two-atom cell partially fused by `m_y`, under `soc = true` (16 of 38
+  columns cancel identically on cell-periodic data; design column norms are
+  EXACTLY 0.0). Under `soc = false` only `Lf = 0` scalar spin couplings survive
+  construction — image-odd content cannot exist, so pointed face (a) requires
+  SOC. The fixture drives warn → store → exact-zero freeze → predict end to end.
+
 ### Added — moment channel: fast design path + band-profile diagnostic (2026-08-20, step 2 slice E)
 
 - **`_design_moment(…; member_index = true)`**: the design build now skips, per

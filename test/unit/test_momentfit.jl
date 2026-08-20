@@ -497,4 +497,242 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         malt = MomentModel(mb_alt, coef(f), f.dataset.provenance)
         @test_throws ArgumentError moment_band_profile(malt, ds3)
     end
+
+    @testset "salc_groups(mb): mark classes split, gauge blocks fold" begin
+        # pair basis, both species marked: every Fe–Ge pair orbit carries one
+        # Fe-marked and one Ge-marked class sharing (body, orbit_id, decors) —
+        # the energy-side key folds them, the pointed key must not
+        spg = MomentSpec(; lmax_env = [1, 1], sampled = [true, true],
+                         lmax_mark = 1, nbody = 2, cutoff_pair = 3.0,
+                         marked = [true, true])
+        mbg = MomentBasis(xt, spg; backend = bk)
+        gl = SLCE.salc_groups(mbg)
+        n = n_salcs(mbg)
+        ks = mbg.salc_basis.keys
+        @test length(gl) == n
+        @test sort(unique(gl)) == 1:maximum(gl)     # contiguous, no gaps
+        # the pointed key REFINES the energy-side key
+        ekey(j) = (ks[j].body, ks[j].orbit_id, ks[j].decors)
+        for j = 1:n, k = (j + 1):n
+            gl[j] == gl[k] && @test ekey(j) == ekey(k)
+        end
+        # independent (design-side) oracle: a column writes rows of exactly its
+        # mark class's atoms, so two mark classes of a MIXED-species pair orbit
+        # have DISJOINT row support while sharing the energy-side key — the
+        # recorded defect the pointed key exists to fix
+        cfgs = [_mb_unit(rng, nat) for _ = 1:3]
+        X = _design_moment(mbg, cfgs, [copy(c) for c in cfgs])
+        nm = length(mbg.marked_atoms)
+        sup(j) = Set(mbg.marked_atoms[a] for c = 0:2 for a = 1:nm
+                     if X[c*nm+a, j] != 0.0)
+        sups = [sup(j) for j = 1:n]
+        split_disjoint = false
+        for j = 1:n, k = (j + 1):n
+            if ekey(j) == ekey(k) && gl[j] != gl[k] &&
+               isempty(intersect(sups[j], sups[k]))
+                split_disjoint = true
+            end
+        end
+        @test split_disjoint
+        # every energy-side pair-orbit key on this cell splits into ≥ 2 groups
+        # (the resolvability census promises ≥ 2 mark classes per pair orbit)
+        for u in unique(ekey(j) for j = 1:n if ks[j].body == 2)
+            @test length(unique(gl[j] for j = 1:n if ekey(j) == u)) >= 2
+        end
+        # GAR convenience: labels = salc_groups, unit weights, one per group
+        gar = GroupAdaptiveRidge(mbg; lambda = 1e-3)
+        @test gar.column_groups == gl
+        @test gar.group_weights == ones(maximum(gl))
+
+        # gauge blocks of ONE mark class fold into ONE group (star basis: 30
+        # multi-column groups at these caps) — same group ⇒ same row support
+        sps = MomentSpec(; lmax_env = [2, 2], sampled = [true, true],
+                         lmax_mark = 2, nbody = 3, cutoff_pair = 3.0,
+                         cutoff_star = 3.0, marked = [true, true])
+        mbs = MomentBasis(xt, sps; backend = bk)
+        gls = SLCE.salc_groups(mbs)
+        Gs = maximum(gls)
+        @test any(g -> count(==(g), gls) > 1, 1:Gs)
+        Xs = _design_moment(mbs, cfgs, [copy(c) for c in cfgs])
+        nms = length(mbs.marked_atoms)
+        sups2 = [Set(mbs.marked_atoms[a] for c = 0:2 for a = 1:nms
+                     if Xs[c*nms+a, j] != 0.0) for j = 1:n_salcs(mbs)]
+        for g = 1:Gs
+            js = findall(==(g), gls)
+            length(js) > 1 &&
+                @test all(sups2[j] == sups2[js[1]] for j in js[2:end])
+        end
+    end
+
+    @testset "GroupAdaptiveRidge follows the vanishing-column freeze" begin
+        # inner-ctor injection (as in the freeze testset): estimator column
+        # metadata must shrink with the active mask — full-basis labels, one
+        # column frozen, and the fit must run with the frozen coef EXACTLY 0.0
+        ds = _mf_ds(mb, _mf_data(10); gate_eps = 1e-8)
+        ds2 = MomentDataset(ds.basis, ds.X, ds.y, ds.defined, ds.keep, ds.gate,
+                            ds.row_config, ds.row_atom, ds.orbit_rep,
+                            ds.orbit_report, ds.order, [2], ds.dependent,
+                            ds.gate_eps, ds.coverage_floor, ds.provenance)
+        gar = GroupAdaptiveRidge(mb; lambda = 0.0)
+        f = fit(MomentFit, ds2, gar)
+        @test f.coeffs[2] == 0.0 && f.coeffs_ungated[2] == 0.0
+        @test all(isfinite, f.coeffs)
+        # lambda = 0: the group-adaptive solve degenerates to the unpenalized
+        # solve on the active columns — same answer as the OLS freeze path
+        act = [1, 3, 4, 5]
+        @test f.coeffs[act] ≈ ds.X[ds.keep, act] \ ds.y[ds.keep] rtol = 1e-8
+        # mismatched labels (built on a DIFFERENT basis) refuse loudly
+        bad = GroupAdaptiveRidge([1, 2, 3], ones(3); lambda = 0.0)
+        @test_throws DimensionMismatch fit(MomentFit, ds2, bad)
+    end
+
+    @testset "vanishing columns end-to-end (real face-(a) fixture)" begin
+        # The pointed analog of the energy side's face (a): a four-fold WS tie
+        # (Δf = (.5, .5, .25) on a 3×3×6 cell) partially fused by m_y, which
+        # fixes both atoms and permutes the ±y images. Under soc = true the
+        # Lf ≠ 0 blocks pair geometry-odd member weights with spin-component
+        # content, and on CELL-PERIODIC data (both images read the same atom)
+        # the odd content cancels identically — 16 of 38 columns vanish. Under
+        # soc = false no case is known: for Lf = 0 the transport matrix is
+        # D⁰ = 1, so every image of an assignment carries an IDENTICAL folded
+        # weight — nothing of opposite sign exists to cancel under the periodic
+        # fold (an argument for single-assignment Lf = 0 blocks, not a general
+        # theorem; probes found no soc = false vanishing on this cell). That is
+        # why the freeze-mechanism test above needs ctor injection and THIS one
+        # does not. P1 on the same crystal is the face-(b) control:
+        # dependencies, never per-column cancellation.
+        crv = Crystal(Lattice(Matrix(Diagonal([3.0, 3.0, 6.0]))),
+                      [0.1 0.6; 0.0 0.5; 0.03 0.28], [1, 1], ["Fe"])
+        I3 = SMatrix{3,3,Float64}(Matrix(1.0 * I(3)))
+        MY = SMatrix{3,3,Float64}(Diagonal([1.0, -1.0, 1.0]))
+        t0 = SVector{3,Float64}(0, 0, 0)
+        sgv = _assemble_spacegroup(crv, [I3, MY], [t0, t0], "Pm-tie", 6; tol = 1e-5)
+        spv = MomentSpec(; lmax_env = [1], sampled = [true], lmax_mark = 1,
+                         nbody = 2, cutoff_pair = 2.7, soc = true)
+        mbv = MomentBasis(crv, spv; backend = _MBFixedSG(sgv))
+        mrv = moment_resolvability(mbv)
+        @test !isempty(mrv.vanishing)
+        @test length(mrv.vanishing) < n_salcs(mbv)
+
+        # independent numerical oracle: on random cell-periodic configurations
+        # the vanishing columns are EXACTLY zero (opposite member weights on
+        # identical factors — cancellation in floating point is exact), and
+        # every kept column is not
+        ev = [_mb_unit(rng, 2) for _ = 1:8]
+        Xv = _design_moment(mbv, ev, [copy(e) for e in ev])
+        # the physical claim, tolerance form:
+        @test all(j -> norm(Xv[:, j]) < 1e-12, mrv.vanishing)
+        # ... and a change-detecting pin on the EXACT cancellation (paired
+        # member weights are bitwise opposite and the per-column accumulation
+        # order is deterministic — an implementation property, not an FP
+        # theorem; recapture if the design accumulation order changes)
+        @test all(j -> norm(Xv[:, j]) == 0.0, mrv.vanishing)
+        @test all(j -> norm(Xv[:, j]) > 1e-8, setdiff(1:n_salcs(mbv), mrv.vanishing))
+
+        # the null report is COMPLETE: one combination per flat direction
+        @test length(mrv.null_combinations) ==
+              length(mrv.kept) - mrv.rank
+
+        # P1 control: face (b) only — dependencies, no vanishing column. This
+        # control found a real defect: with a WIDE signature block (more kept
+        # columns than rows) the economy SVD's V lists only min(r, c)
+        # directions and the report used to come back EMPTY at rank 20 of 74.
+        sgp = _assemble_spacegroup(crv, [I3], [t0], "P1-tie", 1; tol = 1e-5)
+        mbp = MomentBasis(crv, spv; backend = _MBFixedSG(sgp))
+        mrp = moment_resolvability(mbp)
+        @test isempty(mrp.vanishing)
+        @test length(mrp.null_combinations) == length(mrp.kept) - mrp.rank > 0
+        # independent oracle: every reported combination annihilates the
+        # numerical design on random cell-periodic data
+        Xp = _design_moment(mbp, ev, [copy(e) for e in ev])
+        for comb in mrp.null_combinations
+            v = zeros(n_salcs(mbp))
+            for (j, w) in comb
+                v[j] = w
+            end
+            @test norm(Xp * v) < 1e-8 * norm(Xp) * norm(v)
+        end
+
+        # end-to-end: the dataset door warns and stores, fit freezes to EXACT
+        # zero, and the model predicts — no ctor injection anywhere
+        datav = [_mf_datum(e; M = 1.2 .* e, mode = 4) for e in ev]
+        dsv = @test_logs (:warn, r"vanish identically") (:warn,
+                          r"structurally dependent") match_mode = :any MomentDataset(
+            mbv, datav; gate_eps = 1e-8)
+        @test dsv.vanishing == mrv.vanishing
+        fv = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") fit(
+            MomentFit, dsv)
+        @test all(fv.coeffs[mrv.vanishing] .== 0.0)
+        @test all(fv.coeffs_ungated[mrv.vanishing] .== 0.0)
+        @test all(isfinite, residuals(fv))
+        modelv = MomentModel(fv)
+        @test all(isfinite, predict_moment(modelv, ev[1]))
+        # the GAR reduction rides the same freeze on a REAL vanishing set
+        fg = fit(MomentFit, dsv, GroupAdaptiveRidge(mbv; lambda = 1e-6))
+        @test all(fg.coeffs[mrv.vanishing] .== 0.0)
+    end
+
+    @testset "salc_groups: same mark atoms, different mark sites split" begin
+        # Review-found merge case: a canonical member carrying two periodic
+        # images of one atom projects two distinct mark placements onto the
+        # SAME reference-cell atom set — an atom-set-only key folds them. On
+        # this cell the two columns also alias on periodic data (|cos| = 1;
+        # the resolvability layer discloses that dependency separately), but
+        # the group key is STRUCTURAL: mark class, never column values.
+        crm = Crystal(Lattice(Matrix(Diagonal([3.0, 4.0, 5.0]))),
+                      [0.0 0.5; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        sgm = _assemble_spacegroup(crm, [SMatrix{3,3,Float64}(Matrix(1.0 * I(3)))],
+                                   [SVector{3,Float64}(0, 0, 0)], "P1-img", 1;
+                                   tol = 1e-5)
+        spm = MomentSpec(; lmax_env = [1], sampled = [true], lmax_mark = 1,
+                         nbody = 3, cutoff_pair = 3.3, cutoff_star = 3.3)
+        mbm = MomentBasis(crm, spm; backend = _MBFixedSG(sgm))
+        salm = SLCE.salcs(mbm)
+        glm = SLCE.salc_groups(mbm)
+        function _marksets(s)
+            mem = s.members[1]
+            at = Int[]; st = Int[]
+            for t in mem.terms
+                ms = findfirst(sl -> sl.factor.channel == SLCE.DISP, t.slots)
+                push!(st, t.slots[ms].site)
+                push!(at, mem.atoms[t.slots[ms].site])
+            end
+            return (sort!(unique!(at)), sort!(unique!(st)))
+        end
+        nm = n_salcs(mbm)
+        nfound = 0
+        for j = 1:nm, k = (j + 1):nm
+            (salm[j].key.body, salm[j].key.orbit_id, salm[j].key.decors) ==
+                (salm[k].key.body, salm[k].key.orbit_id, salm[k].key.decors) ||
+                continue
+            aj, sj = _marksets(salm[j])
+            ak, sk = _marksets(salm[k])
+            if aj == ak && sj != sk
+                nfound += 1
+                @test glm[j] != glm[k]      # the pre-fix key merged these
+            end
+        end
+        @test nfound >= 2                   # the fixture actually has the case
+    end
+
+    @testset "_reduce_to_active: non-uniform weights follow the relabeling" begin
+        # the unit-weight convenience ctor cannot see a weight-permutation bug
+        gar = GroupAdaptiveRidge([3, 1, 2, 3, 2, 1], [10.0, 20.0, 30.0];
+                                 lambda = 0.5, epsilon = 1e-7, max_iter = 7,
+                                 tol = 1e-5)
+        active = BitVector([true, false, true, true, false, true])
+        red = SLCE._reduce_to_active(gar, active)
+        @test red.column_groups == [1, 2, 1, 3]     # 3,2,3,1 → first-appearance
+        @test red.group_weights == [30.0, 20.0, 10.0]
+        @test red.group_sizes == [2, 1, 1]
+        @test red.lambda == 0.5 && red.epsilon == 1e-7 &&
+              red.max_iter == 7 && red.tol == 1e-5
+        # all-active passes the estimator through untouched (identity)
+        @test SLCE._reduce_to_active(gar, trues(6)) === gar
+        # an emptied group is relabeled away, weights follow
+        red2 = SLCE._reduce_to_active(gar, BitVector([true, false, true, true,
+                                                      false, false]))
+        @test red2.column_groups == [1, 2, 1]
+        @test red2.group_weights == [30.0, 20.0]
+    end
 end

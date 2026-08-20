@@ -1067,7 +1067,10 @@ energy/torque/force pipeline is untouched (bit-identity gated).
 - **`moment_resolvability`**: the pointed periodic-resolvability gate — symbolic
   signature rank in the independent variables, null combinations naming dependent
   columns, mark-class census; refuses repeated-image environment members
-  (`UnclassifiableBasis`) rather than overcounting.
+  (`UnclassifiableBasis`) rather than overcounting. The null report is complete
+  on wide signature blocks (QR completion of the economy SVD's `V` — its `V`
+  alone lists only `min(r, c)` flat directions); the default-`rtol` result is
+  cached on the basis (`===` contract; refusals never cached).
 - Oracles (`test_momentbasis.jl`): star closed form = 6.0 × an independent
   geometric enumeration, shell-sum normalization 2√3, G_i covariance with axes,
   bitwise TR, substitution locality, symbolic ≡ random-design rank.
@@ -1102,8 +1105,19 @@ energy/torque/force pipeline is untouched (bit-identity gated).
   marked-sublattice `|⟨e⟩|` (`MomentDataset.order`) — equal-count bins + the
   bin-free least-squares line + Pearson r.
 
-Next slices: the simple-feature nested lower-bound gate + |h₁| feature coverage
-(script-level today), the `salc_groups` mark-class key.
+- **`salc_groups(mb::MomentBasis)` + `GroupAdaptiveRidge(mb; lambda)`**
+  (`fitting/momentfit.jl`): group labels at `(body, orbit_id, decors, mark
+  class)` granularity — the energy-side key folds stabilizer-inequivalent mark
+  placements (distinct physical channels) into one group; gauge blocks of one
+  class still share a label. The class fingerprint is the representative
+  member's marked-atom set AND marked-site set (the atom set alone merges two
+  placements when a member carries two periodic images of one atom).
+  `fit(MomentFit, …)` reduces a GAR's column metadata to the active mask under
+  the vanishing-column freeze (`_reduce_to_active`; group norms exactly
+  preserved, `p_g` — hence the ε floor — moves by the frozen count).
+
+Next slice: the simple-feature nested lower-bound gate + |h₁| feature coverage
+(script-level today).
 
 ## Not yet implemented (v0 follow-ups)
 - The v0 slice is feature-complete; no estimator/observable/IO follow-ups outstanding.
