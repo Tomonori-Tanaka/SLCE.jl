@@ -224,6 +224,8 @@ with the mark-aware admission rules of the design record (see the file header).
 Fields: `crystal`, `spacegroup`, `spec`, `salc_basis` (keys sorted, addressable),
 `records` (one NamedTuple per SALC: representative geometry for reporting —
 `body`, `species`, `edges`, `nmem`), and `marked_atoms` (the design's row atoms).
+The trailing `resolvability` field is [`moment_resolvability`](@ref)'s default-`rtol`
+cache (a `Ref`, `nothing` until the first call) — derived data, never set by hand.
 """
 struct MomentBasis
     crystal::Crystal
@@ -232,6 +234,7 @@ struct MomentBasis
     salc_basis::SALCBasis
     records::Vector{NamedTuple}
     marked_atoms::Vector{Int}
+    resolvability::Base.RefValue{Union{Nothing,NamedTuple}}
 end
 
 n_salcs(mb::MomentBasis)::Int = length(mb.salc_basis.salcs)
@@ -341,7 +344,7 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
     keyvec = [out[j].key for j in perm]
     allunique(keyvec) || error("duplicate pointed SALC keys — enumeration bug")
     return MomentBasis(crystal, sg, spec, SALCBasis(out[perm], keyvec), recs[perm],
-                       marked_atoms)
+                       marked_atoms, Ref{Union{Nothing,NamedTuple}}(nothing))
 end
 
 # ── evaluation (marked-column substitution) ────────────────────────────────────────
@@ -480,7 +483,7 @@ Base.:(==)(a::_MomentRowKey, b::_MomentRowKey) =
     a.mark_atom == b.mark_atom && a.mark_lm == b.mark_lm && a.env == b.env
 
 """
-    moment_resolvability(mb; rtol = 1e-10) -> NamedTuple
+    moment_resolvability(mb; rtol = nothing) -> NamedTuple
 
 The pointed periodic-resolvability gate (design record D9′): what THIS reference
 cell can and cannot determine about the pointed columns. Returns
@@ -500,8 +503,27 @@ cell can and cannot determine about the pointed columns. Returns
 Purely structural (the symbolic expansion, never sampled data); a full-rank result
 certifies resolvability of the basis on this cell, not identifiability from any
 particular training set.
+
+The default-`rtol` (`rtol = nothing` → `1e-10`) result is cached on the basis (the
+answer is a pure function of the basis, and [`MomentDataset`](@ref) runs this gate
+at every construction — a train/held-out pair would otherwise pay the symbolic
+expansion twice). Single-threaded, cached calls return the SAME object (`===`);
+treat it as read-only. Passing an explicit `rtol` — the default value included —
+always recomputes and is never cached. Concurrent first calls may compute twice and
+race the store — the value is deterministic, so both compute equal (not `===`)
+results and the race is benign. An `UnclassifiableBasis` refusal is deliberately
+not cached: the gate re-throws loudly on every call.
 """
-function moment_resolvability(mb::MomentBasis; rtol::Real = 1e-10)
+function moment_resolvability(mb::MomentBasis; rtol::Union{Nothing,Real} = nothing)
+    if rtol === nothing
+        mb.resolvability[] === nothing &&
+            (mb.resolvability[] = _moment_resolvability(mb, 1e-10))
+        return mb.resolvability[]::NamedTuple
+    end
+    return _moment_resolvability(mb, Float64(rtol))
+end
+
+function _moment_resolvability(mb::MomentBasis, rtol::Float64)
     sal = salcs(mb)
     # Same refusal as the energy-side `unresolvable_columns`, same reason: a member
     # carrying two ENVIRONMENT spin slots on one reference-cell atom (two periodic
@@ -584,11 +606,25 @@ function moment_resolvability(mb::MomentBasis; rtol::Real = 1e-10)
         cut = maximum(F.S; init = 0.0) * max(Float64(rtol),
                                              minimum(size(S)) * eps(Float64))
         rank = count(>(cut), F.S)
-        for q = (rank + 1):length(F.S)
-            v = F.V[:, q]
-            comb = [(kept[t], v[t]) for t in eachindex(kept)
-                    if abs(v[t]) > 1e-8]
-            push!(null_combinations, comb)
+        c = length(kept)
+        _push_comb!(v) = push!(null_combinations,
+                               [(kept[t], v[t]) for t in eachindex(kept)
+                                if abs(v[t]) > 1e-8])
+        for q = (rank + 1):size(F.V, 2)
+            _push_comb!(F.V[:, q])
+        end
+        # A WIDE S (more kept columns than signature rows) has flat directions
+        # the economy SVD cannot list: its V spans only min(r, c) directions, and
+        # the orthogonal complement of span(V) is null too. Found by the P1
+        # face-(b) control (rank 20 of 74 kept, null_combinations empty — the
+        # dataset door's dependency disclosure silently missed all 54). The
+        # complement is read off a QR completion of V (never a full SVD: the
+        # row side can be huge and its full U is never needed).
+        if size(F.V, 2) < c
+            Qfull = qr(F.V).Q * Matrix{Float64}(I, c, c)
+            for q = (size(F.V, 2) + 1):c
+                _push_comb!(Qfull[:, q])
+            end
         end
     end
     # census: per cluster orbit (body, orbit_id), the stabilizer-inequivalent

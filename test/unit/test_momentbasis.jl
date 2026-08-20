@@ -232,6 +232,17 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         # census: every pointed pair orbit on this cell carries ≥ 2 mark classes
         # (both ends markable) — the face-(b) hazard preregistration
         @test all(c -> c.n_mark_atoms >= 2, res.census)
+        # default-rtol cache: the SAME object comes back (=== is the contract);
+        # a non-default rtol always recomputes and is never cached; a rebuilt
+        # basis recomputes from scratch and agrees (two computations, one answer)
+        @test moment_resolvability(pmb) === res
+        fresh = moment_resolvability(pmb; rtol = 1e-9)
+        @test fresh !== res
+        @test fresh.vanishing == res.vanishing     # rtol-independent classification
+        pmb2 = MomentBasis(xt, psp; backend = bk)
+        res2 = moment_resolvability(pmb2)
+        @test res2 !== res && res2.rank == res.rank &&
+              res2.vanishing == res.vanishing
         # the star basis on the PRIMITIVE cell folds two images of one neighbor
         # into a single environment sphere — the gate must refuse loudly, exactly
         # like the energy side's UnclassifiableBasis, never overcount
