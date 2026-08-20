@@ -585,6 +585,9 @@ MomentModel
 predict_moment
 rmse_moment
 moment_band_profile
+moment_local_field
+moment_coverage
+moment_simple_floor
 ```
 
 The channel's training containers: an extended-XYZ archive (spin-only or joint,

@@ -454,7 +454,17 @@ Easy to break silently — confirm before touching the algorithm.
   set alone is NOT injective: a canonical member carrying two periodic images
   of one atom projects two distinct mark placements onto one atom set
   (review-reproduced on a 2-atom P1 cell at `nbody = 3`; regression-pinned).
-  Note for fixtures: no `soc = false` pointed face-(a) case is known — for
+  The MODE RULE has exactly one code statement, `_moment_axis_matrix`
+  (`fitting/momentfit.jl`) — the dataset constructor AND the local-field
+  diagnostics (`moment_local_field` / `moment_simple_floor`) resolve row axes
+  through it; a second inline `mode == 4 ? directions : constraint_axes` is the
+  drift hazard this extraction removed. The diagnostics' neighbor set is
+  `_pair_neighbors` — the pair enumeration's own convention (MinimumImage at
+  `cutoff_pair`, tied images each counted, `i == j` dropped, `lmax_env = 0`
+  species excluded); `moment_simple_floor`'s nesting claim (`sigma_model ≤
+  sigma_floor`) is conditional on the reported per-feature `inclusion`, never
+  asserted unconditionally. Note for fixtures: no `soc = false` pointed
+  face-(a) case is known — for
   `Lf = 0` the transport matrix is `D⁰ = 1`, so every image of an assignment
   carries an IDENTICAL folded weight and nothing of opposite sign exists to
   cancel under the periodic fold (an argument for single-assignment `Lf = 0`

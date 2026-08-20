@@ -735,4 +735,134 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         @test red2.column_groups == [1, 2, 1]
         @test red2.group_weights == [30.0, 20.0]
     end
+
+    @testset "local field + coverage + simple floor" begin
+        # 2-atom Fe chain-like cell with an EXACT ±x tie (frac x = 0, 0.5 on a
+        # 3 Å axis): each atom sees the other through TWO tied images, so the
+        # pair-consistent field is h₁ = 2ê_other — hand-derivable throughout.
+        crf = Crystal(Lattice(Matrix(Diagonal([3.0, 4.0, 5.0]))),
+                      [0.0 0.5; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        sgf = _assemble_spacegroup(crf, [SMatrix{3,3,Float64}(Matrix(1.0 * I(3)))],
+                                   [SVector{3,Float64}(0, 0, 0)], "P1-lf", 1;
+                                   tol = 1e-5)
+        spf = MomentSpec(; lmax_env = [1], sampled = [true], lmax_mark = 1,
+                         nbody = 2, cutoff_pair = 1.6)
+        mbf = MomentBasis(crf, spf; backend = _MBFixedSG(sgf))
+
+        # hand oracle: ê₁ = ẑ, ê₂ = (sinθ, 0, cosθ) ⇒ h₁(1) = 2ê₂, h₁(2) = 2ê₁,
+        # both norms 2 (tie multiplicity), both alignments cosθ
+        th = 0.7
+        ef = zeros(3, 2)
+        ef[:, 1] = [0.0, 0.0, 1.0]
+        ef[:, 2] = [sin(th), 0.0, cos(th)]
+        lf = moment_local_field(mbf, [ef])
+        @test lf.h1 ≈ [2.0, 2.0]
+        @test lf.edoth ≈ [cos(th), cos(th)]
+        @test lf.row_config == [1, 1] && lf.row_atom == [1, 2]
+        # the TrainingDatum method resolves mode 4 to the identity — bitwise
+        dm4 = _mf_datum(ef; M = 1.3 .* ef, mode = 4)
+        lfd = moment_local_field(mbf, [dm4])
+        @test lfd.h1 == lf.h1 && lfd.edoth == lf.edoth
+        # mode-1 zero axis: h₁ still computed, alignment undefined
+        ax1 = copy(ef)
+        ax1[:, 1] .= 0.0
+        lf1 = moment_local_field(mbf, [_mf_datum(ef; M = 1.3 .* ef, mode = 1,
+                                                 axes = ax1)])
+        @test lf1.h1 == lf.h1
+        @test isnan(lf1.edoth[1]) && lf1.edoth[2] ≈ cos(th)
+        # doors: non-unit config column; non-unit nonzero marked axis
+        bad = copy(ef)
+        bad[:, 2] .*= 1.5
+        @test_throws ArgumentError moment_local_field(mbf, [bad])
+        @test_throws ArgumentError moment_local_field(mbf, [ef]; axes = [bad])
+        # a species the basis never reads (lmax_env = 0) contributes nothing:
+        # Fe–Ge cell, Ge environment off ⇒ the Fe row sees h₁ = 0 (edoth NaN),
+        # the Ge row still reads its Fe neighbors
+        crg = Crystal(Lattice(Matrix(Diagonal([3.0, 4.0, 5.0]))),
+                      [0.0 0.5; 0.0 0.0; 0.0 0.0], [1, 2], ["Fe", "Ge"])
+        sgg = _assemble_spacegroup(crg, [SMatrix{3,3,Float64}(Matrix(1.0 * I(3)))],
+                                   [SVector{3,Float64}(0, 0, 0)], "P1-lg", 1;
+                                   tol = 1e-5)
+        spg = MomentSpec(; lmax_env = [1, 0], sampled = [true, false],
+                         lmax_mark = 1, nbody = 2, cutoff_pair = 1.6,
+                         marked = [true, true])
+        mbg2 = MomentBasis(crg, spg; backend = _MBFixedSG(sgg))
+        lfg = moment_local_field(mbg2, [ef])
+        @test lfg.h1[1] == 0.0 && isnan(lfg.edoth[1])       # Fe: Ge env is off
+        @test lfg.h1[2] ≈ 2.0 && lfg.edoth[2] ≈ cos(th)     # Ge: reads Fe
+
+        # coverage: hand-checkable quantile + fractions
+        tr = (; h1 = collect(0.1:0.1:10.0), edoth = fill(0.9, 100))
+        nw = (; h1 = [0.5, 9.98, 11.0, 12.0], edoth = [0.8, -0.2, NaN, -0.3])
+        cov = moment_coverage(tr, nw; q = 0.99)
+        @test cov.threshold ≈ quantile(tr.h1, 0.99)
+        @test cov.frac_beyond ≈ 3 / 4          # p99(train) = 9.901: 9.98, 11, 12 exceed
+        @test cov.frac_anti ≈ 2 / 3            # NaN row excluded from the denominator
+        @test cov.n_rows == 4 && cov.n_defined == 3
+        @test_throws ArgumentError moment_coverage(tr, nw; q = 1.0)
+
+        # ---- the nested simple-feature floor (M2-5) ----
+        # plant y EXACTLY in the feature space: y = a₀ + b₀·Σ_j ê_i·ê_j, moments
+        # decomposable by construction (M ∥ ê ⇒ gate 0). On this pair basis the
+        # P₁ shell sum lies in the SALC span, so the SALC fit is nested above
+        # the floor. The tied cell carries 2 structural dependencies (warned)
+        # and the OLS solves warn rank-deficient — both expected and asserted.
+        nbf = SLCE._pair_neighbors(mbf)
+        a0, b0 = 1.1, 0.07
+        dataf = TrainingDatum[]
+        for c = 1:12
+            ec = _mb_unit(rng, 2)
+            M = zeros(3, 2)
+            for a = 1:2
+                f1 = sum(ec[:, a]' * ec[:, j] for j in nbf[a])
+                M[:, a] = (a0 + b0 * f1) .* ec[:, a]
+            end
+            push!(dataf, _mf_datum(ec; M = M, mode = 4))
+        end
+        dsf = @test_logs (:warn, r"structurally dependent") match_mode = :any MomentDataset(
+            mbf, dataf; gate_eps = 1e-8)
+        @test all(dsf.keep)
+        ff = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") fit(
+            MomentFit, dsf)
+        fl = moment_simple_floor(ff, dataf; lmax = 1)
+        @test fl.sigma_floor < 1e-12            # the floor model IS the truth
+        @test fl.sigma_model <= fl.sigma_floor + 1e-12   # nested (P₁ ∈ span)
+        @test all(<(1e-10), fl.inclusion)       # every feature representable
+        @test fl.n_features == 4                # 2 orbits × (intercept + P₁)
+        # recover the planted parameters from the floor coefficients
+        @test all(isapprox.(fl.coef[1:2:end], a0; atol = 1e-10))
+        @test all(isapprox.(fl.coef[2:2:end], b0; atol = 1e-10))
+        # lmax = 2 on an lmax_env = 1 basis: the P₂ column is NOT representable
+        # — the inclusion report says so instead of silently claiming a bound
+        fl2 = moment_simple_floor(ff, dataf; lmax = 2)
+        p2cols = [k for (k, lb) in enumerate(fl2.feature_labels)
+                  if occursin("P2", lb)]
+        @test all(>(0.5), fl2.inclusion[p2cols])
+        @test all(<(1e-10), fl2.inclusion[setdiff(1:fl2.n_features, p2cols)])
+        # the bound flag and the disclosure counts
+        @test fl.nested_bound === true          # OLS fit: the bound applies
+        @test fl.n_rows == count(dsf.keep) && 1 <= fl.design_rank <= 6
+        fgar = fit(MomentFit, dsf, GroupAdaptiveRidge(mbf; lambda = 1e-3))
+        flg = moment_simple_floor(fgar, dataf; lmax = 1)
+        @test flg.nested_bound === false        # shrinkage: no nested bound
+        # the basis records its tie band; diagnostics read it back
+        @test mbf.tie_tol == SLCE._SAME_DIST_RTOL
+        @test_throws ArgumentError moment_local_field(mbf, Matrix{Float64}[])
+        # pairing doors: wrong length; silently re-paired data (targets move)
+        @test_throws ArgumentError moment_simple_floor(ff, dataf[1:5]; lmax = 1)
+        swapped = copy(dataf)
+        swapped[1], swapped[2] = swapped[2], swapped[1]
+        @test_throws ArgumentError moment_simple_floor(ff, swapped; lmax = 1)
+        @test_throws ArgumentError moment_simple_floor(ff, dataf; lmax = 4)
+        # environment door: same TARGETS, moved environment — the target check
+        # alone cannot see it (y = ê·M is invariant under co-rotating M with a
+        # new ê), the design-row replay must
+        moved = copy(dataf)
+        eold = dataf[1].directions
+        yold = [dot(eold[:, a], dataf[1].moments_bare[:, a]) for a = 1:2]
+        enew = _mb_unit(rng, 2)
+        Mnew = hcat((yold[a] .* enew[:, a] for a = 1:2)...)
+        moved[1] = _mf_datum(enew; M = Mnew, mode = 4)
+        @test_throws ArgumentError moment_simple_floor(ff, moved; lmax = 1)
+    end
 end

@@ -94,6 +94,14 @@ struct MomentDataset
     provenance::DatumProvenance
 end
 
+# The mode rule (D8 addendum), stated ONCE: mode 4 evaluates on the datum's
+# `directions` (identity substitution), mode 1 on its `constraint_axes` (present
+# is a TrainingDatum ctor invariant). Every consumer needing a row axis — the
+# dataset constructor and the local-field diagnostics — resolves through this
+# function; a second inline copy is the coupled-site drift hazard.
+_moment_axis_matrix(d::TrainingDatum)::Matrix{Float64} =
+    (d.constraint_mode::Int) == 4 ? d.directions : (d.constraint_axes::Matrix{Float64})
+
 function MomentDataset(basis::MomentBasis, data::AbstractVector{TrainingDatum};
                        gate_eps::Real, coverage_floor::Real = 0.5)::MomentDataset
     isempty(data) && throw(ArgumentError("no training data"))
@@ -152,8 +160,7 @@ function MomentDataset(basis::MomentBasis, data::AbstractVector{TrainingDatum};
         end
         M = d.moments_bare::Matrix{Float64}
         mode = d.constraint_mode::Int
-        # mode == 1 ⇒ constraint_axes present is a TrainingDatum ctor invariant.
-        ax = mode == 4 ? d.directions : (d.constraint_axes::Matrix{Float64})
+        ax = _moment_axis_matrix(d)
         configs[ci] = d.directions
         # Always a copy: the zero-axis placeholder below writes into `axes[ci]`,
         # and aliasing the caller's datum field would turn that into silent
@@ -178,6 +185,9 @@ function MomentDataset(basis::MomentBasis, data::AbstractVector{TrainingDatum};
                 axes[ci][3, a] = d.directions[3, a]
                 continue
             end
+            # moment_simple_floor's pairing door replays this expression
+            # BITWISE — keep muladd/@fastmath out of both sites, or relax both
+            # to isapprox together
             yv = e1 * M[1, a] + e2 * M[2, a] + e3 * M[3, a]
             mm = sqrt(M[1, a]^2 + M[2, a]^2 + M[3, a]^2)
             # Cancellation-free transverse remainder: M⊥ = M − y ê exactly, then
@@ -629,4 +639,294 @@ function _reduce_to_active(estimator::GroupAdaptiveRidge,
     return GroupAdaptiveRidge(labels, estimator.group_weights[old];
                               lambda = estimator.lambda, epsilon = estimator.epsilon,
                               max_iter = estimator.max_iter, tol = estimator.tol)
+end
+
+# --- local-field diagnostics + the simple-feature nested floor ----------------------
+
+# The pair-consistent neighbor sets of the marked atoms: for each marked atom, the
+# reference-cell atoms j reachable through the spec's `cutoff_pair` MinimumImage
+# enumeration, one entry PER TIED IMAGE (the pair basis's member multiplicity),
+# same-atom images excluded (the pair enumeration's i == j drop), restricted to
+# species the basis reads (`lmax_env > 0`). The tie band is read off the basis
+# (`mb.tie_tol`, stored at construction), so the enumeration matches the basis's
+# by construction — no manual matching.
+function _pair_neighbors(mb::MomentBasis)
+    spec = mb.spec
+    sp = mb.crystal.species
+    nl = build_neighbor_list(mb.crystal, spec.cutoff_pair, MinimumImage();
+                             tol = mb.tie_tol)
+    nbrs = Dict(a => Int[] for a in mb.marked_atoms)
+    for p in nl.pairs
+        haskey(nbrs, p.i) || continue
+        spec.lmax_env[sp[p.j]] > 0 || continue
+        push!(nbrs[p.i], p.j)
+    end
+    return nbrs
+end
+
+@inline _legendre(l::Int, x::Float64)::Float64 =
+    l == 1 ? x :
+    l == 2 ? (3.0 * x^2 - 1.0) / 2 :
+    l == 3 ? (5.0 * x^3 - 3.0 * x) / 2 :
+    throw(ArgumentError("Legendre order $l not supported (1 ≤ l ≤ 3)"))
+
+"""
+    moment_local_field(mb::MomentBasis, configs; axes = configs)
+    moment_local_field(mb::MomentBasis, data::AbstractVector{TrainingDatum})
+        -> NamedTuple
+
+Per-row local-field diagnostics of the moment channel, rows aligned with
+[`MomentDataset`](@ref) (configuration-major, marked-atom-minor). For each row
+`(c, i)` the pair-consistent local direction field is `h₁ = Σ ê_j` over the marked
+atom's `cutoff_pair` MinimumImage neighbors — one term per tied image (the pair
+basis's member multiplicity), same-atom images excluded, species with
+`lmax_env = 0` excluded (the basis never reads them). Returns
+
+- `h1` — `‖h₁‖` per row (`0.0` when the basis reads no environment species);
+- `edoth` — `ê·h₁/‖h₁‖`, the alignment of the row's evaluation axis with the
+  local field (`NaN` when `‖h₁‖ = 0` or the row axis is undefined — the mode-1
+  zero-axis case). This is the collapse coordinate: on FeGe, anti-alignment
+  (`ê·ĥ < 0`), not weak `|h₁|`, is what marks the longitudinal-collapse rows;
+- `row_config`, `row_atom` — the row bookkeeping.
+
+The `TrainingDatum` method resolves the row axis by the mode rule
+(`_moment_axis_matrix`, the same function the dataset constructor reads); the raw
+method's `axes = configs` default IS the mode-4 identity, exactly like
+[`predict_moment`](@ref) — pass explicit axes for a mode-1-style readout. A
+validating door: configuration columns unit everywhere; axes columns unit on the
+MARKED atoms, with an exactly-zero column allowed (undefined row, `edoth = NaN`).
+The neighbor tie band is the basis's own (`mb.tie_tol`).
+"""
+function moment_local_field(mb::MomentBasis,
+                            configs::AbstractVector{<:AbstractMatrix{<:Real}};
+                            axes::AbstractVector{<:AbstractMatrix{<:Real}} = configs)
+    isempty(configs) && throw(ArgumentError("no configurations"))
+    nat = n_atoms(mb.crystal)
+    length(axes) == length(configs) ||
+        throw(ArgumentError("$(length(axes)) axis matrices for " *
+                            "$(length(configs)) configurations"))
+    nbrs = _pair_neighbors(mb)
+    marked = mb.marked_atoms
+    nmark = length(marked)
+    nrow = length(configs) * nmark
+    h1 = Vector{Float64}(undef, nrow)
+    edoth = Vector{Float64}(undef, nrow)
+    row_config = Vector{Int}(undef, nrow)
+    row_atom = Vector{Int}(undef, nrow)
+    for (ci, e) in enumerate(configs)
+        _validate_config(e, nat)
+        ax = axes[ci]
+        size(ax) == (3, nat) ||
+            throw(ArgumentError("config $ci: axes are $(size(ax)), expected (3, $nat)"))
+        for (ai, a) in enumerate(marked)
+            r = (ci - 1) * nmark + ai
+            row_config[r] = ci
+            row_atom[r] = a
+            hx = hy = hz = 0.0
+            for j in nbrs[a]
+                hx += e[1, j]; hy += e[2, j]; hz += e[3, j]
+            end
+            h = sqrt(hx^2 + hy^2 + hz^2)
+            h1[r] = h
+            a1, a2, a3 = Float64(ax[1, a]), Float64(ax[2, a]), Float64(ax[3, a])
+            if a1 == 0.0 && a2 == 0.0 && a3 == 0.0
+                edoth[r] = NaN                       # undefined row axis (mode 1)
+            else
+                _validate_direction(SVector{3,Float64}(a1, a2, a3),
+                                    "axes column $a (config $ci)")
+                edoth[r] = h == 0.0 ? NaN : (a1 * hx + a2 * hy + a3 * hz) / h
+            end
+        end
+    end
+    return (; h1, edoth, row_config, row_atom)
+end
+
+function moment_local_field(mb::MomentBasis, data::AbstractVector{TrainingDatum})
+    isempty(data) && throw(ArgumentError("no data"))
+    for (ci, d) in enumerate(data)
+        d.constraint_mode === nothing && throw(ArgumentError(
+            "config $ci carries no `constraint_mode` — the row axis is resolved " *
+            "by the mode rule"))
+    end
+    return moment_local_field(mb, [d.directions for d in data];
+                              axes = [_moment_axis_matrix(d) for d in data])
+end
+
+"""
+    moment_coverage(train::NamedTuple, new::NamedTuple; q = 0.99) -> NamedTuple
+
+Feature-space coverage monitor (design record M2-8): compare a runtime/validation
+batch against the training distribution in the [`moment_local_field`](@ref)
+coordinates. Returns
+
+- `threshold` — the `q`-quantile of the TRAINING `h1`;
+- `frac_beyond` — the fraction of NEW rows with `h1 > threshold` (≈ `1 − q` in
+  distribution; substantially more flags extrapolation in the local-field
+  strength);
+- `frac_anti` — the fraction of NEW rows (among those with a defined `edoth`)
+  with `ê·ĥ < 0`: the collapse-risk band the training set rarely visits — rows
+  there carry the model's largest errors (measured on FeGe), so a consumer
+  sampling them is outside the fitted regime;
+- `n_rows`, `n_defined` — the new batch's row counts.
+
+Both arguments are [`moment_local_field`](@ref) outputs (or any NamedTuple with
+`h1` and `edoth`) — from the SAME basis, which the monitor cannot verify. The
+`h1` flag is UPPER-tail only by design (the recorded M2-8 axis; on a degenerate
+training distribution — every row at one `|h₁|` — it can never fire); the
+weak-field side is monitored through `frac_anti`, since the measured collapse
+coordinate is anti-alignment, not field strength.
+"""
+function moment_coverage(train::NamedTuple, new::NamedTuple; q::Real = 0.99)
+    0 < q < 1 || throw(ArgumentError("q = $q must lie in (0, 1)"))
+    isempty(train.h1) && throw(ArgumentError("empty training rows"))
+    isempty(new.h1) && throw(ArgumentError("empty new rows"))
+    thr = quantile(train.h1, Float64(q))
+    defined = .!isnan.(new.edoth)
+    nd = count(defined)
+    return (; threshold = thr, q = Float64(q),
+            frac_beyond = count(>(thr), new.h1) / length(new.h1),
+            frac_anti = nd == 0 ? NaN : count(<(0.0), new.edoth[defined]) / nd,
+            n_rows = length(new.h1), n_defined = nd)
+end
+
+"""
+    moment_simple_floor(f::MomentFit, data::AbstractVector{TrainingDatum};
+                        lmax = 2) -> NamedTuple
+
+The simple-feature NESTED performance floor (design record M2-5): fit, on exactly
+the SALC fit's kept rows, the trivial geometric model
+
+    y ≈ μ_g + Σ_{l = 1}^{lmax} b_{g,l} Σ_j P_l(ê_i · ê_j)
+
+— one intercept and one Legendre shell-sum slope per marked-atom orbit `g`, the
+sum over the same `cutoff_pair` neighbors as [`moment_local_field`](@ref). Returns
+
+- `sigma_floor` / `sigma_model` — `std` of the simple model's and the SALC fit's
+  gated residuals. The nested bound `sigma_model ≤ sigma_floor` holds on the
+  training rows by construction only under BOTH conditions the return value
+  reports: the features lie in the SALC column span (a pair basis with
+  `lmax_mark ≥ l` and `lmax_env ≥ l` contains the `P_l` shell sums — read
+  `inclusion`) AND the fit is unregularized (`nested_bound = true` ⇔
+  `f.estimator isa OLS`; a shrinkage estimator legitimately trades training
+  residual for variance, so the bound does not apply and its violation
+  diagnoses nothing). An OLS fit with `inclusion ≈ 0` reporting
+  `sigma_model > sigma_floor` IS mis-assembled. The `std` comparison rides on
+  both residual vectors having zero mean, which holds because both designs
+  span the per-orbit constants (the floor's intercepts; the SALC design's μ₀
+  columns). With `design_rank ≥ n_rows` (a saturated design) both sigmas are
+  trivially ~0 and the statement is vacuous — the returned counts disclose it;
+- `inclusion` — per feature column, the relative residual of projecting it onto
+  the SALC design's kept rows (`≈ 0` ⇔ the feature is representable; reported,
+  never assumed);
+- `coef`, `n_features`, `feature_labels` — the simple model itself.
+
+`data` must be the very vector the fit's dataset was built from — checked loudly
+(row count and a bitwise target recomputation on the defined rows), because a
+silently re-paired `data` would fit the floor to the wrong targets.
+"""
+function moment_simple_floor(f::MomentFit, data::AbstractVector{TrainingDatum};
+                             lmax::Integer = 2)
+    1 <= lmax <= 3 || throw(ArgumentError("lmax = $lmax must lie in 1:3"))
+    ds = f.dataset
+    mb = ds.basis
+    marked = mb.marked_atoms
+    nmark = length(marked)
+    length(data) * nmark == length(ds.y) || throw(ArgumentError(
+        "$(length(data)) configurations × $nmark marked atoms ≠ " *
+        "$(length(ds.y)) dataset rows — pass the vector the dataset was built from"))
+    # pairing door, two halves. (1) Targets: recompute through the SAME
+    # expression the dataset constructor evaluates (bitwise — keep muladd /
+    # @fastmath out of BOTH sites, or relax both to isapprox together).
+    for r in eachindex(ds.y)
+        ds.defined[r] || continue
+        d = data[ds.row_config[r]]
+        (d.moments_bare === nothing || d.constraint_mode === nothing) &&
+            throw(ArgumentError("config $(ds.row_config[r]) lacks the moment " *
+                                "channel fields — not the dataset's data"))
+        a = ds.row_atom[r]
+        ax = _moment_axis_matrix(d)
+        M = d.moments_bare::Matrix{Float64}
+        yv = ax[1, a] * M[1, a] + ax[2, a] * M[2, a] + ax[3, a] * M[3, a]
+        yv == ds.y[r] || throw(ArgumentError(
+            "recomputed target of row $r ($(yv)) ≠ dataset target ($(ds.y[r])) — " *
+            "`data` does not pair with the fit's dataset"))
+    end
+    # (2) Environment: the target check reads only the marked columns, but the
+    # floor's features read the whole `directions` matrix — replay ONE
+    # configuration's design rows through the production build and compare
+    # exactly (same code path ⇒ ==). The first config whose marked axis
+    # columns are all nonzero replays verbatim; a dataset without one (every
+    # config carries a zero-axis marked atom) falls back to the target-only
+    # door, disclosed here rather than silently weakened.
+    ci_full = findfirst(ci -> all(!iszero, eachcol(
+                            _moment_axis_matrix(data[ci])[:, marked])),
+                        eachindex(data))
+    if ci_full !== nothing
+        d = data[ci_full]
+        Xrep = _design_moment(mb, [d.directions], [_moment_axis_matrix(d)])
+        rows = ((ci_full - 1) * nmark + 1):(ci_full * nmark)
+        Xrep == ds.X[rows, :] || throw(ArgumentError(
+            "config $ci_full's replayed design rows differ from the dataset's — " *
+            "`data` does not pair with the fit's dataset (environment columns " *
+            "moved)"))
+    end
+
+    nbrs = _pair_neighbors(mb)
+    kept = findall(ds.keep)
+    # orbits with at least one KEPT row only: an orbit surviving the coverage
+    # floor with zero kept rows (possible at a relaxed floor) would otherwise
+    # contribute identically-zero feature columns and a silent rank deficiency
+    orbits = sort(unique(ds.orbit_rep[kept]))
+    gidx = Dict(g => k for (k, g) in enumerate(orbits))
+    nfeat = length(orbits) * (1 + lmax)
+    col(g, l) = (gidx[g] - 1) * (1 + lmax) + 1 + l        # l = 0 is the intercept
+    F = zeros(length(kept), nfeat)
+    # the feature x = ê_i·ê_j is a cosine only on unit columns, and P₂/P₃ are
+    # nonlinear — validate every configuration once (a diagnostic entry point
+    # is a door, deliberately stricter than the dataset constructor)
+    for d in data
+        _validate_config(d.directions, n_atoms(mb.crystal))
+    end
+    for (kr, r) in enumerate(kept)
+        d = data[ds.row_config[r]]
+        e = d.directions
+        ax = _moment_axis_matrix(d)
+        a = ds.row_atom[r]
+        g = ds.orbit_rep[r]
+        F[kr, col(g, 0)] = 1.0
+        for j in nbrs[a]
+            x = ax[1, a] * e[1, j] + ax[2, a] * e[2, j] + ax[3, a] * e[3, j]
+            for l = 1:lmax
+                F[kr, col(g, l)] += _legendre(l, x)
+            end
+        end
+    end
+    yk = ds.y[kept]
+    c = F \ yk
+    sigma_floor = std(yk - F * c)
+    sigma_model = std(residuals(f))
+    # one-sided inclusion: is each feature representable in the SALC design's
+    # kept rows? (reported, never assumed — the nesting claim rides on it)
+    # Projection onto span(X_kept) through an explicit orthonormal range basis
+    # with a stated rank cut — never `Xk \ F`: the vanishing columns are
+    # identically zero BY CONSTRUCTION (the design is rank-deficient whenever
+    # the resolvability record is nonempty), and a square kept design would
+    # even dispatch `\` to LU (SingularException / garbage). The active-column
+    # reduction mirrors fit's.
+    act = setdiff(1:size(ds.X, 2), ds.vanishing)
+    Xk = ds.X[kept, act]
+    S = svd(Xk)
+    rank_cut = maximum(S.S; init = 0.0) * maximum(size(Xk)) * eps(Float64)
+    nrank = count(>(rank_cut), S.S)
+    U = @view S.U[:, 1:nrank]
+    proj = U * (U' * F)
+    inclusion = [begin
+                     nf = norm(@view F[:, k])
+                     nf == 0.0 ? 0.0 : norm(@view(F[:, k]) - @view(proj[:, k])) / nf
+                 end for k = 1:nfeat]
+    labels = [l == 0 ? "orbit $g: intercept" : "orbit $g: P$l shell sum"
+              for g in orbits for l = 0:lmax]
+    return (; sigma_floor, sigma_model, nested_bound = f.estimator isa OLS,
+            coef = c, inclusion, n_features = nfeat, feature_labels = labels,
+            n_rows = length(kept), design_rank = nrank)
 end

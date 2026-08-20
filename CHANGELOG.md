@@ -28,6 +28,37 @@ release, so everything lives under *Unreleased*.
 
 ### Added — moment-channel small backlog (2026-08-20)
 
+- **Local-field diagnostics + the simple-feature nested floor** (the last small
+  backlog item; script-level in step 2, now package API):
+  - `moment_local_field(mb, configs; axes = configs)` / `(mb, data)` — per-row
+    `|h₁| = |Σ ê_j|` and the collapse coordinate `ê·ĥ` over the pair-consistent
+    neighbor set (`cutoff_pair` MinimumImage, tied images counted, `lmax_env = 0`
+    species excluded). The `TrainingDatum` method resolves the row axis through
+    `_moment_axis_matrix` — the mode rule extracted from the dataset constructor
+    into ONE function so the two consumers cannot drift. A validating door
+    (configs unit everywhere; axes unit on marked columns, exact zero allowed —
+    the mode-1 undefined row, `edoth = NaN`).
+  - `moment_coverage(train, new; q = 0.99)` — the M2-8 applicability monitor:
+    fraction of new rows beyond the training `|h₁|` q-quantile + the
+    anti-alignment fraction (`ê·ĥ < 0`, the measured collapse band).
+  - `moment_simple_floor(f, data; lmax = 2)` — the M2-5 nested performance
+    floor: per-orbit intercept + Legendre shell-sum OLS on the SALC fit's own
+    kept rows. The nested bound `sigma_model ≤ sigma_floor` is CONDITIONAL and
+    both conditions are returned, never assumed (review): per-feature
+    `inclusion` (relative residual of an SVD range-basis projection onto the
+    active kept design — never `X \ F`, which is rank-deficient by
+    construction whenever columns vanish) and `nested_bound = f.estimator isa
+    OLS` (a shrinkage fit legitimately trades training residual — the bound
+    does not apply). An `lmax_env = 1` basis shows the P₂ feature at
+    inclusion ≈ 0.98 — the disclosure case. `data` is paired to the fit loudly
+    in two halves: bitwise target recomputation on every defined row AND a
+    design-row replay of one fully-defined configuration (the target check is
+    blind to a co-rotated environment — review-found). `n_rows`/`design_rank`
+    disclose the saturated-design vacuous case.
+  - `MomentBasis` now stores its build `tie_tol`; the diagnostics' neighbor
+    enumeration reads it back (a widened tie band changed the tied-image
+    multiplicity silently when it had to be re-passed by hand — review-found).
+
 - **`moment_resolvability` default-`rtol` cache on the basis** (`MomentBasis`
   gained a trailing `resolvability::RefValue` field): the answer is a pure
   function of the basis and `MomentDataset` runs the gate at every construction,

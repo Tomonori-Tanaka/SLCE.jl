@@ -224,6 +224,8 @@ with the mark-aware admission rules of the design record (see the file header).
 Fields: `crystal`, `spacegroup`, `spec`, `salc_basis` (keys sorted, addressable),
 `records` (one NamedTuple per SALC: representative geometry for reporting —
 `body`, `species`, `edges`, `nmem`), and `marked_atoms` (the design's row atoms).
+`tie_tol` records the boundary-tie band the basis was built with (the local-field
+diagnostics read it back so their neighbor enumeration matches the basis's).
 The trailing `resolvability` field is [`moment_resolvability`](@ref)'s default-`rtol`
 cache (a `Ref`, `nothing` until the first call) — derived data, never set by hand.
 """
@@ -234,6 +236,7 @@ struct MomentBasis
     salc_basis::SALCBasis
     records::Vector{NamedTuple}
     marked_atoms::Vector{Int}
+    tie_tol::Float64
     resolvability::Base.RefValue{Union{Nothing,NamedTuple}}
 end
 
@@ -344,7 +347,8 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
     keyvec = [out[j].key for j in perm]
     allunique(keyvec) || error("duplicate pointed SALC keys — enumeration bug")
     return MomentBasis(crystal, sg, spec, SALCBasis(out[perm], keyvec), recs[perm],
-                       marked_atoms, Ref{Union{Nothing,NamedTuple}}(nothing))
+                       marked_atoms, Float64(tie_tol),
+                       Ref{Union{Nothing,NamedTuple}}(nothing))
 end
 
 # ── evaluation (marked-column substitution) ────────────────────────────────────────

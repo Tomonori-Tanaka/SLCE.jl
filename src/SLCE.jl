@@ -20,7 +20,7 @@ module SLCE
 using LinearAlgebra: norm, det, I, eigen, eigvals, svd, svdvals, cholesky, Symmetric,
     Diagonal, dot, cross, qr, ColumnNorm
 using StaticArrays
-using Statistics: mean
+using Statistics: mean, quantile, std
 using Random: AbstractRNG, default_rng, MersenneTwister
 using Printf: @printf
 import TOML
@@ -208,7 +208,7 @@ export EmbsetFile, read_embset, read_embset_pair
 export ExtxyzFile, read_extxyz, write_extxyz
 export MomentSpec, MomentBasis, moment_resolvability
 export MomentDataset, MomentFit, MomentModel, predict_moment, rmse_moment,
-    moment_band_profile
+    moment_band_profile, moment_local_field, moment_coverage, moment_simple_floor
 
 # --- Public, unexported -----------------------------------------------------------
 # Reachable as `SLCE.<name>` (and documented), but kept out of the flat `using`

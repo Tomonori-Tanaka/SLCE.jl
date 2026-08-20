@@ -1116,8 +1116,13 @@ energy/torque/force pipeline is untouched (bit-identity gated).
   the vanishing-column freeze (`_reduce_to_active`; group norms exactly
   preserved, `p_g` — hence the ε floor — moves by the frozen count).
 
-Next slice: the simple-feature nested lower-bound gate + |h₁| feature coverage
-(script-level today).
+- **Local-field diagnostics + nested floor** (`fitting/momentfit.jl`):
+  `moment_local_field` (per-row `|h₁|` and `ê·ĥ` over the pair-consistent
+  neighbor set; row axis via `_moment_axis_matrix`, the mode rule stated once),
+  `moment_coverage` (M2-8: q-quantile exceedance + anti-alignment fraction),
+  `moment_simple_floor` (M2-5: per-orbit intercept + Legendre shell sums on the
+  fit's kept rows; per-feature span inclusion reported, never assumed; loud
+  data-pairing door).
 
 ## Not yet implemented (v0 follow-ups)
 - The v0 slice is feature-complete; no estimator/observable/IO follow-ups outstanding.
