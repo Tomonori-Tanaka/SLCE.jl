@@ -388,5 +388,31 @@ end
         delete!(t4, "slots")
         t4["ls"][1] += 1
         @test_throws ArgumentError MR._basis_from_doc(ls4)
+        # the OTHER direction of each bound: site 0 (`Slot` itself accepts it),
+        # and an axis LONGER than 2l + 1 — the silently-truncating case
+        site0 = MR._to_doc(basis)
+        term(site0)["slots"][1][1] = 0
+        @test_throws ArgumentError MR._basis_from_doc(site0)
+        long = MR._to_doc(basis)
+        i2 = findfirst(s -> s["members"][1]["terms"][1]["slots"][1][4] >= 2,
+                       long["salcs"])
+        @test i2 !== nothing
+        long["salcs"][i2]["members"][1]["terms"][1]["slots"][1][4] -= 1
+        @test_throws ArgumentError MR._basis_from_doc(long)
+        # members and terms must reconstruct the KEY: a DISP slot under a
+        # pure-spin key passes every per-term check (same extent, same site)
+        # and would then slip past the spin-only kernels' refusal, which reads
+        # the key's decors — the one silent failure of the family
+        chan = MR._to_doc(basis)
+        term(chan)["slots"][1][2] = Int(MR.DISP)
+        @test_throws ArgumentError MR._basis_from_doc(chan)
+        body = MR._to_doc(basis)
+        body["salcs"][1]["key"]["body"] += 1
+        @test_throws ArgumentError MR._basis_from_doc(body)
+        twice = MR._to_doc(basis)
+        push!(term(twice)["slots"], copy(term(twice)["slots"][1]))
+        push!(term(twice)["shape"], term(twice)["shape"][1])
+        term(twice)["folded"] = repeat(term(twice)["folded"], term(twice)["shape"][1])
+        @test_throws ArgumentError MR._basis_from_doc(twice)   # two SPIN on one site
     end
 end

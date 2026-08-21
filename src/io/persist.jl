@@ -231,8 +231,47 @@ end
 function _salc_from(d)::SALC
     key = _key_from(d["key"])
     members = SALCMember[_member_from(m) for m in d["members"]]
-    # body / decors / L_S / Lf are fully determined by the key.
+    # body / decors / L_S / Lf are fully determined by the key — so the members
+    # must agree with it. A term whose slots do not reconstruct the key's label
+    # (say a DISP slot under a pure-spin key) passes every per-term check and
+    # then defeats the spin-only kernels' refusal, which reads `decors`: the
+    # DISP axis would be evaluated as a spin harmonic under the wrong (4π)
+    # scale, silently. `SALCKey` and `SALC` have no inner constructors; the
+    # reader is the gate.
+    key.body == length(key.decors) || throw(ArgumentError(
+        "SALC key: body $(key.body) with $(length(key.decors)) decors"))
+    for m in members
+        length(m.atoms) == key.body || throw(ArgumentError(
+            "SALC member with $(length(m.atoms)) atoms under a $(key.body)-body key"))
+        for t in m.terms
+            _term_decors(t.slots, key.body) == key.decors || throw(ArgumentError(
+                "SALC term whose slots $(t.slots) do not reconstruct the key's " *
+                "decoration label $(key.decors)"))
+        end
+    end
     return SALC(key, key.body, copy(key.decors), key.L_S, key.Lf, members)
+end
+
+# The sorted decoration label a slot list implies: one SPIN and/or one DISP factor
+# per site. Two factors of one channel on one site, or a site with none, is not a
+# label at all and is refused (the latter by `SiteDecor` itself).
+function _term_decors(slots::Vector{Slot}, natoms::Int)::Vector{SiteDecor}
+    spin = zeros(Int, natoms)
+    disp = Vector{Union{Nothing,Tuple{Int,Int}}}(nothing, natoms)
+    for sl in slots
+        if sl.factor.channel == SPIN
+            spin[sl.site] == 0 ||
+                throw(ArgumentError("SALC term: two SPIN factors on site $(sl.site)"))
+            spin[sl.site] = sl.factor.l
+        elseif sl.factor.channel == DISP
+            disp[sl.site] === nothing ||
+                throw(ArgumentError("SALC term: two DISP factors on site $(sl.site)"))
+            disp[sl.site] = (sl.factor.k, sl.factor.l)
+        else
+            throw(ArgumentError("SALC term: unsupported channel $(sl.factor.channel)"))
+        end
+    end
+    return sort!(SiteDecor[SiteDecor(; spin = spin[s], disp = disp[s]) for s = 1:natoms])
 end
 
 function _crystal_from(d)::Crystal

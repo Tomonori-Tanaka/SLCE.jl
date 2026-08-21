@@ -19,7 +19,13 @@ code verbatim and come back here as the same patches.
   later, inside a kernel, as a `BoundsError` or a silently truncated
   contraction. All three are refused with a named `ArgumentError`, on both the
   v5 `slots` and the v2–v4 `ls` spellings; `_member_from` hands the reader the
-  member's site count. Four error-path tests.
+  member's site count. A second review then found the one **silent** member of
+  the family: nothing checked a term against its **key**, so a DISP slot under
+  a pure-spin key passed every per-term check and slipped past the spin-only
+  kernels' refusal (which reads the key's `decors`) — the DISP axis evaluated
+  as a spin harmonic under the wrong `(4π)` scale. `_salc_from` now requires
+  `body == length(decors)`, `body` atoms per member, and every term's slots to
+  reconstruct the key's label (`_term_decors`). Nine error-path tests.
 - **`coeftable`'s `decors` column is comma-splittable again.** A displacement
   factor rendered as `u(k,l)` — a comma inside a comma-joined column — so a
   mixed row such as `"2+u(0,1),u(1,0)"` read back from CSV / Arrow as four
