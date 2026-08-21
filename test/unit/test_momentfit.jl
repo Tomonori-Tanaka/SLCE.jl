@@ -23,9 +23,9 @@ using Random
 
 function _mf_datum(e::Matrix{Float64}; M::Matrix{Float64}, mode::Int,
                    axes::Union{Matrix{Float64},Nothing} = nothing,
-                   setup::String = "mfit")
+                   setup::String = "mfit", mag::Vector{Float64} = ones(size(e, 2)))
     return TrainingDatum(; energy = 0.0, directions = e,
-                         magmoms = ones(size(e, 2)), moments_bare = M,
+                         magmoms = mag, moments_bare = M,
                          constraint_mode = mode, constraint_axes = axes,
                          provenance = DatumProvenance(; setup_id = setup))
 end
@@ -242,6 +242,47 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         e4 = _mb_unit(rng, 4)
         small = _mf_datum(e4; M = randn(rng, 3, 4), mode = 4)
         @test_throws ArgumentError MomentDataset(mb, [small]; gate_eps = 1e-6)
+        # the zero-moment placeholder door reads ‖MW‖ (magmoms), never M_int: a
+        # referenced atom (marked Fe, or sampled-environment Ge) at ‖MW‖ ≤ atol
+        # is refused by name, an unreferenced atom is not, and the atol is the
+        # caller's [backported from SCEFitting.jl bb94992]
+        ge = first(setdiff(1:nat, marked))
+        for a in (marked[2], ge)
+            mag = ones(nat); mag[a] = 1e-11
+            err = try
+                MomentDataset(mb, [_mf_datum(e; M, mode = 4, mag)]; gate_eps = 1e6,
+                              coverage_floor = 0.0)
+                nothing
+            catch ex
+                ex
+            end
+            @test err isa ArgumentError && occursin("atom $a", err.msg) &&
+                  occursin("zero magnetic moment", err.msg)
+            dsz = _mf_ds(mb, [_mf_datum(e; M, mode = 4, mag)]; gate_eps = 1e6,
+                         coverage_floor = 0.0, zero_moment_atol = 0.0)
+            @test all(dsz.keep)
+        end
+        mag0 = ones(nat); mag0[ge] = 0.0          # an exact placeholder: ‖MW‖ > 0 fails
+        @test_throws ArgumentError MomentDataset(mb, [_mf_datum(e; M, mode = 4,
+                                                                mag = mag0)];
+                                                 gate_eps = 1e6, coverage_floor = 0.0,
+                                                 zero_moment_atol = 0.0)
+        spec_fe = MomentSpec(; lmax_env = [1, 0], sampled = [true, false],
+                             lmax_mark = 1, nbody = 2, cutoff_pair = 3.0,
+                             marked = [true, false])
+        mb_fe = MomentBasis(xt, spec_fe; backend = bk)
+        @test !SLCE._referenced_atoms(mb_fe)[ge]
+        @test all(SLCE._referenced_atoms(mb)[[marked; ge]])
+        dsu = _mf_ds(mb_fe, [_mf_datum(e; M, mode = 4, mag = mag0)]; gate_eps = 1e6,
+                     coverage_floor = 0.0)
+        @test all(dsu.keep)
+        @test_throws ArgumentError MomentDataset(mb, [_mf_datum(e; M, mode = 4)];
+                                                 gate_eps = 1e6, zero_moment_atol = -1.0)
+        # M_int = 0 on a marked atom is NOT the placeholder case (‖MW‖ = 1 here)
+        Mq = copy(M); Mq[:, marked[1]] .= 0.0
+        dq = _mf_ds(mb, [_mf_datum(e; M = Mq, mode = 4)]; gate_eps = 0.0,
+                    coverage_floor = 0.0)
+        @test dq.keep[1] && dq.y[1] == 0.0
         # gate_eps = 0 with a floor of 0 constructs an empty-keep dataset; the fit
         # door refuses it (the ctor's floor would otherwise have fired first)
         dirty = _mf_data(5; ndirty = 5)
@@ -790,6 +831,18 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         lfg = moment_local_field(mbg2, [ef])
         @test lfg.h1[1] == 0.0 && isnan(lfg.edoth[1])       # Fe: Ge env is off
         @test lfg.h1[2] ≈ 2.0 && lfg.edoth[2] ≈ cos(th)     # Ge: reads Fe
+        # a 1-body basis reads no environment: the field is empty by construction
+        # (cutoff_pair is a required spec field the model never uses there)
+        sp1 = MomentSpec(; lmax_env = [1], sampled = [true], lmax_mark = 1,
+                         nbody = 1, cutoff_pair = 1.6)
+        mb1 = MomentBasis(crf, sp1; backend = _MBFixedSG(sgf))
+        @test SLCE._pair_neighbors(mb1) == Dict(1 => Int[], 2 => Int[])
+        lf1b = moment_local_field(mb1, [ef])
+        @test lf1b.h1 == [0.0, 0.0] && all(isnan, lf1b.edoth)
+        # _design_moment's shape door is a plain ArgumentError (not a
+        # TaskFailedException from inside the threaded loop)
+        @test_throws ArgumentError _design_moment(mbf, [randn(3, 4)], [randn(3, 4)])
+        @test_throws ArgumentError _design_moment(mbf, [ef], [randn(3, 3)])
 
         # coverage: hand-checkable quantile + fractions
         tr = (; h1 = collect(0.1:0.1:10.0), edoth = fill(0.9, 100))

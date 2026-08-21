@@ -387,13 +387,19 @@ function _design_moment(mb::MomentBasis, configs::Vector{Matrix{Float64}},
     nrow = length(configs) * length(atoms)
     X = Matrix{Float64}(undef, nrow, length(sal))
     idx = member_index ? _mark_term_index(sal, atoms) : nothing
+    # Shape checks once, serially: a throw from inside the threaded loop surfaces
+    # as a TaskFailedException wrapping the ArgumentError.
+    for (ci, e) in enumerate(configs)
+        size(e) == (3, nat) ||
+            throw(ArgumentError("config $ci is $(size(e)), expected (3, $nat)"))
+        size(axes[ci]) == (3, nat) ||
+            throw(ArgumentError("axes $ci is $(size(axes[ci])), expected (3, $nat)"))
+    end
     Threads.@threads for j = 1:length(sal)
         scratch = SALCScratch()
         esub = Matrix{Float64}(undef, 3, nat)
         u = zeros(3, nat)
         for (ci, e) in enumerate(configs)
-            size(e) == (3, nat) ||
-                throw(ArgumentError("config $ci is $(size(e)), expected (3, $nat)"))
             for (ai, a) in enumerate(atoms)
                 copyto!(esub, e)
                 esub[1, a] = axes[ci][1, a]

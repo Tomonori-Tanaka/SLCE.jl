@@ -6,6 +6,32 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — moment-channel backports from SCEFitting.jl's M4/M5 review panels (2026-08-22)
+
+- **Zero-moment placeholder door at `MomentDataset`** (`zero_moment_atol =
+  1e-10`): a referenced atom (marked, or an environment site of any pointed
+  member — `_referenced_atoms(::MomentBasis)`) with `‖MW‖ ≤ atol` is refused by
+  name. Its `directions` column is the ẑ placeholder the moments constructor
+  fabricates, which entered the design as a fake environment coordinate (and, in
+  mode 4, the row's own axis) while the `|M| = 0 → g = 0` convention waved the
+  row through. The docstring states the alignment obligation: the placeholder
+  was fabricated by the reader at ITS `zero_moment_atol`, so pass the same value.
+  `M_int = 0` on a marked atom is not this case and still passes.
+- `_pair_neighbors` returns empty neighbour sets on a 1-body basis (the shell
+  `cutoff_pair` names is one the model never reads), so `moment_local_field` /
+  `moment_coverage` no longer report a coordinate with no bearing on the fit.
+- `salc_groups(::MomentBasis)` asserts exactly one DISP slot per term — the same
+  one-mark invariant `_mark_term_index` pins.
+- `_design_moment`'s shape checks run once before the threaded loop (a throw
+  inside it surfaced as a `TaskFailedException`), and the `axes` shape is
+  checked too.
+- Docstrings: band `[lo, hi]` ranges can overlap on tied `|⟨e⟩|` values;
+  `moment_simple_floor`'s sigmas are Bessel `std`, not `rmse_moment`; its
+  design-row replay covers one configuration only.
+
+[SCEFitting.jl `9b95523` / `bb94992`; the `directions` door SCEFitting added is
+not needed here — `TrainingDatum` validates `directions` at construction.]
+
 ### Fixed — backports from SCEFitting.jl's review panel (2026-08-21)
 
 The pure-spin carve-out ported this package's decor engine, persistence and

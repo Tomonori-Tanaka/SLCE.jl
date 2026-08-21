@@ -454,7 +454,12 @@ Easy to break silently — confirm before touching the algorithm.
   set alone is NOT injective: a canonical member carrying two periodic images
   of one atom projects two distinct mark placements onto one atom set
   (review-reproduced on a 2-atom P1 cell at `nbody = 3`; regression-pinned).
-  The MODE RULE has exactly one code statement, `_moment_axis_matrix`
+  `MomentDataset` refuses a referenced atom (marked or environment,
+  `_referenced_atoms(::MomentBasis)`) with `‖MW‖ ≤ zero_moment_atol` — its
+  direction is the ẑ placeholder the reader fabricated at ITS atol, so a dataset
+  built from `read_extxyz(...; zero_moment_atol = x)` must pass the same `x`
+  (the same obligation `SLCEDataset` states). The MODE RULE has exactly one code
+  statement, `_moment_axis_matrix`
   (`fitting/momentfit.jl`) — the dataset constructor AND the local-field
   diagnostics (`moment_local_field` / `moment_simple_floor`) resolve row axes
   through it; a second inline `mode == 4 ? directions : constraint_axes` is the

@@ -11,7 +11,8 @@
 
 """
     MomentDataset(basis::MomentBasis, data::AbstractVector{TrainingDatum};
-                  gate_eps, coverage_floor = 0.5) -> MomentDataset
+                  gate_eps, coverage_floor = 0.5, zero_moment_atol = 1e-10)
+        -> MomentDataset
 
 Assemble the moment channel's regression problem. Rows are (configuration-major,
 marked-atom-minor) pairs over `basis`'s marked atoms; the target of row `(c, a)` is
@@ -43,9 +44,20 @@ an applicability limit, not enforced). `gate_eps` has no default: the tolerance 
 a physical statement about the source calculation's constraint quality, so the
 caller must state it. `gate_eps = 0` keeps only rows with `g` exactly zero — in
 practice the `|M| = 0` rows, since a decomposable row's `g` is roundoff-scale but
-rarely exact. Two recorded applicability limits: the gate reads the MARKED atom
-only, so a collapsed/quenched ENVIRONMENT atom enters every neighbouring row
-through its `directions` column with no gate of its own; and the gate is even in
+rarely exact. Every atom the pointed basis references (marked atoms and their
+environment sites) must carry a nonzero magnetic moment `‖MW‖ > zero_moment_atol`
+in every configuration: a quenched moment's `directions` column is the ẑ
+placeholder the moments constructor fabricates, which would enter every
+neighbouring row as a fake environment coordinate (and, in mode 4, become that
+row's own axis while the `|M| = 0 → g = 0` convention waves the row through). The
+constructor refuses such a datum by name — the same door as `SLCEDataset`'s
+`zero_moment_atol`, with the same obligation: the placeholder was fabricated by
+the READER at ITS `zero_moment_atol` (`read_extxyz`, `read_embset_pair`, the
+moments constructor), so if the data were built with a custom value, **pass the
+same value here**. Two recorded applicability limits: the gate reads the MARKED
+atom only, so a SOFT (small but above `zero_moment_atol`) environment moment
+enters every neighbouring row through its `directions` column with no gate of
+its own — only the hard placeholder case is refused; and the gate is even in
 `y`, so a mode-1 row whose converged moment is antiparallel to the recorded axis
 passes like a parallel one — exactly covariant for odd mark ranks, but the
 even-mark-rank columns (μ₀, `l_mark = 2`) assume the recorded axis is oriented on
@@ -103,11 +115,16 @@ _moment_axis_matrix(d::TrainingDatum)::Matrix{Float64} =
     (d.constraint_mode::Int) == 4 ? d.directions : (d.constraint_axes::Matrix{Float64})
 
 function MomentDataset(basis::MomentBasis, data::AbstractVector{TrainingDatum};
-                       gate_eps::Real, coverage_floor::Real = 0.5)::MomentDataset
+                       gate_eps::Real, coverage_floor::Real = 0.5,
+                       zero_moment_atol::Real = 1e-10)::MomentDataset
     isempty(data) && throw(ArgumentError("no training data"))
     gate_eps >= 0 || throw(ArgumentError("gate_eps = $gate_eps must be ≥ 0"))
     0 <= coverage_floor <= 1 ||
         throw(ArgumentError("coverage_floor = $coverage_floor must be in [0, 1]"))
+    zero_moment_atol >= 0 ||
+        throw(ArgumentError("zero_moment_atol = $zero_moment_atol must be ≥ 0"))
+    referenced = _referenced_atoms(basis)
+    labels = basis.crystal.species_labels
     _check_setup_uniformity(data)
     # One reference identity per dataset (the provenance summary below claims datum
     # 1's reference for the whole batch, so the batch must actually share it).
@@ -142,6 +159,22 @@ function MomentDataset(basis::MomentBasis, data::AbstractVector{TrainingDatum};
         size(d.directions, 2) == nat || throw(ArgumentError(
             "config $ci has $(size(d.directions, 2)) atoms but the basis crystal " *
             "has $nat"))
+        length(d.magmoms) == nat || throw(ArgumentError(
+            "config $ci has $(length(d.magmoms)) magmoms but the basis crystal " *
+            "has $nat"))
+        # The zero-moment placeholder door (the moment channel's analogue of
+        # `_check_referenced_moments`): a referenced atom with ‖MW‖ ≤ atol carries
+        # the fabricated ẑ direction. [Backported from SCEFitting.jl bb94992.]
+        for a = 1:nat
+            (referenced[a] && d.magmoms[a] <= zero_moment_atol) || continue
+            throw(ArgumentError(
+                "config $ci: atom $a ($(labels[basis.crystal.species[a]])) has a " *
+                "zero magnetic moment (‖MW‖ = $(d.magmoms[a]) ≤ $zero_moment_atol) " *
+                "but is referenced by the pointed basis (a marked atom or an " *
+                "environment site) — its placeholder ẑ direction would enter the " *
+                "design as a fabricated coordinate. Drop the configuration, or " *
+                "unsample the species if it is non-magnetic"))
+        end
         d.moments_bare === nothing && throw(ArgumentError(
             "config $ci carries no `moments_bare` — the moment channel fits the " *
             "bare internal moments; rebuild the datum from a source that provides " *
@@ -298,6 +331,16 @@ function MomentDataset(basis::MomentBasis, data::AbstractVector{TrainingDatum};
                          # across the cache and every dataset built from it
                          [copy(c) for c in mr.null_combinations], Float64(gate_eps),
                          Float64(coverage_floor), ident)
+end
+
+# Every atom a pointed SALC member touches — marked atoms and their environment
+# sites; the zero-moment door reads it (mirror of `_referenced_atoms(::SLCEBasis)`).
+function _referenced_atoms(mb::MomentBasis)::BitVector
+    ref = falses(n_atoms(mb.crystal))
+    for s in salcs(mb), mem in s.members, a in mem.atoms
+        ref[a] = true
+    end
+    return ref
 end
 
 function Base.show(io::IO, ds::MomentDataset)
@@ -476,7 +519,9 @@ mean residuals of the moment channel, organized along the marked-sublattice orde
 parameter `|⟨e⟩|` (`ds.order`). Returns
 
 - `bands` — `nbins` equal-count bins in order of increasing `|⟨e⟩|`, each
-  `(; lo, hi, mean_residual, n)`;
+  `(; lo, hi, mean_residual, n)` (equal COUNT, not equal width: with tied
+  `|⟨e⟩|` values adjacent bins can share an edge value, so `[lo, hi]` ranges
+  need not partition the axis);
 - `slope`, `intercept` — the least-squares line of per-config mean residual vs
   `|⟨e⟩|` (the bin-free statement of the same trend);
 - `r` — the Pearson correlation of the two;
@@ -581,8 +626,12 @@ function salc_groups(mb::MomentBasis)::Vector{Int}
         marks = Int[]
         sites = Int[]
         for t in mem.terms
+            # the one-mark invariant (the same one `_mark_term_index` asserts):
+            # a second DISP slot would make "the mark class" ill-defined
+            nmk = count(sl -> sl.factor.channel == DISP, t.slots)
+            nmk == 1 || error("pointed SALC $j carries $nmk mark slots in one " *
+                              "term; the mark-class key assumes exactly one")
             ms = findfirst(sl -> sl.factor.channel == DISP, t.slots)
-            ms === nothing && error("pointed SALC without a mark slot")
             push!(sites, t.slots[ms].site)
             push!(marks, mem.atoms[t.slots[ms].site])
         end
@@ -653,9 +702,14 @@ end
 function _pair_neighbors(mb::MomentBasis)
     spec = mb.spec
     sp = mb.crystal.species
+    nbrs = Dict(a => Int[] for a in mb.marked_atoms)
+    # a 1-body basis reads no environment at all: `cutoff_pair` is a required
+    # spec field regardless of `nbody`, so the shell it names is not one the
+    # model ever sees — report an empty field (h₁ = 0, alignment undefined)
+    # rather than a coordinate with no bearing on the fit
+    spec.nbody >= 2 || return nbrs
     nl = build_neighbor_list(mb.crystal, spec.cutoff_pair, MinimumImage();
                              tol = mb.tie_tol)
-    nbrs = Dict(a => Int[] for a in mb.marked_atoms)
     for p in nl.pairs
         haskey(nbrs, p.i) || continue
         spec.lmax_env[sp[p.j]] > 0 || continue
@@ -820,9 +874,17 @@ sum over the same `cutoff_pair` neighbors as [`moment_local_field`](@ref). Retur
   never assumed);
 - `coef`, `n_features`, `feature_labels` — the simple model itself.
 
-`data` must be the very vector the fit's dataset was built from — checked loudly
-(row count and a bitwise target recomputation on the defined rows), because a
-silently re-paired `data` would fit the floor to the wrong targets.
+Both sigmas are Bessel-corrected `std` (`n − 1`), NOT [`rmse_moment`](@ref)'s
+`√(Σr²/n)` — compare like with like; with a single kept row both are `NaN`.
+
+`data` must be the very vector the fit's dataset was built from — checked loudly:
+the row count, a bitwise target recomputation on every defined row, and a
+replay of ONE configuration's design rows (the first whose marked axes are all
+nonzero) through the production build. The replay covers the environment
+columns the target check cannot see, but for that one configuration only — a
+co-rotated `(e, M)` substitution confined to another configuration passes the
+door. A dataset in which every configuration carries a zero-axis marked atom
+falls back to the target-only door.
 """
 function moment_simple_floor(f::MomentFit, data::AbstractVector{TrainingDatum};
                              lmax::Integer = 2)
