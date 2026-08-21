@@ -49,7 +49,10 @@ using Random
         @test "1,1" in ls_vals        # a 2-body (1,1) term, comma-joined
         # mixed decors render the displacement factor explicitly
         mixed = [SLCE.SiteDecor(; spin = 2, disp = (0, 1)), SLCE.SiteDecor(; disp = (1, 0))]
-        @test SLCE._decor_string(mixed) == "2+u(0,1),u(1,0)"
+        @test SLCE._decor_string(mixed) == "2+u(0:1),u(1:0)"
+        # the column must split on commas back into its sites (a consumer reads
+        # this from CSV / Arrow), so no token may contain a comma
+        @test length(split(SLCE._decor_string(mixed), ",")) == length(mixed)
     end
 
     @testset "rows, indexing, iteration, accessors" begin

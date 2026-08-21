@@ -114,7 +114,7 @@ design-matrix-column identity), plus the fitted coefficient:
 |---|---|
 | `body` | body order ``N`` of the cluster (2 = pair, 3 = triplet, …) |
 | `orbit_id` | index of the cluster symmetry orbit at that body order |
-| `decors` | the per-site decoration multiset, as a comma-joined string. A pure-spin site renders as its bare ``l``, a displacement factor as `u(k,l)`, a site carrying both as `l+u(k,l)` — so a pure-spin key still reads `"1,1,2"` exactly as it did before the joint channel existed |
+| `decors` | the per-site decoration multiset, as a comma-joined string. A pure-spin site renders as its bare ``l``, a displacement factor as `u(k:l)`, a site carrying both as `l+u(k:l)` — so a pure-spin key still reads `"1,1,2"` exactly as it did before the joint channel existed, and the column always splits on commas back into its sites (the colon inside a token is what keeps that true) |
 | `L_S` | total coupled **spin** rank of the label; `0` marks a SOC-free invariant |
 | `Lf` | final coupled angular momentum ``L_f`` of the invariant |
 | `block` | disambiguates independent ``l``-orderings / coupling paths sharing the same `(body, orbit_id, decors, L_S, Lf)` |

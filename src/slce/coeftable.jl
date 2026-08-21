@@ -16,11 +16,14 @@ const _CoefRow = NamedTuple{_COEF_NAMES,Tuple{Int,Int,String,Int,Int,Int,Float64
 
 # The sorted decoration label as a flat string. A pure-spin decor renders as its
 # bare `l` (so a v4-shaped key reads "1,1,2" exactly as before); a displacement
-# factor renders as `u(k,l)`, a combined decor as `l+u(k,l)`.
+# factor renders as `u(k:l)`, a combined decor as `l+u(k:l)`. The colon inside
+# the token is deliberate: the sites are comma-joined, so a token may not
+# contain a comma or the column stops being splittable (`"2+u(0,1),u(1,0)"`
+# would read as four sites).
 function _decor_string(decors::AbstractVector{SiteDecor})::String
     token(d) = is_pure_spin(d) ? string(d.spin_l) :
-               has_spin(d) ? "$(d.spin_l)+u($(d.disp_k),$(d.disp_l))" :
-               "u($(d.disp_k),$(d.disp_l))"
+               has_spin(d) ? "$(d.spin_l)+u($(d.disp_k):$(d.disp_l))" :
+               "u($(d.disp_k):$(d.disp_l))"
     return join((token(d) for d in decors), ",")
 end
 
@@ -54,7 +57,7 @@ end
 
 A Tables.jl-compatible table of the fitted coefficients — one row per SALC with
 columns `body`, `orbit_id`, `decors` (the sorted decoration label as a string:
-a pure-spin key reads like `"1,1,2"`, displacement factors as `u(k,l)`), `L_S`,
+a pure-spin key reads like `"1,1,2"`, displacement factors as `u(k:l)`), `L_S`,
 `Lf`, `block`, and `J` (the coefficient `Jϕ`). The intercept `j0` is available
 via [`intercept`](@ref). Example: `using DataFrames; DataFrame(coeftable(f))`.
 """

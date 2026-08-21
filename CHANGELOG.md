@@ -20,6 +20,10 @@ code verbatim and come back here as the same patches.
   contraction. All three are refused with a named `ArgumentError`, on both the
   v5 `slots` and the v2–v4 `ls` spellings; `_member_from` hands the reader the
   member's site count. Four error-path tests.
+- **`coeftable`'s `decors` column is comma-splittable again.** A displacement
+  factor rendered as `u(k,l)` — a comma inside a comma-joined column — so a
+  mixed row such as `"2+u(0,1),u(1,0)"` read back from CSV / Arrow as four
+  sites. The token is now `u(k:l)`; pure-spin rows still read `"1,1,2"`.
 
 ### Added — the pin tier: change detectors over the SALC chain (2026-08-21)
 
