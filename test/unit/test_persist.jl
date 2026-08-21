@@ -369,5 +369,24 @@ end
         dup = MR._to_doc(basis)
         push!(dup["salcs"], deepcopy(dup["salcs"][1]))
         @test_throws ArgumentError MR._basis_from_doc(dup)
+        # a term whose slot list and tensor disagree is refused at read time
+        # (`SALCTerm` has no inner constructor; the reader is the gate)
+        term(doc) = doc["salcs"][1]["members"][1]["terms"][1]
+        extra = MR._to_doc(basis)                      # one slot too many
+        push!(term(extra)["slots"], copy(term(extra)["slots"][1]))
+        @test_throws ArgumentError MR._basis_from_doc(extra)
+        site = MR._to_doc(basis)                       # slot addresses no site
+        term(site)["slots"][1][1] = 99
+        @test_throws ArgumentError MR._basis_from_doc(site)
+        rank = MR._to_doc(basis)                       # axis extent ≠ 2l + 1
+        term(rank)["slots"][1][4] += 1
+        @test_throws ArgumentError MR._basis_from_doc(rank)
+        # the same through the v4 "ls" spelling
+        ls4 = MR._to_doc(basis)
+        t4 = term(ls4)
+        t4["ls"] = [s[4] for s in t4["slots"]]
+        delete!(t4, "slots")
+        t4["ls"][1] += 1
+        @test_throws ArgumentError MR._basis_from_doc(ls4)
     end
 end

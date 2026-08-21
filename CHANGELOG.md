@@ -6,6 +6,21 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — backports from SCEFitting.jl's review panel (2026-08-21)
+
+The pure-spin carve-out ported this package's decor engine, persistence and
+coefficient table and had them reviewed; four findings apply to the shared
+code verbatim and come back here as the same patches.
+
+- **The persist reader validates a term against its slots.** `_term_from`
+  accepted any slot list alongside any tensor: more slots than tensor axes, a
+  slot addressing a site the member does not have, or an axis whose extent is
+  not `2l + 1` was built as is (`SALCTerm` has no inner constructor) and failed
+  later, inside a kernel, as a `BoundsError` or a silently truncated
+  contraction. All three are refused with a named `ArgumentError`, on both the
+  v5 `slots` and the v2–v4 `ls` spellings; `_member_from` hands the reader the
+  member's site count. Four error-path tests.
+
 ### Added — the pin tier: change detectors over the SALC chain (2026-08-21)
 
 - **`test/pin/`** — a byte-level pin over five real crystals (bcc Fe, B2 FeRh,

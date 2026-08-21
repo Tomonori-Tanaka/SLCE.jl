@@ -189,7 +189,7 @@ function _key_from(d)::SALCKey
                    Lf, Lf, Int(d["block"]))
 end
 
-function _term_from(d)::SALCTerm
+function _term_from(d, natoms::Int)::SALCTerm
     # v5 terms carry explicit slots; v2-v4 terms carry the per-site "ls", which
     # maps to the identity pure-spin slot list.
     slots = haskey(d, "slots") ?
@@ -198,6 +198,22 @@ function _term_from(d)::SALCTerm
         spin_slots(_intvec(d["ls"]))
     shape = _intvec(d["shape"])
     flat = _floatvec(d["folded"])
+    # The slot list and the tensor must describe the same object: one slot per
+    # axis, every slot addressing a site of the member, every axis of extent
+    # 2l + 1. `SALCTerm` has no inner constructor, so a term that violates any
+    # of these would otherwise be built here and fail later, inside a kernel,
+    # as a BoundsError or a silently truncated contraction.
+    length(slots) == length(shape) ||
+        throw(ArgumentError("SALC term: $(length(slots)) slots for a rank-" *
+                            "$(length(shape)) tensor"))
+    for (i, sl) in enumerate(slots)
+        1 <= sl.site <= natoms ||
+            throw(ArgumentError("SALC term: slot $i addresses site $(sl.site) of a " *
+                                "$natoms-site member"))
+        shape[i] == 2 * sl.factor.l + 1 ||
+            throw(ArgumentError("SALC term: axis $i has extent $(shape[i]) for " *
+                                "l = $(sl.factor.l) (expected $(2 * sl.factor.l + 1))"))
+    end
     n = prod(shape; init = 1)
     length(flat) == n ||
         throw(ArgumentError("SALC term: $(length(flat)) coefficients for shape $shape (expected $n)"))
@@ -208,7 +224,7 @@ end
 function _member_from(d)::SALCMember
     atoms = _intvec(d["atoms"])
     shifts = [SVector{3,Int}(Int(s[1]), Int(s[2]), Int(s[3])) for s in d["shifts"]]
-    terms = SALCTerm[_term_from(t) for t in d["terms"]]
+    terms = SALCTerm[_term_from(t, length(atoms)) for t in d["terms"]]
     return SALCMember(atoms, shifts, terms)
 end
 
