@@ -547,7 +547,12 @@ Easy to break silently — confirm before touching the algorithm.
   through `coupled_bases` and `AngularMomentum.build_real_bases` — the polarity is
   in the name on purpose, because the retired `isotropy` spelling was the same
   filter under the opposite-sounding word and a blind sed across the bridge would
-  invert the channel set silently. `isotropy` now survives ONLY as (a) the
+  invert the channel set silently. That chain is the PURE-SPIN builder, where
+  `L_S ≡ Lf`. The decor engine (`_orbit_salcs_decors`) takes `soc` itself and
+  screens on `L_S` (`is_soc_free`), handed to `build_real_bases(; keep)` as a path
+  predicate before any tensor is built; on a mixed label the `Lf` and `L_S` screens
+  accept DISJOINT path sets (`ls = (1,1,1)`, two spin slots: `L_S = 0 ⇒ Lf = 1`,
+  `Lf = 0 ⇒ L_S = 1`), so never spell the decor engine's rule as `scalar_only`. `isotropy` now survives ONLY as (a) the
   `BasisSpec` / `[interaction]` deprecation errors and (b) the persist legacy
   back-read (`soc = !isotropy`); it is not a live keyword anywhere.
 - **Example/tutorial hand-built ground truths ↔ canonical member semantics**

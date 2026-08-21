@@ -6,6 +6,27 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — `build_real_bases(; keep)` path screen; `scalar_only ≡ !soc` docstrings corrected (2026-08-22)
+
+Backported from SCEFitting.jl `9478687` (its decor engine took the keyword as
+`isotropy`; the SLCE spelling stays `scalar_only` / `soc`).
+
+- `AngularMomentum.build_real_bases(ls; keep = (Lseq, Lf) -> true)`: an arbitrary
+  screen on the coupling path evaluated BEFORE the chained-CG tensor is built.
+  `_decor_coupled_bases(slots, soc)` now hands the decor engine's `soc = false`
+  rule (`is_soc_free(_path_LS(…))`) down through it, so a rejected `L_S` block
+  never builds its tensors; the post-hoc `soc || is_soc_free(L_S) || continue`
+  in `_orbit_salcs_decors` is gone. Output is unchanged — the existing gates
+  "`soc = false` is BITWISE the `L_S = 0` subset of the `soc = true` build"
+  (`test_mixedsalc.jl`, two sites) are the oracle.
+- Three docstrings (`build_real_bases`, `coupled_bases`, `build_salc_basis`)
+  claimed `scalar_only ≡ !soc`. That holds only on a pure-spin label, where
+  `L_S ≡ Lf`; `scalar_only` is an `Lf` screen and the decor engine's `soc` is an
+  `L_S` screen, and on a mixed label the two accept disjoint path sets
+  (`ls = (1,1,1)` with two spin slots: `L_S = 0 ⇒ Lf = 1`, `Lf = 0 ⇒ L_S = 1`).
+  Docstrings and `CLAUDE.md` now say so; `test_angmom.jl` pins the
+  hand-derived 7-path table and the disjointness.
+
 ### Fixed — extxyz / EMBSET-pair hardening backported from SCEFitting.jl (2026-08-22)
 
 Each of these let a file that says two things be silently arbitrated

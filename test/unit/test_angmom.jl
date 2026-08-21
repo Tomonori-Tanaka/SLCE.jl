@@ -105,4 +105,40 @@ const Dreal = AngularMomentum.wignerD_real
             @test isapprox(U' * U, Matrix(I, 2l + 1, 2l + 1); atol = 1e-12)  # unitary
         end
     end
+
+    @testset "build_real_bases: `keep` path screen; Lf- and L_S-screens are disjoint" begin
+        # Hand derivation for ls = (1,1,1). Paths are (L12, Lf) with
+        # Lf ∈ |L12 − 1| .. L12 + 1:  L12 = 0 → Lf = 1 only;  L12 = 1 → Lf ∈ {0,1,2};
+        # L12 = 2 → Lf ∈ {1,2,3}  — 7 paths. Hence `Lf == 0` ⇔ (L12, Lf) = (1, 0),
+        # while an `L_S == 0` screen on a label whose first two slots are the spin
+        # slots (L_S = L12) ⇔ (0, 1). The two accepted sets are DISJOINT, which is
+        # why `scalar_only` (an Lf screen) cannot stand in for the decor engine's
+        # `soc = false` (an L_S screen) on a mixed label.
+        AM = SLCE.AngularMomentum
+        ls = [1, 1, 1]
+        allp = AM.build_real_bases(ls)
+        @test [(p[1], p[2]) for p in allp] ==
+              [([0], 1), ([1], 0), ([1], 1), ([1], 2), ([2], 1), ([2], 2), ([2], 3)]
+        lf0 = AM.build_real_bases(ls; scalar_only = true)
+        @test [(p[1], p[2]) for p in lf0] == [([1], 0)]
+        ls0 = AM.build_real_bases(ls; keep = (Lseq, Lf) -> Lseq[1] == 0)
+        @test [(p[1], p[2]) for p in ls0] == [([0], 1)]
+        # `keep` is a pure pre-filter: the surviving tensors are BITWISE those of
+        # the unscreened build (same order), never a re-coupled variant.
+        sub = [p for p in allp if p[1][1] == 0]
+        @test length(sub) == 1 && sub[1][3] == ls0[1][3]
+        sub1 = [p for p in allp if p[2] == 0]
+        @test length(sub1) == 1 && sub1[1][3] == lf0[1][3]
+        # both screens apply (AND): disjoint sets ⇒ nothing survives
+        @test isempty(AM.build_real_bases(ls; scalar_only = true,
+                                          keep = (Lseq, Lf) -> Lseq[1] == 0))
+        # the predicate is consulted once per path, and a rejected path builds nothing
+        calls = Ref(0)
+        count_reject = (Lseq, Lf) -> (calls[] += 1; false)
+        @test isempty(AM.build_real_bases(ls; keep = count_reject))
+        @test calls[] == 7
+        # N = 2 (`Lseq` empty) and N = 1 still route through `keep`
+        @test isempty(AM.build_real_bases([1, 1]; keep = (Lseq, Lf) -> false))
+        @test length(AM.build_real_bases([2]; keep = (Lseq, Lf) -> isempty(Lseq))) == 1
+    end
 end

@@ -28,8 +28,11 @@ body_order(cb::CoupledBasis{R}) where {R} = R - 1
     coupled_bases(ls; scalar_only = false) -> Vector{CoupledBasis{length(ls)+1}}
 
 All coupled bases for the per-site angular momenta `ls`, one per `(Lseq, Lf)`
-coupling path. With `scalar_only = true` only the scalar `Lf == 0` sector is kept —
-the spec-level `soc = false` restriction, so `scalar_only ≡ !soc`.
+coupling path. With `scalar_only = true` only the scalar `Lf == 0` sector is kept.
+On a pure-spin label (every slot a spin slot) `L_S ≡ Lf`, so this is the spec's
+`soc = false` restriction for the pure-spin builder; the decor engine screens on
+`L_S` instead and on a mixed label the two screens differ — see
+[`AngularMomentum.build_real_bases`](@ref).
 """
 function coupled_bases(ls::AbstractVector{<:Integer}; scalar_only::Bool = false)
     lsv = collect(Int, ls)

@@ -391,11 +391,19 @@ end
 
 # Coupled bases of one assignment, tagged with L_S: (L_S, Lf, tensor) triples
 # over the slot-order `l`s (spin first ⇒ L_S well-defined per path).
-function _decor_coupled_bases(slots::Vector{Slot})
+#
+# `soc = false` is the decor engine's `L_S == 0` screen (`is_soc_free`, shared
+# with the fit-side :soc_free mask). It is handed down as a path predicate so a
+# rejected path never builds its tensor. It is NOT `build_real_bases`'
+# `scalar_only` (an `Lf` screen): on a pure-spin label the two agree because
+# `_path_LS` returns `Lf` there, on a mixed label they accept disjoint path
+# sets (see `build_real_bases`' docstring).
+function _decor_coupled_bases(slots::Vector{Slot}, soc::Bool)
     ls = _slot_ls(slots)
     n_spin = _n_spin_slots(slots)
     out = Tuple{Int,Int,Array{Float64}}[]
-    for (Lseq, Lf, tensor) in AngularMomentum.build_real_bases(ls)
+    keep = (Lseq, Lf) -> soc || is_soc_free(_path_LS(ls, Lseq, Lf, n_spin))
+    for (Lseq, Lf, tensor) in AngularMomentum.build_real_bases(ls; keep = keep)
         push!(out, (_path_LS(ls, Lseq, Lf, n_spin), Lf, tensor))
     end
     return out
@@ -580,10 +588,11 @@ function _orbit_salcs_decors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
             admit === nothing || admit(t)::Bool || continue
             assignments = unique([t[p] for p in perms])
             slotlists = [_assignment_slots(a) for a in assignments]
-            cbs = [_decor_coupled_bases(sl) for sl in slotlists]
+            cbs = [_decor_coupled_bases(sl, soc) for sl in slotlists]
+            # `soc` already screened the paths inside `_decor_coupled_bases`,
+            # before any tensor was built, so `blockset` carries only live blocks.
             blockset = sort(unique((ls, lf) for cbo in cbs for (ls, lf, _) in cbo))
             for (L_S, Lf) in blockset
-                soc || is_soc_free(L_S) || continue   # shared with the :soc_free mask
                 blocks = _project_and_fold_decors(stab, assignments, slotlists,
                                                   cbs, L_S, Lf, wcache)
                 for terms_rep in blocks
@@ -838,8 +847,12 @@ transported to all orbit members.
   body order (`nothing` = no cap; entries of `LSUM_UNCAPPED` mean no cap for
   that order).
 - `scalar_only::Bool = false`: keep only the scalar `Lf == 0` channel if `true`.
-  This is the builder-level spelling of the spec's SOC selection rule, with the
-  polarity written into the name: `scalar_only ≡ !`[`BasisSpec`](@ref)`.soc`. The
+  This is the pure-spin builder's spelling of the spec's SOC selection rule, with
+  the polarity written into the name: `model.jl` calls
+  `scalar_only = !`[`BasisSpec`](@ref)`.soc`, and on a pure-spin label `L_S ≡ Lf`
+  makes the two the same screen. (The decor engine behind `_orbit_salcs_decors`
+  takes `soc` itself and screens on `L_S`; on a mixed label that is a different
+  set of coupling paths — see [`AngularMomentum.build_real_bases`](@ref).) The
   retired `isotropy` keyword meant the same thing under the opposite-sounding name,
   which is why it is gone rather than aliased — see the `BasisSpec` deprecation.
 

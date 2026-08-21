@@ -294,17 +294,32 @@ function complex_to_real_tensor(Ccx::AbstractArray, ls::AbstractVector{<:Integer
 end
 
 """
-    build_real_bases(ls; scalar_only = false) -> Vector{Tuple{Vector{Int},Int,Array{Float64}}}
+    build_real_bases(ls; scalar_only = false, keep = (Lseq, Lf) -> true)
+        -> Vector{Tuple{Vector{Int},Int,Array{Float64}}}
 
 All real coupled tensors for `ls`, as `(Lseq, Lf, tensor)`. With
-`scalar_only = true` only the scalar `Lf == 0` sector is kept — the spec-level
-`soc = false` restriction, so `scalar_only ≡ !soc`.
+`scalar_only = true` only the scalar `Lf == 0` sector is kept.
+
+`scalar_only` is an `Lf` screen. It is the spec's `soc = false` restriction only
+on a PURE-SPIN label, where every slot is a spin slot and the total spin rank
+`L_S` is `Lf` itself — the pure-spin builder path (`coupled_bases` → here). The
+decor engine spells `soc = false` as an `L_S` screen instead (`is_soc_free`), and
+on a mixed label the two are different screens, neither implying the other: for
+`ls = (1, 1, 1)` with two spin slots, `L_S = 0` forces `Lf = 1` while `Lf = 0`
+forces `L_S = 1`, so the accepted path sets are disjoint.
+
+`keep` is an arbitrary screen on the coupling path, evaluated **before** the
+chained-CG tensor is built, so a rejected path costs nothing. It is how the decor
+engine hands its `L_S` screen down (`_decor_coupled_bases`). Both screens apply
+(a path must pass `scalar_only` and `keep`).
 """
-function build_real_bases(ls::AbstractVector{<:Integer};
-                          scalar_only::Bool = false)::Vector{Tuple{Vector{Int},Int,Array{Float64}}}
+function build_real_bases(
+        ls::AbstractVector{<:Integer}; scalar_only::Bool = false,
+        keep = (Lseq, Lf) -> true)::Vector{Tuple{Vector{Int},Int,Array{Float64}}}
     out = Tuple{Vector{Int},Int,Array{Float64}}[]
     for (Lseq, Lf) in coupling_paths(ls)
         (scalar_only && Lf != 0) && continue
+        keep(Lseq, Lf) || continue
         Ccx = coeff_tensor_complex(ls, Lseq, Lf)
         push!(out, (Lseq, Lf, complex_to_real_tensor(Ccx, ls, Lf)))
     end

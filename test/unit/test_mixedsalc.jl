@@ -72,7 +72,7 @@ function _ls_block_stats(crystal, sg, O, label, wcache)
         t = minimum(orbit)
         assignments = unique([t[p] for p in perms])
         slotlists = [SLCE._assignment_slots(a) for a in assignments]
-        cbs = [SLCE._decor_coupled_bases(sl) for sl in slotlists]
+        cbs = [SLCE._decor_coupled_bases(sl, true) for sl in slotlists]   # every L_S
         cols = Tuple{Int,Int,Int}[]              # (assignment, path, Mf)
         tags = Int[]                             # the path's L_S per column
         for ai in eachindex(assignments), ci in eachindex(cbs[ai])
