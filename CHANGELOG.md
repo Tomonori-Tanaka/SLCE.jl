@@ -6,6 +6,30 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — extxyz / EMBSET-pair hardening backported from SCEFitting.jl (2026-08-22)
+
+Each of these let a file that says two things be silently arbitrated
+(SCEFitting.jl `f966417`, found by its saboteur review; the reader code is
+shared line for line):
+
+- `_xyz_info` refuses a repeated info key; `_xyz_properties` refuses a repeated
+  property name and any string column after `species` (both used to let the
+  last value win — the second block overwrote the first, a second `S` column
+  was read INTO `species`).
+- `write_extxyz` quotes free-text values containing whitespace (`source`,
+  `field_sign`, `comment`, `setup_id`, `reference_id`) and refuses a double
+  quote or a line break inside one: the lexer has no escape, and an unquoted
+  `source=C:\Program Files\x` produced a file its own reader rejected —
+  against the docstring's promise.
+- `read_embset_pair` refuses a pair whose moment blocks are all bitwise equal
+  (the same file twice, a byte copy): it passed every sibling check and made
+  `moments_bare ≡ MW`.
+
+Gated in `test_extxyz.jl` (duplicate key / property / extra string column
+refused; whitespace values round-trip quoted, a quote or newline refused at the
+writer, provenance strings through the same door; identical files and a byte
+copy refused by the pair reader).
+
 ### Fixed — moment-channel backports from SCEFitting.jl's M4/M5 review panels (2026-08-22)
 
 - **Zero-moment placeholder door at `MomentDataset`** (`zero_moment_atol =

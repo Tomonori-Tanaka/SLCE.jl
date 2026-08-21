@@ -211,6 +211,74 @@ using Random
         @test err isa ArgumentError && occursin("sign-consistency", err.msg)
     end
 
+    @testset "hardening: duplicates, string columns, writer free text, byte-copy pair" begin
+        # [backported from SCEFitting.jl f966417] a file that says two things is
+        # refused, not arbitrated; the writer only produces files its reader loads
+        data = [mkdat(i) for i = 1:2]
+        f = joinpath(tmp, "harden.extxyz")
+        write_extxyz(f, data, xt)
+        lines = split(read(f, String), "\n")
+        function edited(edit)
+            L = copy(lines); edit(L)
+            q = joinpath(tmp, "harden_edit.extxyz"); write(q, join(L, "\n")); q
+        end
+        @test length(read_extxyz(edited(L -> nothing))) == 2           # the editor itself
+        # duplicate info key (frame 1): last-wins Dict semantics refused
+        @test_throws ArgumentError read_extxyz(edited(L -> L[2] = L[2] * " energy=0.0"))
+        # duplicate property block: the second would silently overwrite the first
+        @test_throws ArgumentError read_extxyz(edited(L -> begin
+            L[2] = replace(L[2], ":mconstr:R:3" => ":mconstr:R:3:mw:R:3")
+            L[3] = L[3] * " 0.0 0.0 0.0"; L[4] = L[4] * " 0.0 0.0 0.0"
+        end))
+        # a second string column would be read INTO species
+        @test_throws ArgumentError read_extxyz(edited(L -> begin
+            L[2] = replace(L[2], ":mconstr:R:3" => ":mconstr:R:3:tag:S:1")
+            L[3] = L[3] * " x"; L[4] = L[4] * " y"
+        end))
+        # free-text values: whitespace is quoted so the file reloads; a quote or a
+        # line break inside a value is refused up front (the lexer has no escape)
+        fq = joinpath(tmp, "quoted.extxyz")
+        write_extxyz(fq, data, xt; source = "C:\\Program Files\\x",
+                     field_sign = "vasp +B", comment = "two words")
+        @test length(read_extxyz(fq)) == 2
+        @test occursin("source=\"C:\\Program Files\\x\"", read(fq, String))
+        @test_throws ArgumentError write_extxyz(fq, data, xt; comment = "say \"hi\"")
+        @test_throws ArgumentError write_extxyz(fq, data, xt; source = "a\nb")
+        # provenance strings go through the same door
+        dsp = [TrainingDatum(; energy = d.energy, directions = d.directions,
+                             magmoms = d.magmoms, field = d.field,
+                             moments_bare = d.moments_bare,
+                             constraint_axes = d.constraint_axes,
+                             constraint_mode = d.constraint_mode,
+                             provenance = DatumProvenance(; setup_id = "run 7"))
+               for d in data]
+        write_extxyz(fq, dsp, xt)
+        @test occursin("setup_id=\"run 7\"", read(fq, String))
+        @test read_extxyz(fq)[1].provenance.setup_id == "run 7"
+        dsq = [TrainingDatum(; energy = d.energy, directions = d.directions,
+                             magmoms = d.magmoms, field = d.field,
+                             moments_bare = d.moments_bare,
+                             constraint_axes = d.constraint_axes,
+                             constraint_mode = d.constraint_mode,
+                             provenance = DatumProvenance(; setup_id = "run \"7\""))
+               for d in data]
+        @test_throws ArgumentError write_extxyz(fq, dsq, xt)
+        # EMBSET pair: the same file twice, or a byte copy, is not an MW / M_int pair
+        eb = joinpath(tmp, "EMBSET_b")
+        open(eb, "w") do io
+            for c = 1:3
+                println(io, -1.0 - c)
+                for a = 1:2
+                    println(io, "$a 0.0 0.0 1.2 0.01 0.02 0.0")
+                end
+            end
+        end
+        @test_throws ArgumentError read_embset_pair(eb, eb; constraint_mode = 4)
+        cp(eb, joinpath(tmp, "EMBSET_copy"); force = true)
+        @test_throws ArgumentError read_embset_pair(eb, joinpath(tmp, "EMBSET_copy");
+                                                    constraint_mode = 4)
+    end
+
     @testset "EMBSET pair: loud sibling checks, energies uncompared" begin
         e1 = joinpath(tmp, "EMBSET")
         e2 = joinpath(tmp, "EMBSET_mint")

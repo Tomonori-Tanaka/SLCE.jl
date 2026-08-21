@@ -178,6 +178,14 @@ function read_embset_pair(mw_path::AbstractString, mint_path::AbstractString;
                           axis_angle_p99_max::Real = 5.0)::Vector{TrainingDatum}
     e_mw, m_mw, b_mw = _read_embset_blocks(mw_path; n_atoms = n_atoms)
     e_mint, m_mint, b_mint = _read_embset_blocks(mint_path; n_atoms = n_atoms)
+    # the same file twice (or a byte copy) would pass every sibling check and make
+    # moments_bare ≡ the smoothed moments — a pair whose moment blocks are all
+    # bitwise equal is not an MW / M_int pair
+    (length(e_mw) == length(e_mint) &&
+     all(m_mw[c] == m_mint[c] for c in eachindex(e_mw))) &&
+        throw(ArgumentError("EMBSET pair: every moment block of $mint_path equals " *
+                            "$mw_path's — the two files carry the same moments, not " *
+                            "the smoothed MW and the bare M_int of one run"))
     length(e_mw) == length(e_mint) ||
         throw(ArgumentError("EMBSET pair: $(length(e_mw)) configurations in " *
                             "$mw_path vs $(length(e_mint)) in $mint_path — not " *

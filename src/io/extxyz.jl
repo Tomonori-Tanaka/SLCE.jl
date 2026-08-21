@@ -92,16 +92,22 @@ function _xyz_info(line::AbstractString, path::AbstractString,
             end
             k <= n || throw(ArgumentError("extxyz $path frame $frame: unterminated " *
                                           "quote in the info line (key \"$key\")"))
-            out[key] = line[i:prevind(line, k)]
+            val = line[i:prevind(line, k)]
             i = nextind(line, k)
         else
             k = i
             while k <= n && !isspace(line[k])
                 k = nextind(line, k)
             end
-            out[key] = line[i:prevind(line, k)]
+            val = line[i:prevind(line, k)]
             i = k
         end
+        # a repeated key would silently let the last value win (Dict semantics);
+        # a file that says two things is refused, not arbitrated
+        haskey(out, key) &&
+            throw(ArgumentError("extxyz $path frame $frame: key \"$key\" appears " *
+                                "twice in the info line"))
+        out[key] = val
     end
     return out
 end
@@ -124,6 +130,15 @@ function _xyz_properties(spec::AbstractString, path::AbstractString,
         (nc === nothing || nc < 1) &&
             throw(ArgumentError("extxyz $path frame $frame: bad column count " *
                                 "\"$(tok[t + 2])\" for \"$name\""))
+        any(p -> p[1] == name, props) &&
+            throw(ArgumentError("extxyz $path frame $frame: property \"$name\" " *
+                                "appears twice in Properties (the second block " *
+                                "would silently overwrite the first)"))
+        # the only string column this reader knows is the leading species; a second
+        # one would be read INTO species (last wins) — refused instead
+        ty[1] == 'S' && !isempty(props) &&
+            throw(ArgumentError("extxyz $path frame $frame: string column " *
+                                "\"$name\" after species is not supported"))
         push!(props, (name, ty[1], nc))
     end
     return props
@@ -460,6 +475,21 @@ function write_extxyz(path::AbstractString, data::AbstractVector{TrainingDatum},
         throw(ArgumentError("write_extxyz: constraint_mode differs across configs " *
                             "(one file = one constraint scheme)"))
     _check_setup_uniformity(data)
+
+    # Free-text info values: the reader's lexer has no escape sequence, so a
+    # double quote or a line break inside a value can never round-trip — refused;
+    # a value with whitespace is written quoted (the reader accepts quoted values),
+    # so the file this writes is always one its own reader loads.
+    prov0 = data[1].provenance
+    for (name, v) in (("field_sign", field_sign), ("source", source),
+                      ("comment", comment), ("setup_id", prov0.setup_id),
+                      ("reference_id", prov0.reference_id))
+        v === nothing && continue
+        (occursin('"', v) || occursin('\n', v) || occursin('\r', v)) &&
+            throw(ArgumentError("write_extxyz: $name contains a double quote or a " *
+                                "line break, which the extxyz info line cannot carry"))
+    end
+    _q(v) = any(isspace, v) ? "\"" * v * "\"" : v
     check_moment_gates(data; sign_gate_min = sign_gate_min,
                        axis_angle_p99_max = axis_angle_p99_max,
                        label = "write_extxyz($path)")
@@ -488,13 +518,13 @@ function write_extxyz(path::AbstractString, data::AbstractVector{TrainingDatum},
                   joint ? "joint" : "spin-only")
             cmode === nothing || print(io, " constraint_mode=", cmode)
             has_bcon && print(io, " units_field=eV/muB")
-            field_sign === nothing || print(io, " field_sign=", field_sign)
-            prov.setup_id === nothing || print(io, " setup_id=", prov.setup_id)
+            field_sign === nothing || print(io, " field_sign=", _q(field_sign))
+            prov.setup_id === nothing || print(io, " setup_id=", _q(prov.setup_id))
             prov.soc === nothing || print(io, " soc=", prov.soc ? "true" : "false")
             joint && print(io, " reference_id=",
                            prov.reference_id === nothing ? "reference" :
-                           prov.reference_id)
-            source === nothing || print(io, " source=", source)
+                           _q(prov.reference_id))
+            source === nothing || print(io, " source=", _q(source))
             comment === nothing || print(io, " comment=\"", comment, "\"")
             println(io)
             u = d.displacements
