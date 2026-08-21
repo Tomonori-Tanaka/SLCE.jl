@@ -123,6 +123,67 @@ function _ls_block_stats(crystal, sg, O, label, wcache)
     return maxoff, ranktotal
 end
 
+# ── independent invariant counters ────────────────────────────────────────────
+#
+# Both are plain Cartesian projectors: they average the group action over the
+# multilinear function space written in the components of ê and u, and read the
+# invariant count off the rank. They share no code with the SALC engine — no
+# Clebsch–Gordan coefficients, no Wigner-D, no spherical harmonics, and none of
+# the CountingOracle's machinery either — so they are an oracle for its counts
+# rather than a restatement of them. They are legitimate because the rank-1
+# factors span exactly the Cartesian components (`R₁₋₁, R₁₀, R₁₁ = y, z, x`, and
+# `Z₁ₘ(ê)` is a fixed linear bijection of `ê`) and the rank-2 factors span the
+# traceless symmetric quadratic forms; with Σl_spin even the axial `det(R)`
+# factors square to +1, so spin and displacement axes rotate the same way.
+
+# Invariants of the degree-(1,1,1,1) forms Φ(e₁,e₂,u₁,u₂) under ops that carry a
+# site swap: `swap(R) === true` means the op exchanges the two sites.
+function _count_bond_1111_invariants(rots, swap)
+    n = 81
+    P = zeros(n, n)
+    lin = LinearIndices((3, 3, 3, 3))
+    for R in rots
+        # coefficients of Φ(g·e, g·u) in terms of Φ's own coefficients
+        M = zeros(n, n)
+        for a = 1:3, b = 1:3, c = 1:3, d = 1:3
+            for p = 1:3, q = 1:3, r = 1:3, s = 1:3
+                w = R[a, p] * R[b, q] * R[c, r] * R[d, s]
+                w == 0.0 && continue
+                # e_{σ(1)}[p] e_{σ(2)}[q] u_{σ(1)}[r] u_{σ(2)}[s]: a swapping op
+                # exchanges the roles of the two sites in BOTH channels
+                out = swap(R) ? lin[q, p, s, r] : lin[p, q, r, s]
+                M[out, lin[a, b, c, d]] += w
+            end
+        end
+        P .+= M
+    end
+    P ./= length(rots)
+    return rank(P; atol = 1e-8)
+end
+
+# Orthonormal (Frobenius) basis of the traceless symmetric 3×3 matrices — the
+# l = 2 factor of a single site, whose group action is the congruence R·Q·Rᵀ.
+const _Q5 = let
+    b = [[0.0 1 0; 1 0 0; 0 0 0], [0.0 0 0; 0 0 1; 0 1 0], [0.0 0 1; 0 0 0; 1 0 0],
+         [1.0 0 0; 0 -1 0; 0 0 0], [1.0 0 0; 0 1 0; 0 0 -2]]
+    [Q ./ sqrt(sum(abs2, Q)) for Q in b]
+end
+
+_q5_action(R) = [sum((R * _Q5[j] * R') .* _Q5[i]) for i = 1:5, j = 1:5]
+
+# Invariants of Φ(ê, u) built from `n` independent rank-2 factors at one site.
+function _count_single_site_l2_invariants(rots, n::Int)
+    dim = 5^n
+    P = zeros(dim, dim)
+    for R in rots
+        D = _q5_action(R)
+        M = n == 1 ? D : kron(D, D)
+        P .+= M
+    end
+    P ./= length(rots)
+    return rank(P; atol = 1e-8)
+end
+
 @testset "mixed-channel SALC engine (M2b-2)" begin
     rng = MersenneTwister(0x51ce)
 
@@ -240,6 +301,29 @@ end
         end
         @test !isempty(ratios)
         @test all(r -> isapprox(r, ratios[1]; rtol = 1e-9), ratios)
+    end
+
+    @testset "gates (e)/(g) counts vs an independent Cartesian projector" begin
+        # The literals above come from the CountingOracle, which shares the
+        # coupling machinery's conventions. These projectors share nothing with
+        # either; the three counts must agree.
+        lab_e = [SiteDecor(; spin = 2, disp = (0, 2))]
+        @test length(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], true, wc)) ==
+              _count_single_site_l2_invariants(rots, 2)
+        @test _count_single_site_l2_invariants(rots, 1) == 0      # the |u|² channel
+        lab = [SiteDecor(; spin = 1, disp = (0, 1)),
+               SiteDecor(; spin = 1, disp = (0, 1))]
+        @test length(_orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true, wcB)) ==
+              _count_bond_1111_invariants(rotsB, R -> R[1, 1] < 0)
+        # Burnside by hand, NOT redundant with the projector: `rotsB` feeds both
+        # the space group and the oracle, so a broken op list would put them in
+        # agreement on the wrong answer. With R = (s₁) ⊕ B over the 8 signed
+        # 2×2 permutations B: the 8 site-fixing ops (s₁ = +1) contribute
+        # (tr R)⁴ = 81 + 7·1 = 88, the 8 swapping ops (s₁ = −1) contribute
+        # tr(R²)² = 6·9 + 2·1 = 56, so the count is (88 + 56)/16 = 9. And under
+        # O_h the l = 2 ⊗ l = 2 count is ⟨χ₂², 1⟩ = 48/24 = 2.
+        @test _count_bond_1111_invariants(rotsB, R -> R[1, 1] < 0) == 9
+        @test _count_single_site_l2_invariants(rots, 2) == 2
     end
 
     @testset "gate (i) core: u = 0 degeneracy and pure-spin consistency" begin

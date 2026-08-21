@@ -31,6 +31,12 @@ code verbatim and come back here as the same patches.
   environments, three values for the same content). No container in `src/` is
   iterated in hash order (the decor-keyed `Dict`s and `Set`s are
   membership-only), so no output changes.
+- **An independent Cartesian projector oracle** for the decor engine's counts
+  (test only): the invariant counts on the O_h single site and the D4h bond are
+  re-derived by averaging the group action over the multilinear forms in the
+  components of `ê` and `u` — no Clebsch–Gordan, no Wigner-D, none of the
+  CountingOracle's machinery — and agree with the engine and with Burnside by
+  hand (`(88 + 56)/16 = 9`, `48/24 = 2`).
 
 ### Added — the pin tier: change detectors over the SALC chain (2026-08-21)
 
