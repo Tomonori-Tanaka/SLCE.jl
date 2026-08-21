@@ -59,6 +59,14 @@ end
 _factortuple(f::SiteFactor) = (f.channel, f.k, f.l)
 Base.isless(a::SiteFactor, b::SiteFactor) = _factortuple(a) < _factortuple(b)
 
+# `hash` on a bare struct or enum falls back to `objectid`, which mixes in the
+# TYPE's identity — and that identity differs between precompiled images of the
+# same package. Since a `SALCKey` carries `SiteDecor`s, the default would make
+# `SALCBasis.fingerprint` a function of the build rather than of the basis
+# (measured in SCEFitting.jl: three environments, three different values for the
+# same content). Hash the content tuples, projected to plain `Int`s.
+Base.hash(f::SiteFactor, h::UInt) = hash((Int(f.channel), f.k, f.l), h)
+
 """
     SiteDecor(; spin::Integer = 0, disp = nothing)
     SiteDecor(factors::SiteFactor...)
@@ -114,6 +122,7 @@ end
 
 _decortuple(d::SiteDecor) = (d.spin_l, d.disp_k, d.disp_l)
 Base.isless(a::SiteDecor, b::SiteDecor) = _decortuple(a) < _decortuple(b)
+Base.hash(d::SiteDecor, h::UInt) = hash(_decortuple(d), h)   # see `hash(::SiteFactor)`
 
 """
     has_spin(d::SiteDecor) -> Bool

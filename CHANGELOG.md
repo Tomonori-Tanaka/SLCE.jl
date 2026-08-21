@@ -24,6 +24,13 @@ code verbatim and come back here as the same patches.
   factor rendered as `u(k,l)` — a comma inside a comma-joined column — so a
   mixed row such as `"2+u(0,1),u(1,0)"` read back from CSV / Arrow as four
   sites. The token is now `u(k:l)`; pure-spin rows still read `"1,1,2"`.
+- **`hash(::SiteFactor)` / `hash(::SiteDecor)` are content-based.** The default
+  struct hash mixes in the type's identity, which differs between precompiled
+  images of the same package; a `SALCKey` carries `SiteDecor`s, so
+  `SALCBasis.fingerprint` was a function of the build (SCEFitting measured three
+  environments, three values for the same content). No container in `src/` is
+  iterated in hash order (the decor-keyed `Dict`s and `Set`s are
+  membership-only), so no output changes.
 
 ### Added — the pin tier: change detectors over the SALC chain (2026-08-21)
 
