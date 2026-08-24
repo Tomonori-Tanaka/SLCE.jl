@@ -797,8 +797,10 @@ capability consumed by both the introspection and the Sunny interop.
   wrappers defaulting to the energy block (`predict_energy`/`residuals_energy`/`r2_energy`).
   `OLS` solves by explicit pivoted QR and **warns on a rank-deficient design**
   (diagonal ratio below `1e-10`; the solution is returned unchanged — the backstop
-  for what the resolvability classification cannot certify, notably the
-  `asr = false` AllImages opt-out, and for degenerate data).
+  for what the resolvability classification cannot certify — cross-orbit supercell
+  aliasing and degenerate data; the `AllImages` self-image route that used to land
+  here under `asr = false` is now refused at the `SLCEDataset` door with an
+  `UnclassifiableBasis`).
   `AbstractEstimator` with `OLS`/`Ridge` (validated: `lambda` finite and ≥ 0)/`AdaptiveRidge`
   (analytic `j0`; centered-`X` `solve_coefficients` contract).
 - Validated: OLS recovers an in-span target (R²=1); **a Heisenberg chain fit

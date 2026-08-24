@@ -76,8 +76,9 @@ struct _DummyEstimator <: SLCE.AbstractEstimator end
         # solution is non-unique, so anything read off the coefficients is one
         # arbitrary representative. The structural cases are frozen upstream by
         # `unresolvable_columns`/`build_asr`; this warning is the backstop for what
-        # the classification cannot certify (the `asr = false` AllImages opt-out —
-        # previously the one route with no loud gate — and degenerate data).
+        # the classification cannot certify (cross-orbit supercell aliasing and
+        # degenerate data — the `asr = false` AllImages route that used to land here
+        # is now refused at the `SLCEDataset` door).
         # [Ported from the spin-only SCEFitting.jl fix.]
         bo = @test_logs (:warn, r"rank deficient or severely ill-conditioned: only 3 of 4") match_mode = :any begin
             solve_coefficients(OLS(), Xd, yd)

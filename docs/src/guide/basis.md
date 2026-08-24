@@ -146,7 +146,13 @@ A plain-PBC supercell can only resolve interactions whose displacement lies in i
 interaction is an alias of the minimum-image one and cannot be fit independently. The
 [`MinimumImage`](@ref) selection (the default) enumerates exactly this set, with
 boundary ties kept as distinct members; [`AllImages`](@ref) keeps every image within the
-cutoff and is reserved for the (future) spin-spiral / generalized-Bloch path.
+cutoff. That selection serves the (future) spin-spiral / generalized-Bloch path and, since
+a self-image cluster is the only way to *write* a monatomic cell's nearest-neighbor bond,
+it is also how a compact reference model is handed to a tiling consumer, which expands the
+images into distinct supercell sites. Such a basis cannot be **fitted** on its own cell —
+every image of the atom carries the same spin, so the function collapses to a single-site
+one — and [`SLCEDataset`](@ref) refuses it; its coefficients are set by hand or transferred
+from a supercell fit.
 
 ```@example basis
 # `build_neighbor_list` is public but unexported — call it qualified.

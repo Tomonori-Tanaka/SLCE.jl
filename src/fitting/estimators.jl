@@ -387,10 +387,10 @@ end
 # pre-gate behavior. The structural cases this package understands are frozen
 # UPSTREAM of the estimator (`unresolvable_columns` → `build_asr`'s
 # reparameterization removes them from the γ-space design), so a deficiency that
-# still reaches this solve is one the classification could not certify: an
-# `AllImages` basis fitted with `asr = false` (the UnclassifiableBasis opt-out —
-# previously the one route with no loud gate at all), or too few / degenerate
-# training rows. Not a refusal: OLS still returns the QR solution (the documented
+# still reaches this solve is one the classification could not certify: cross-orbit
+# supercell aliasing, or too few / degenerate training rows. (The `AllImages`
+# self-image route that used to arrive here with `asr = false` — the one route with no
+# loud gate at all — is now refused at the `SLCEDataset` door.) Not a refusal: OLS still returns the QR solution (the documented
 # min-norm behavior on exact deficiency), but silently returning non-unique
 # coefficients is the bug this warns about.
 # [Ported from the spin-only SCEFitting.jl fix.]

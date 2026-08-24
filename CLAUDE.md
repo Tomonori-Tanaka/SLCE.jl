@@ -84,8 +84,13 @@ Easy to break silently — confirm before touching the algorithm.
   lives in `docs/src/theory/resolvability.md` §"Which interactions the enumeration can
   represent", the warning box in `docs/src/guide/lattice_dynamics.md`, and the
   `MinimumImage` / `force_constants` docstrings — all four move together. `AllImages`
-  (every image, `R`-distinguished) is **only** for the future generalized-Bloch /
-  spin-spiral path where `e^{iq·R}` resolves the images. For `cutoff < min_d dᵢ / 2` the
+  (every image, `R`-distinguished) is **never fittable** — `SLCEDataset` refuses a basis
+  with self-image members (`_refuse_self_image_basis` → `UnclassifiableBasis`). It serves
+  two non-fitting consumers: the future generalized-Bloch / spin-spiral path where
+  `e^{iq·R}` resolves the images, and the **tiling template** a downstream consumer
+  expands onto a supercell (a monatomic cell's NN bond can only be *written* as a
+  self-image cluster; SLCEMonteCarlo's cubic-Heisenberg tutorial and SLCEDynamics'
+  `examples/bloch_mt.jl` are the live cases, coefficients set by hand). For `cutoff < min_d dᵢ / 2` the
   two coincide. Do **not** "fix" a `> L/2` cutoff by folding aliases into a shorter shell
   (double-counts) — that regime is simply unresolvable from one supercell.
 - **Energy units**: `Jφ` carry the DFT input unit (eV); `j0` is separate.
@@ -702,7 +707,12 @@ Easy to break silently — confirm before touching the algorithm.
   AllImages repeated-atom refusal broke `asr_residual` on a legal pure-spin model and made
   an AllImages joint dataset unfittable by any route, so that refusal is a dedicated
   `UnclassifiableBasis` (caught in `build_asr` → nothing frozen, said once) and
-  `asr_residual` builds only `_asr_matrix`.
+  `asr_residual` builds only `_asr_matrix`. **The `asr = false` escape hatch that fix
+  restored is withdrawn again (2026-08-24), on a different argument:** it kept the route
+  open but never restored identifiability — the self-image columns are redundant on the
+  reference cell, so the fit returned an arbitrary representative. `SLCEDataset` now
+  refuses at the door; `build_asr` keeps its catch because it is also an ANALYSIS entry
+  point for hand-built / tiling-template models.
   **Why the columns are kept is the SUPERCELL, not the strain.** Tiling maps the tied images
   onto distinct atoms, which holds for every frozen column; `affine_energy` reaches only some
   (measured: 0 of 1 on bcc harmonic, 0 of 4 pure-spin, 6 of 8 at degree 3, 4 of 10 on

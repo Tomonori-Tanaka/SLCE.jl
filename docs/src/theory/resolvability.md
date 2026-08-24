@@ -350,6 +350,12 @@ translation ``R``. For plain-PBC fitting this over-counts (it admits aliases of 
 bonds), so it is not the default — but it is the representation a **generalized-Bloch /
 spin-spiral** extension needs, where the phase ``e^{i\boldsymbol q\cdot\boldsymbol R}``
 distinguishes images that a single supercell cannot. This is why [`NeighborPair`](@ref) and
-the cluster members retain ``R``. Below half the smallest perpendicular cell width,
+the cluster members retain ``R``. The same enumeration carries a second, non-fitting
+consumer: it is the only way to *write* a monatomic cell's own-image bond, which is how a
+compact reference model reaches a tiling consumer that expands the images onto a supercell
+where they become distinct sites. On the reference cell those columns are redundant — every
+image carries the same spin — so [`SLCEDataset`](@ref) refuses such a basis at the fitting
+door with an [`UnclassifiableBasis`](@ref); their coefficients are set by hand or
+transferred from a supercell fit. Below half the smallest perpendicular cell width,
 ``\text{cutoff} < \min_d d_i/2``, the two selections coincide (each in-cutoff image is
 already the minimum).

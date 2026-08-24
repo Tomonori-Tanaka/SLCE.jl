@@ -846,6 +846,10 @@ function SLCEDataset(basis::SLCEBasis, data::AbstractVector{TrainingDatum};
                     use_torque::Union{Bool,Nothing} = nothing, use_force::Bool = true,
                     zero_moment_atol::Real = 1e-10)::SLCEDataset
     isempty(data) && throw(ArgumentError("no training data"))
+    # Ahead of every data check: this refusal is about the BASIS, so reporting a missing
+    # reference id or a torque-shape mismatch first would name a consequence of the
+    # wrong basis rather than the mistake.
+    _refuse_self_image_basis(basis)
     # A spin-free basis has no torque design block to build, so demanding torque data
     # for it is a requirement no correct call can satisfy. Resolve from the BASIS,
     # never from whether the data happen to carry torques: reading the data would
@@ -988,20 +992,15 @@ function _joint_dataset(basis::SLCEBasis, data::AbstractVector{TrainingDatum},
             fc = repeat(fsel; inner = 3 * length(fatoms))
         end
     end
-    # Translation-invariance machinery: built once per basis here (the
-    # fit-boundary), applied by `_assemble_problem`. The one recoverable refusal
-    # is the AllImages self-image case (same-site products need a Gaunt
-    # expansion): the dataset is still constructible, but `fit`'s default
-    # `asr = true` will then error rather than silently skip — the user must
-    # write `asr = false` deliberately. Any other builder error propagates.
-    asrrep = try
-        build_asr(basis)
-    catch err
-        (err isa ArgumentError && occursin("self-image", err.msg)) || rethrow()
-        @warn "ASR is unavailable for this basis (AllImages self-image " *
-              "clusters); fits must pass asr = false explicitly" maxlog = 1
-        nothing
-    end
+    # Translation-invariance machinery: built once per basis here (the fit-boundary),
+    # applied by `_assemble_problem`. No recovery wrapper: the one case that used to be
+    # caught here — an `AllImages` self-image basis, where the builder cannot expand a
+    # same-site factor product — is now refused by `_refuse_self_image_basis` above, and
+    # it was never recoverable in substance (the columns are redundant on this cell, so
+    # the `asr = false` route it advertised returned an arbitrary representative). The
+    # catch also classified the failure by matching the message text, which made the
+    # error's wording load-bearing; the shared `UnclassifiableBasis` now carries it.
+    asrrep = build_asr(basis)
     return SLCEDataset(basis, configs, X_E, energies, X_T, y_T, tc, ident;
                       disps = disps, X_F = X_F, y_F = y_F, force_config = fc,
                       force_cols = fcols, asr = asrrep)

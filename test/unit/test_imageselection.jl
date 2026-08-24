@@ -222,6 +222,61 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         @test_throws ArgumentError SLCEBasis(p1; images = AllImages())
     end
 
+    @testset "SLCEDataset refuses a self-image (AllImages) basis" begin
+        # One atom in a cubic cell: every admitted pair joins the atom to its own
+        # periodic image, so BOTH ends carry e₁ and the l = (1,1), Lf = 0 function is
+        # e₁·e₁ ≡ 1 — a constant, derived by hand and independent of whatever the
+        # builder emits. A constant column says nothing about the configuration, so the
+        # design is rank deficient by construction and a fit would return one arbitrary
+        # representative of a non-unique solution. `asr = false` never fixed that (it
+        # drops the constraint, not the degeneracy), so the door refuses instead;
+        # building the same basis as a tiling template stays legal.
+        lat = Lattice(Matrix(3.0 * I(3)))
+        cr = Crystal(lat, reshape([0.0, 0.0, 0.0], 3, 1), [1], ["Fe"])
+        b = SLCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 3.2, lmax = [1], soc = false);
+                      images = AllImages())
+        @test n_salcs(b) ≥ 1
+        @test all(s -> any(m -> !allunique(m.atoms), s.members), SLCE.salcs(b))
+
+        Random.seed!(20260824)
+        cfgs = [(d = randn(3, 1); d ./ norm(d)) for _ = 1:8]
+        X = _design_energy(b, cfgs)                     # building/evaluating is allowed
+        for j in axes(X, 2)                             # every column is that constant
+            col = view(X, :, j)
+            @test maximum(col) - minimum(col) ≤ 1e-12 * max(1.0, abs(col[1]))
+        end
+
+        @test_throws SLCE.UnclassifiableBasis SLCEDataset(b, cfgs, zeros(8))
+        msg = try
+            SLCEDataset(b, cfgs, zeros(8))
+            ""
+        catch e
+            sprint(showerror, e)
+        end
+        @test occursin("self-image", msg)               # names the cause
+        @test occursin("MinimumImage", msg)             # and the way out
+        @test occursin("asr = false does not help", msg)  # the withdrawn escape hatch
+
+        # The joint door is a different constructor and must refuse too — before this
+        # gate it was the loud-ish one (ASR unavailable → warn → `asr = false` advice).
+        latj = Lattice(Matrix(2.0 * I(3)))
+        crj = Crystal(latj, zeros(3, 1), [1], ["Fe"])
+        bj = SLCEBasis(crj, BasisSpec(crj; lmax = 1, pmax = 1, sectors = [
+                           Sector(spin = [1, 1], disp = (degree = 2,), sites = 2,
+                                  cutoff = 2.1)]);
+                       images = AllImages())
+        dj = [TrainingDatum(; energy = 0.0, directions = reshape([0.0, 0.0, 1.0], 3, 1),
+                            magmoms = [2.0], displacements = zeros(3, 1))]
+        @test_throws SLCE.UnclassifiableBasis SLCEDataset(bj, dj)
+
+        # Control: distinct-atom neighbors (bcc, 8 NN corner↔centre) are untouched.
+        cr2 = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
+        b2 = SLCEBasis(cr2, BasisSpec(; nbody = 2, cutoff = 2.7, lmax = [1],
+                                      soc = false))
+        cfg2 = [(d = randn(3, 2); d ./ sqrt.(sum(abs2, d; dims = 1))) for _ = 1:8]
+        @test SLCEDataset(b2, cfg2, zeros(8)) isa SLCEDataset
+    end
+
     @testset "persistence round-trips a cutoff = Inf basis" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])

@@ -888,6 +888,48 @@ function _require_pure_spin_basis(basis::SLCEBasis)
     return nothing
 end
 
+# A member that uses one reference-cell atom twice — an `AllImages` self-image cluster
+# `(a, 0)-(a, R)` — is not a multi-site function of THIS cell. Under plain periodic
+# boundary conditions every image of atom `a` carries the same spin `e_a` and, on the
+# cell-periodic displacement fields a dataset accepts, the same `u_a`; the SALC therefore
+# collapses to a single-site function (a constant for the `Lf = 0` spin pair) and its
+# column is redundant by construction. Neither certifier can see the collapse — the
+# monomial expansion behind `unresolvable_columns` and the ASR builder both key factors
+# as living on separate spheres and refuse outright — so before this gate the pure-spin
+# path reached the solver with NOTHING frozen and no loud diagnostic: measured on a
+# one-atom cubic cell (a = 3.0, `soc` pair basis, cutoff 3.2) 27 columns of true rank 5,
+# only the `OLS` rank warning at solve time and silence under a regularized estimator.
+#
+# The refusal is at the DATASET door, not the build. An `AllImages` basis on a cell whose
+# own images are its neighbors is the only way to WRITE a monatomic cell's bond, and that
+# is how a compact reference model is handed to a tiling consumer (SLCEMonteCarlo,
+# SLCEDynamics), which expands the images onto a supercell where they become distinct
+# sites and the self-image cluster becomes a genuine bond. Those consumers set the
+# coefficients by hand and never fit; building, prediction, introspection, `build_asr`,
+# `affine_energy` and export all stay legal. Only fitting ON the reference cell — where
+# the collapse is real — is refused. This replaces the older `asr = false` escape hatch:
+# that route did not restore identifiability, it only silenced the classifier.
+function _refuse_self_image_basis(basis::SLCEBasis)
+    bad = SALCKey[s.key for s in salcs(basis) if any(m -> !allunique(m.atoms), s.members)]
+    isempty(bad) && return nothing
+    detail = join(("$(k.body)-body orbit $(k.orbit_id), ls = $(spin_ls(k)), Lf = $(k.Lf)"
+                   for k in Iterators.take(bad, 4)), "; ")
+    length(bad) > 4 && (detail *= "; ...")
+    throw(UnclassifiableBasis(
+        "$(length(bad)) of $(n_salcs(basis)) SALC(s) have a member that uses one " *
+        "reference-cell atom twice (an AllImages self-image cluster): $detail. Every " *
+        "image of that atom carries the same spin (and, on cell-periodic data, the " *
+        "same displacement), so the function collapses to a single-site one and the " *
+        "design matrix is rank deficient by construction: a fit would return one " *
+        "arbitrary representative of a non-unique solution, and so would every " *
+        "bond-resolved readout taken from it. Passing asr = false does not help — it " *
+        "silences the classifier, not the degeneracy. To FIT this model, build the " *
+        "basis on a supercell with MinimumImage, where the images are distinct atoms. " *
+        "To use the basis as a TILING TEMPLATE, keep it and set the coefficients " *
+        "yourself: building, prediction, introspection and export are not refused, " *
+        "only fitting on the reference cell"))
+end
+
 # Keyed off the SPEC as well as the surviving SALCs: a displacement-decorated spec
 # whose SALCs all happen to be annihilated by symmetry must still pin the reference
 # (the data were generated in a p ≥ 1 setting) — surviving-SALC inspection alone
@@ -937,6 +979,7 @@ function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::Abstra
     # selection", so accepting it here only moved the error away from the mistake.
     isempty(configs) && throw(ArgumentError("no configurations given"))
     _require_pure_spin_basis(basis)
+    _refuse_self_image_basis(basis)
     configs = [Matrix{Float64}(c) for c in configs]
     _validate_configs(basis, configs; atol = atol)
     X = _design_energy(basis, configs)
@@ -962,6 +1005,7 @@ function SLCEDataset(basis::SLCEBasis, configs::AbstractVector, energies::Abstra
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
     _require_pure_spin_basis(basis)
+    _refuse_self_image_basis(basis)
     configs = [Matrix{Float64}(c) for c in configs]
     sel = collect(Int, torque_sel)
     issorted(sel; lt = <=) ||                          # strictly increasing

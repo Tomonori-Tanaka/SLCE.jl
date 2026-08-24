@@ -193,7 +193,14 @@ unidentifiable, not physically zero. The cause is a Wigner–Seitz boundary tie;
 
 ```@docs
 unresolvable_columns
+SLCE.UnclassifiableBasis
 ```
+
+The refusal type is also what the fitting doors raise: [`SLCEDataset`](@ref) rejects a
+basis whose members reuse one reference-cell atom (an [`AllImages`](@ref) self-image
+cluster), because every image of that atom carries the same spin, so those columns are
+redundant on this cell and no fit can determine them. Building such a basis stays legal
+— it is the tiling template a downstream consumer expands onto a supercell.
 
 ## Rotational invariance (a diagnostic, not a constraint)
 

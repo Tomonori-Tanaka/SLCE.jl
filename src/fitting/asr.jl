@@ -82,11 +82,12 @@ function _asr_expansion(basis::SLCEBasis)
         scale = (4π)^(count(has_spin, s.decors) / 2)
         for mem in s.members
             allunique(mem.atoms) ||
-                throw(ArgumentError("ASR builder: member with repeated atoms " *
-                                    "(an AllImages self-image cluster) — same-site " *
-                                    "factor products need a Gaunt expansion the " *
-                                    "builder does not implement; ASR on AllImages " *
-                                    "joint bases is not supported"))
+                throw(UnclassifiableBasis("ASR builder: member with repeated atoms " *
+                                          "(an AllImages self-image cluster) — " *
+                                          "same-site factor products need a Gaunt " *
+                                          "expansion the builder does not implement; " *
+                                          "ASR on AllImages joint bases is not " *
+                                          "supported"))
             for t in mem.terms
                 _asr_accumulate_term!(rows, j, scale, t, mem.atoms, polycache,
                                       diffcache)
@@ -393,10 +394,11 @@ function build_asr(basis::SLCEBasis; translation::Bool = true,
     p = n_salcs(basis)
     hasdisp = any(s -> any(has_disp, s.key.decors), salcs(basis))
     # An AllImages self-image basis cannot be classified at all. Proceeding with
-    # NOTHING frozen is the honest reading of that (unknown, not none) and it is what
-    # keeps the documented escape hatch open: such a joint dataset already tells the
-    # user that fits must pass `asr = false`, and refusing here would leave no route at
-    # all. Said once, because it withdraws a guarantee.
+    # NOTHING frozen is the honest reading of that (unknown, not none) and it keeps
+    # `build_asr` usable as an ANALYSIS entry point on a hand-built or tiling-template
+    # model. It is no longer a fitting route: `SLCEDataset` refuses such a basis at the
+    # door, so nothing that reaches a solver comes through here. Said once, because it
+    # withdraws a guarantee.
     split = try
         _unresolvable_split(basis)
     catch err
@@ -539,11 +541,12 @@ model is legal; it simply reports a large residual.
 On a fit the value is the one recorded at fit time (`f.asr_residual`), so the method is
 there for uniformity with the other diagnostics rather than to recompute anything.
 
-An [`AllImages`](@ref) basis with self-image clusters **raises** instead of returning a
-number: the constraint matrix needs a Gaunt expansion of the same-site factor product,
-which the builder does not implement. That is deliberate — a `NaN` would pass every
-`residual > tol` gate downstream — and such a basis is already an explicit opt-out
-(`SLCEDataset` tells the caller that fits must pass `asr = false`).
+An [`AllImages`](@ref) basis with self-image clusters **raises** an
+[`UnclassifiableBasis`](@ref) instead of returning a number: the constraint matrix needs
+a Gaunt expansion of the same-site factor product, which the builder does not implement.
+That is deliberate — a `NaN` would pass every `residual > tol` gate downstream. Such a
+basis is a tiling template rather than a fitted one; [`SLCEDataset`](@ref) refuses it at
+the fitting door, so this diagnostic only ever meets one on a hand-built model.
 """
 function asr_residual(model::SLCEModel)::Float64
     basis = model.basis

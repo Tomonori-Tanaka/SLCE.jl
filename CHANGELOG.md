@@ -6,6 +6,49 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — a self-image (`AllImages`) basis is refused at the fitting door (2026-08-24)
+
+Ported from the spin-only SCEFitting.jl fix (`8b46979`), extended to the joint door
+and the two exception paths this package has.
+
+- **The pure-spin `AllImages` route had no loud gate at all.** A member that uses one
+  reference-cell atom twice (`(a, 0)-(a, R)`) is not a multi-site function of that
+  cell: every image carries the same spin and, on the cell-periodic fields a dataset
+  accepts, the same displacement, so the SALC collapses to a single-site function (a
+  constant for the `Lf = 0` spin pair) and its column is redundant by construction.
+  Neither certifier can see the collapse, and each refused in its own way — so the
+  pure-spin path reached the solver with NOTHING frozen: measured on a one-atom cubic
+  cell (a = 3.0, pair basis, cutoff 3.2) 27 columns of true rank 5, 9 of them
+  identically zero and 3 constant, with only the `OLS` rank warning at solve time and
+  silence under a regularized estimator.
+- `SLCEDataset` now refuses such a basis at **every** door — the pure-spin
+  configuration forms and the `TrainingDatum` / `AbstractDFTSource` joint form — with
+  an `UnclassifiableBasis` naming the offending keys and the way out. The joint check
+  runs ahead of the data checks: the refusal is about the basis, so reporting a
+  missing reference id first would name a consequence rather than the mistake.
+- **The `asr = false` escape hatch is withdrawn**, on a different argument than the
+  one that restored it. It kept the route open but never restored identifiability:
+  `asr = false` drops the translation constraint, not the degeneracy, so the fit still
+  returned one arbitrary representative of a non-unique solution — and so did every
+  bond-resolved readout taken from it. The refusal message says so explicitly.
+- **One fact, one exception type.** `_asr_matrix`'s repeated-atom refusal was an
+  `ArgumentError` that `SLCEDataset` classified by matching `occursin("self-image",
+  err.msg)` — which made the message wording load-bearing. It is now the shared
+  `UnclassifiableBasis`, and that recovery wrapper is gone.
+- `_resolve_asr_rep`'s predicate (`_basis_has_disp`) is left alone and is now correct
+  by construction: the cell/enumeration cause of a missing reparameterization cannot
+  reach `fit` any more, so what remains — a hand-built dataset that skipped
+  `build_asr` — really is a displacement-channel property. Its message no longer
+  blames `AllImages`.
+- **The second contract is now documented where it is chosen.** An `AllImages` basis
+  is also the tiling template a downstream consumer (SLCEMonteCarlo, SLCEDynamics)
+  expands onto a supercell, where the images become distinct sites and each
+  self-image cluster becomes a genuine bond; those consumers set the coefficients by
+  hand and never fit. Building, prediction, introspection, `build_asr`,
+  `affine_energy` and export all stay legal — only fitting on the reference cell is
+  refused. Stated in the `AllImages`, `UnclassifiableBasis` and `asr_residual`
+  docstrings, the basis guide, the resolvability chapter, `SPEC.md` and `CLAUDE.md`.
+
 ### Changed — `build_real_bases(; keep)` path screen; `scalar_only ≡ !soc` docstrings corrected (2026-08-22)
 
 Backported from SCEFitting.jl `9478687` (its decor engine took the keyword as

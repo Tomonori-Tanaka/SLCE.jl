@@ -514,7 +514,7 @@ end
                        images = AllImages())
         hasself = any(s -> any(mem -> !allunique(mem.atoms), s.members), salcs(b1))
         @test hasself                # the fixture must actually exercise the path
-        @test_throws ArgumentError build_asr(b1)
+        @test_throws SLCE.UnclassifiableBasis build_asr(b1)
     end
     # Every other fixture here is a 2-body bond. Third-order force constants are
     # what the displacement channel exists for (and what M4's `force_constants` /

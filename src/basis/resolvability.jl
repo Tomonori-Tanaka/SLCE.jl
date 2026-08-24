@@ -88,10 +88,15 @@ so no statement about which of its columns a cell can resolve is available: a me
 whose cluster reuses one atom (an [`AllImages`](@ref) self-image) would need a Gaunt
 expansion of the same-site factor product, which this expansion does not implement.
 
-Callers that must keep working on such a basis catch it and proceed with *nothing
-frozen* — the honest "unknown", not "none". An `AllImages` joint basis is already an
-explicit opt-out (`SLCEDataset` says fits must pass `asr = false`), and it would be a
-regression for the classification to remove a route that used to work.
+It is also what the fitting doors raise: [`SLCEDataset`](@ref) refuses a basis with
+self-image members outright (`_refuse_self_image_basis`), because on the reference cell
+those columns are redundant by construction — every image of the atom carries the same
+spin — so no fit can determine them and an unconstrained one returns an arbitrary
+representative. Building such a basis stays legal: it is the tiling template a
+downstream consumer expands onto a supercell, where the images become distinct sites.
+
+Callers that only *analyze* a basis (`build_asr` on a hand-built model) catch this and
+proceed with *nothing frozen* — the honest "unknown", not "none".
 """
 struct UnclassifiableBasis <: Exception
     reason::String

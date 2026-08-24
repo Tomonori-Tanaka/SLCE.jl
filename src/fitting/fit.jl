@@ -155,10 +155,13 @@ function _validate_fit_request(dataset::SLCEDataset, w::Float64, wF::Float64)
     return nothing
 end
 
-# A displacement-decorated basis without a reparameterization (AllImages
-# self-images, or a hand-built dataset that skipped `build_asr`) must not silently
-# take the pure-spin fast path under `asr = true` — unconstrained joint fits are an
-# explicit opt-out.
+# A displacement-decorated basis without a reparameterization (a hand-built dataset that
+# skipped `build_asr`) must not silently take the pure-spin fast path under `asr = true`
+# — unconstrained joint fits are an explicit opt-out. The predicate is the DISPLACEMENT
+# channel, which is what an ASR is about; the other former cause of a missing
+# reparameterization, an `AllImages` self-image basis, was a property of the cell and the
+# enumeration rather than of a channel, and is now refused at the `SLCEDataset` door
+# (`_refuse_self_image_basis`) so it cannot arrive here at all.
 function _resolve_asr_rep(dataset::SLCEDataset, asr::Bool)::Union{Nothing,ASRReparam}
     # `asr = false` drops the translation CONSTRAINT, not the unresolvable-column
     # freeze: those columns are identically zero on this cell whatever the fit
@@ -171,9 +174,8 @@ function _resolve_asr_rep(dataset::SLCEDataset, asr::Bool)::Union{Nothing,ASRRep
     rep = asr ? dataset.asr : _freeze_only_rep(dataset)
     if asr && rep === nothing && _basis_has_disp(dataset.basis)
         throw(ArgumentError("asr = true but this displacement-decorated dataset " *
-                            "carries no ASR reparameterization (AllImages " *
-                            "self-image basis, or a hand-built dataset without " *
-                            "SLCE.build_asr) — pass asr = false to fit " *
+                            "carries no ASR reparameterization (a hand-built dataset " *
+                            "without SLCE.build_asr) — pass asr = false to fit " *
                             "unconstrained deliberately"))
     end
     return rep
