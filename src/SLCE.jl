@@ -230,6 +230,7 @@ public spin_decors, spin_ls, rep_scale
 public islinear, solve_coefficients
 public salc_groups, group_costs, cost_weights, group_freedom        # MC-cost grouping
 public ASRReparam, build_asr                                         # ASR machinery
+public UnclassifiableBasis          # the resolvability / fitting-door refusal type
 public sector_columns                                                # staged-fit selectors
 public RowLayout, row_layout, row_index, site_rows!   # sampler row-table contract
 # The kelvin ↔ model-energy conversion every downstream sampler shares. Unexported: the

@@ -97,6 +97,13 @@ downstream consumer expands onto a supercell, where the images become distinct s
 
 Callers that only *analyze* a basis (`build_asr` on a hand-built model) catch this and
 proceed with *nothing frozen* — the honest "unknown", not "none".
+
+!!! note "What is and is not public here"
+    The **type** and the doors that raise it ([`SLCEDataset`](@ref), `build_asr`,
+    [`unresolvable_columns`](@ref)) are public API: catch it by type. The **`reason`
+    text is not** — never classify a failure by matching the message. This package did
+    exactly that internally (`occursin("self-image", err.msg)` at the dataset door),
+    which made the wording load-bearing until the shared type replaced it.
 """
 struct UnclassifiableBasis <: Exception
     reason::String

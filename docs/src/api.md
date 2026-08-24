@@ -193,7 +193,7 @@ unidentifiable, not physically zero. The cause is a Wigner–Seitz boundary tie;
 
 ```@docs
 unresolvable_columns
-SLCE.UnclassifiableBasis
+UnclassifiableBasis
 ```
 
 The refusal type is also what the fitting doors raise: [`SLCEDataset`](@ref) rejects a

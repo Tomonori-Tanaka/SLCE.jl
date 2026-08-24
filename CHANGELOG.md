@@ -48,6 +48,13 @@ and the two exception paths this package has.
   `affine_energy` and export all stay legal — only fitting on the reference cell is
   refused. Stated in the `AllImages`, `UnclassifiableBasis` and `asr_residual`
   docstrings, the basis guide, the resolvability chapter, `SPEC.md` and `CLAUDE.md`.
+- `UnclassifiableBasis` is declared `public` and documented in `api.md`. An exception
+  thrown from a public door is public API whether or not it is declared, and a caller
+  that wants to skip unfittable cells has to name the type; the declaration makes the
+  promise explicit rather than leaving users to reach into an internal name. Its
+  docstring now also states the boundary: the **type** and the raising doors are
+  public, the **`reason` text is not** — never classify a failure by matching the
+  message (the mistake this release removed from the dataset door).
 
 ### Changed — `build_real_bases(; keep)` path screen; `scalar_only ≡ !soc` docstrings corrected (2026-08-22)
 
