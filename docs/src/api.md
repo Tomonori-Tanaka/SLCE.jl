@@ -266,6 +266,12 @@ the λ path and applies the cost-aware Pareto rule; `cross_validate` is the gene
 configuration-grouped K-fold assessment for comparing any estimators or
 `torque_weight` settings on both error axes.
 
+`penalty_metric` builds the basis-intrinsic per-column penalty scale the three
+penalized estimators carry (pure-spin channels only — see its docstring for why a
+displacement basis is refused), `MetricProvenance` records what it was built from so a
+fit can refuse a metric made for another problem, and `SLCE.with_lambda` re-lambdas an
+estimator with its metric and provenance intact — the safe way to sweep λ by hand.
+
 ```@docs
 gcv
 effective_dof
@@ -275,6 +281,9 @@ select_support
 SupportPath
 cross_validate
 CVResult
+penalty_metric
+MetricProvenance
+SLCE.with_lambda
 SLCE.salc_groups
 SLCE.group_costs
 SLCE.cost_weights

@@ -36,6 +36,47 @@ using Random
         @test SLCE._design_energy(basis, configs) == X      # idempotent across calls
     end
 
+    @testset "penalty_metric: threaded == serial double loop" begin
+        # The metric is built column-parallel inside a constructor, and it enters
+        # every penalized coefficient, so it belongs to the same bitwise contract as
+        # the design kernels: a schedule-dependent reduction here would move fits.
+        K = 128
+        cfgs_ref = SLCE._reference_configs(nat, K, 1)
+        for w in (0.0, 1.0)
+            got = penalty_metric(basis; torque_weight = w, nconfig = K, seed = 1)
+            ref = Vector{Float64}(undef, m)
+            for j = 1:m                                      # race-free serial
+                s1 = 0.0
+                s2 = 0.0
+                st = 0.0
+                for c in cfgs_ref
+                    if w < 1.0
+                        phi = SLCE.evaluate_salc(salcs[j], c)
+                        s1 += phi
+                        s2 += phi * phi
+                    end
+                    if w > 0.0
+                        G = zeros(3, nat)
+                        SLCE.accumulate_grad!(G, salcs[j], c, 1.0,
+                                              SLCE.SALCScratch())
+                        for a = 1:nat
+                            ea = view(c, :, a)
+                            ga = view(G, :, a)
+                            t = [ga[2] * ea[3] - ga[3] * ea[2],
+                                 ga[3] * ea[1] - ga[1] * ea[3],
+                                 ga[1] * ea[2] - ga[2] * ea[1]]
+                            st += sum(abs2, t)
+                        end
+                    end
+                end
+                varj = max(0.0, s2 / K - (s1 / K)^2)
+                ref[j] = (1 - w) * varj + w * (st / K) / (3 * nat)
+            end
+            @test got ≈ ref rtol = 1e-12
+            @test penalty_metric(basis; torque_weight = w, nconfig = K, seed = 1) == got
+        end
+    end
+
     # Fit a model so the columns carry real coefficients for the cross-checks.
     y = 0.7 .+ SLCE._design_energy(basis, configs) * randn(MersenneTwister(3), m)
     ds = SLCEDataset(basis, configs, y)

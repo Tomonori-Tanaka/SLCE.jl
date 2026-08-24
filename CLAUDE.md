@@ -1149,6 +1149,35 @@ Easy to break silently — confirm before touching the algorithm.
   any record predating this; the `test_selection.jl` grids divide by their config count, and
   `test_asr.jl`'s hand-built assembly reference carries the `se` factor explicitly (which is
   what makes it a pin on the convention).
+- **The penalty metric ↔ every weight map ↔ the fitting doors** (`fitting/metric.jl`,
+  `fitting/estimators.jl`, `fitting/selection.jl`, `fitting/momentfit.jl`,
+  `fitting/fit.jl`): a metric is per-column data carried on `Ridge` / `AdaptiveRidge` /
+  `GroupAdaptiveRidge`, and it enters at SIX sites — `Ridge`'s solve, `AdaptiveRidge`'s
+  iteration 0 and its weight update, `_solve_gar`'s cold start and
+  `_group_adaptive_weights!`, and the three `_penalty_diagonal` methods behind
+  GCV/`effective_dof`. Always in the DENOMINATOR of a weight map: outside it the
+  adaptive estimators stop being scale invariant and the group-L0 fixed point reads
+  `λ·v_g·⟨m⟩_g` instead of `λ·v_g`. Three consequences that are easy to miss when adding
+  a site: (i) **`select_fit` resolves the metric ONCE** and passes it to every solve,
+  every GCV weight, every fold, and the cold re-solve of the selected point — the
+  returned fit and its score must describe the same estimator, which is why `est_sel` is
+  rebuilt through the positional inner constructor (no default for `metric`, so a missed
+  site is a `MethodError`, not a silent uniform fit); (ii) **any column selection
+  reduces the metric with the design** — `refit`'s support and the pointed fit's
+  vanishing-column freeze, through `_reduce_to_active`, which now has methods for
+  `Ridge` / `AdaptiveRidge` / `AdaptiveLasso` (via its pilot) as well as
+  `GroupAdaptiveRidge`; (iii) **`mⱼ = 0` means unpenalized**, so a new zero has to be a
+  structural exemption (`_refuse_zero_metric`), the unpenalized block needs full column
+  rank (`_check_free_block`), and the dof splits (`_effective_dof_free`). Under an ASR /
+  freeze reparameterization the penalty compresses to `Z'·Diagonal(D)·Z` while `metric`
+  stays indexed by the BASIS columns — same convention as `column_groups` — and a
+  `metric === nothing` still takes the exact `λ·I` γ-space path, which is what keeps
+  unweighted fits bit-identical. Scope: **pure spin only** (`penalty_metric(::SLCEBasis)`
+  refuses a displacement basis, `_check_metric_provenance` refuses `force_weight > 0`);
+  the joint reference ensemble is a separate spec. `MetricProvenance` is checked at
+  `fit` / `refit` / `select_fit` / `cross_validate` / `fit(MomentFit, …)` — a metric
+  built for the wrong channel, basis, or `torque_weight` is invisible to every numerical
+  gate, since scale invariance holds for any `m ∝ c²`, right or wrong.
 - **GCV ↔ `_assemble_problem` ↔ `islinear` ↔ the GAR weight map** (`fitting/selection.jl`,
   `fitting/estimators.jl`): `gcv`/`effective_dof` reassemble the design through
   `_assemble_problem` (change the centering/whitening and the score moves with `fit`),
@@ -1157,9 +1186,11 @@ Easy to break silently — confirm before touching the algorithm.
   design, not the support the refit solved on, and the sub-stage is not stored),
   charge the `+1` intercept only when the energy block carries weight, and
   recompute the converged penalty diagonal through the
-  **same** functions the solvers iterate — `_gar_weights!` (the single definition of
-  `wⱼ = v_g/(‖β_g‖² + p_g·ε)`; `_penalty_diagonal` has one method per linear estimator,
-  and `AdaptiveRidge`'s `1/(β² + ε)` must stay in sync with its solve loop). Change a
+  **same** functions the solvers iterate — `_group_adaptive_weights!` (the single
+  definition of `Dⱼ = mⱼ·v_g/(Σ_{k∈g} m_kβ_k² + p_g·ε)`, and what it returns is the
+  penalty DIAGONAL, metric included; `_penalty_diagonal` has one method per linear
+  estimator, and `AdaptiveRidge`'s `mⱼ/(mⱼβ² + ε)` must stay in sync with its solve
+  loop). Change a
   weight formula in the solver and the `_penalty_diagonal` method, the design-notes §13
   derivation, and the dense-hat-matrix tests in `test/unit/test_selection.jl` move
   together. §13 states the derivation in `θ` and `δ`; the API spells those out as

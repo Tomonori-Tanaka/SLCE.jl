@@ -354,6 +354,8 @@ function fit(::Type{SLCEFit}, dataset::SLCEDataset, estimator::AbstractEstimator
               (w > 0 ? " and torques" : "") *
               " alone. Pass force_weight > 0 to use the force channel." maxlog = 1
     end
+    _check_metric_provenance(estimator, :energy,
+                             dataset.basis.salc_basis.fingerprint, w, wF)
     rep = _resolve_asr_rep(dataset, asr)
     staged = frozen !== nothing || sector_mask !== :all
     if staged
@@ -503,6 +505,11 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
     dataset = f.dataset
     w = f.torque_weight
     wF = f.force_weight
+    # The same door `fit` / `select_fit` / `cross_validate` carry: a metric built for
+    # another channel, another basis, or another torque weight is invisible to every
+    # numerical gate, and a support reduction only ever checks its LENGTH.
+    _check_metric_provenance(estimator, :energy,
+                             dataset.basis.salc_basis.fingerprint, w, wF)
     # β-space assembly: the support rule and the analytic j0 live in β coordinates
     # regardless of the constraint (the alive rule measures physical contribution).
     X, y, xbar, ybar, groups = _assemble_problem(dataset, w, wF)
@@ -544,7 +551,16 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
               "scaled-magnitude threshold. Returning an all-zero jϕ; " *
               "j0 falls back to mean(y_E)." threshold
     elseif rep === nothing
-        jphi[support] .= solve_coefficients(estimator, view(X, :, support), y;
+        # A penalty metric is per-column data, so it has to be cut down to the chosen
+        # support with the design — otherwise the solve dies on a length check whose
+        # message blames a basis mismatch that did not happen. `_reduce_to_active` is
+        # a no-op for an estimator without one. (The constrained branch below needs no
+        # reduction: it hands the solver a β-space `Z`, so the metric keeps its
+        # full length there.)
+        active = falses(length(jphi_in))
+        active[support] .= true
+        jphi[support] .= solve_coefficients(_reduce_to_active(estimator, active),
+                                            view(X, :, support), y;
                                             row_groups = groups)
     else
         # Constrained / staged refit: the surviving columns form a new stage over

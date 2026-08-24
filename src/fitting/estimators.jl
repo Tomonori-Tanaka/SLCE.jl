@@ -23,27 +23,41 @@ other closed-form estimator routes here at zero penalty.
 struct OLS <: AbstractEstimator end
 
 """
-    Ridge(; lambda = 0.0)
+    Ridge(; lambda = 0.0, metric = nothing, metric_provenance = nothing)
 
 L2-penalized least squares with penalty `lambda ≥ 0`. `lambda = 0` routes to
 [`OLS`](@ref)'s QR path, exactly (not within a tolerance).
 
-For `lambda > 0` this solves the normal equations `(XᵀX + λI)β = Xᵀy`, which is safe
-because the penalty makes the matrix positive definite, but which does square the
-condition number of `X`. On an ill-conditioned design (the ASR forbidden band admits
-singular-value ratios down to `1e-12`) prefer a larger `lambda`, or `OLS` if the
+For `lambda > 0` this solves the normal equations `(XᵀX + λ·Diagonal(m))β = Xᵀy`, which
+is safe because the penalty makes the matrix positive definite, but which does square
+the condition number of `X`. On an ill-conditioned design (the ASR forbidden band
+admits singular-value ratios down to `1e-12`) prefer a larger `lambda`, or `OLS` if the
 intent was no penalty at all.
+
+`metric` is the per-column penalty scale `m` (`nothing` = uniform). It makes the
+penalty invariant under rescaling a design column — `‖β‖²` on its own is not, and SALC
+column norms are set by basis conventions rather than by physics — and an entry of
+exactly `0` marks a column as **unpenalized**. Use [`penalty_metric`](@ref) to build
+one from a basis; `metric_provenance` records what it was built from so a fit can
+refuse a metric made for a different problem. The unpenalized block must have full
+column rank or the solve is refused by name. The metric is indexed by the **basis**
+columns `β`, like `GroupAdaptiveRidge`'s `column_groups`, so it keeps its length under
+an ASR / freeze reparameterization.
 """
 struct Ridge <: AbstractEstimator
     lambda::Float64
+    metric::Union{Nothing,Vector{Float64}}
+    metric_provenance::Union{Nothing,MetricProvenance}
 
-    function Ridge(lambda::Real)
+    function Ridge(lambda::Real, metric, metric_provenance)
         (lambda >= 0 && isfinite(lambda)) ||
             throw(ArgumentError("lambda must be finite and ≥ 0; got $lambda"))
-        return new(Float64(lambda))
+        return new(Float64(lambda), _validated_metric(metric), metric_provenance)
     end
 end
-Ridge(; lambda::Real = 0.0) = Ridge(lambda)
+Ridge(lambda::Real) = Ridge(lambda, nothing, nothing)
+Ridge(; lambda::Real = 0.0, metric = nothing, metric_provenance = nothing) =
+    Ridge(lambda, metric, metric_provenance)
 
 """
     ElasticNet(; alpha = 1.0, lambda = nothing, standardize = true, nfolds = 10,
@@ -204,15 +218,19 @@ struct FixedCoefficients <: AbstractEstimator
 end
 
 """
-    AdaptiveRidge(; lambda, epsilon = 1e-8, max_iter = 50, tol = 1e-6)
+    AdaptiveRidge(; lambda, epsilon = 1e-8, max_iter = 50, tol = 1e-6,
+                  metric = nothing, metric_provenance = nothing)
 
 Iterative Adaptive Ridge (Frommlet & Nuel 2016). Approximates an L0-penalized fit by
 repeatedly refitting a per-coefficient weighted ridge problem
 
     min_b ‖y − Xb‖² + lambda·Σⱼ wⱼ·bⱼ²
 
-and updating the weights `wⱼ = 1 / (bⱼ² + epsilon)` between iterations. Iteration zero
-is a plain ridge solve (uniform weights); each subsequent step rebuilds the weights
+and updating the weights `wⱼ = mⱼ / (mⱼ·bⱼ² + epsilon)` between iterations, where `m`
+is the per-column penalty scale ([`Ridge`](@ref)'s `metric`; `nothing` = uniform). The
+metric sits in the **denominator** so that `Σ mⱼβⱼ²` — a rescaling invariant — is what
+the weight map sees; outside it the estimator would not be scale invariant. Iteration
+zero is a plain ridge solve (fixed weights); each subsequent step rebuilds the weights
 from the current coefficients, so large coefficients get a light penalty and small
 ones a heavy penalty — iterating drives the small ones toward zero (an L0
 approximation). Each subproblem is the analytic weighted ridge
@@ -232,35 +250,57 @@ struct AdaptiveRidge <: AbstractEstimator
     epsilon::Float64
     max_iter::Int
     tol::Float64
+    metric::Union{Nothing,Vector{Float64}}
+    metric_provenance::Union{Nothing,MetricProvenance}
+
+    # An INNER constructor, so an exactly-typed positional call cannot skip the
+    # validation. It is not hypothetical: the active-column reduction rebuilds this
+    # estimator field by field, and a metric that reached the solver with a negative
+    # entry would make `XtX + λ·Diagonal(D)` indefinite, which `Symmetric \` answers
+    # with numerical garbage rather than a throw.
+    function AdaptiveRidge(lambda::Real, epsilon::Real, max_iter::Integer, tol::Real,
+                           metric, metric_provenance)
+        (lambda >= 0 && isfinite(lambda)) ||
+            throw(ArgumentError("lambda must be finite and ≥ 0; got $lambda"))
+        epsilon > 0 || throw(ArgumentError("epsilon must be > 0; got $epsilon"))
+        max_iter >= 1 || throw(ArgumentError("max_iter must be ≥ 1; got $max_iter"))
+        tol > 0 || throw(ArgumentError("tol must be > 0; got $tol"))
+        return new(Float64(lambda), Float64(epsilon), Int(max_iter), Float64(tol),
+                   _validated_metric(metric), metric_provenance)
+    end
 end
-function AdaptiveRidge(; lambda::Real, epsilon::Real = 1e-8, max_iter::Integer = 50,
-                       tol::Real = 1e-6)
-    (lambda >= 0 && isfinite(lambda)) ||
-        throw(ArgumentError("lambda must be finite and ≥ 0; got $lambda"))
-    epsilon > 0 || throw(ArgumentError("epsilon must be > 0; got $epsilon"))
-    max_iter >= 1 || throw(ArgumentError("max_iter must be ≥ 1; got $max_iter"))
-    tol > 0 || throw(ArgumentError("tol must be > 0; got $tol"))
-    return AdaptiveRidge(Float64(lambda), Float64(epsilon), Int(max_iter), Float64(tol))
-end
+AdaptiveRidge(; lambda::Real, epsilon::Real = 1e-8, max_iter::Integer = 50,
+              tol::Real = 1e-6, metric = nothing, metric_provenance = nothing) =
+    AdaptiveRidge(lambda, epsilon, max_iter, tol, metric, metric_provenance)
 
 """
     GroupAdaptiveRidge(column_groups, group_weights; lambda, epsilon = 1e-8,
-                       max_iter = 50, tol = 1e-6)
+                       max_iter = 50, tol = 1e-6, metric = nothing,
+                       metric_provenance = nothing)
 
 Group extension of [`AdaptiveRidge`](@ref): iterative reweighted ridge approximating the
 weighted **group-L0** penalty `lambda·Σ_g v_g·1{β_g ≠ 0}`. Each reweighting step solves
 the analytic weighted ridge
 
-    min_b ‖y − Xb‖² + lambda·Σⱼ wⱼ·bⱼ²,    wⱼ = v_g / (‖β_g‖² + p_g·epsilon)
+    min_b ‖y − Xb‖² + lambda·Σⱼ Dⱼ·bⱼ²,
+    Dⱼ = mⱼ·wⱼ,   wⱼ = v_g / (Σ_{k∈g} m_k·β_k² + p_g·epsilon)
 
 where `g = column_groups[j]`, `β_g` is the current coefficient sub-vector of group `g`,
-`p_g` its column count, and `v_g = group_weights[g]` a **fixed** positive per-group
-weight. At a converged fixed point the penalty contribution of a surviving group tends
+`p_g` its column count, `v_g = group_weights[g]` a **fixed** positive per-group weight,
+and `m` the per-column penalty scale ([`Ridge`](@ref)'s `metric`; `nothing` = uniform).
+The metric sits in the denominator, so the group norm the weight map sees is the
+rescaling invariant `Σ m_k β_k²` and the fixed point below is preserved; a column with
+`mⱼ = 0` is unpenalized and contributes to neither.
+
+At a converged fixed point the penalty contribution of a surviving group tends
 to `lambda·v_g` (a constant per alive group), so `v_g` is exactly the group-L0 weight —
-e.g. a Monte-Carlo cost weight from `SLCE.cost_weights`. The denominator equals
-`p_g·(mean_j βⱼ² + epsilon)`, so `epsilon` is a per-coefficient magnitude floor
-independent of the group size (the same calibration as [`AdaptiveRidge`](@ref), whose
-update this reproduces exactly for singleton groups with unit weights).
+e.g. a Monte-Carlo cost weight from `SLCE.cost_weights`. This holds with or without a
+metric, which is the reason it sits in the denominator: outside it the converged
+contribution would be `lambda·v_g·⟨m⟩_g` and `v_g` would stop being the group-L0
+weight. The denominator equals `p_g·(mean_j mⱼ·βⱼ² + epsilon)`, so `epsilon` is a
+magnitude floor on the **metric-weighted** coefficients, independent of the group size
+(the same calibration as [`AdaptiveRidge`](@ref), whose update this reproduces exactly
+for singleton groups with unit weights).
 
 `column_groups` labels the design-matrix **columns** with contiguous group ids `1:G`
 (every label present; for an SLCE fit use `SLCE.salc_groups`); it is unrelated to
@@ -280,10 +320,18 @@ struct GroupAdaptiveRidge <: AbstractEstimator
     max_iter::Int
     tol::Float64
     group_sizes::Vector{Int}     # p_g, derived and cached by the inner constructor
+    metric::Union{Nothing,Vector{Float64}}
+    metric_provenance::Union{Nothing,MetricProvenance}
 
+    # `metric` / `metric_provenance` are POSITIONAL and carry no default on purpose:
+    # every internal site that rebuilds an estimator from an existing one (the λ-path
+    # driver's cold re-solve, the active-column reduction) must pass them through, and
+    # a site that forgets has to fail with a `MethodError` rather than silently return
+    # an unweighted fit whose λ means something else.
     function GroupAdaptiveRidge(lambda::Real, column_groups::AbstractVector{<:Integer},
                                 group_weights::AbstractVector{<:Real}, epsilon::Real,
-                                max_iter::Integer, tol::Real)
+                                max_iter::Integer, tol::Real, metric,
+                                metric_provenance)
         (lambda >= 0 && isfinite(lambda)) ||
             throw(ArgumentError("lambda must be finite and ≥ 0; got $lambda"))
         epsilon > 0 || throw(ArgumentError("epsilon must be > 0; got $epsilon"))
@@ -307,16 +355,22 @@ struct GroupAdaptiveRidge <: AbstractEstimator
                                 "number of groups $G"))
         all(v -> isfinite(v) && v > 0, group_weights) ||
             throw(ArgumentError("group_weights must be finite and > 0"))
+        m = _validated_metric(metric)
+        m === nothing || length(m) == length(column_groups) || throw(DimensionMismatch(
+            "metric length $(length(m)) ≠ column_groups length " *
+            "$(length(column_groups))"))
         return new(Float64(lambda), Vector{Int}(column_groups),
                    Vector{Float64}(group_weights), Float64(epsilon), Int(max_iter),
-                   Float64(tol), sizes)
+                   Float64(tol), sizes, m, metric_provenance)
     end
 end
 function GroupAdaptiveRidge(column_groups::AbstractVector{<:Integer},
                             group_weights::AbstractVector{<:Real};
                             lambda::Real, epsilon::Real = 1e-8, max_iter::Integer = 50,
-                            tol::Real = 1e-6)
-    return GroupAdaptiveRidge(lambda, column_groups, group_weights, epsilon, max_iter, tol)
+                            tol::Real = 1e-6, metric = nothing,
+                            metric_provenance = nothing)
+    return GroupAdaptiveRidge(lambda, column_groups, group_weights, epsilon, max_iter,
+                              tol, metric, metric_provenance)
 end
 
 # Compact display: the default struct printer would dump the whole `beta` vector
@@ -329,7 +383,14 @@ Base.show(io::IO, e::AdaptiveLasso) =
 Base.show(io::IO, e::GroupAdaptiveRidge) =
     print(io, "GroupAdaptiveRidge(", length(e.column_groups), " columns in ",
           length(e.group_weights), " groups, lambda=", e.lambda,
-          ", epsilon=", e.epsilon, ")")
+          ", epsilon=", e.epsilon, ", ",
+          _metric_summary(e.metric, e.metric_provenance), ")")
+Base.show(io::IO, e::Ridge) =
+    print(io, "Ridge(lambda=", e.lambda, ", ",
+          _metric_summary(e.metric, e.metric_provenance), ")")
+Base.show(io::IO, e::AdaptiveRidge) =
+    print(io, "AdaptiveRidge(lambda=", e.lambda, ", epsilon=", e.epsilon, ", ",
+          _metric_summary(e.metric, e.metric_provenance), ")")
 
 """
     islinear(estimator) -> Bool
@@ -433,9 +494,13 @@ function solve_coefficients(::OLS, X::AbstractMatrix, y::AbstractVector;
 end
 
 function solve_coefficients(estimator::Ridge, X::AbstractMatrix, y::AbstractVector;
-                            row_groups = nothing, nullspace = nothing)::Vector{Float64}
-    # `nullspace` is inert: with orthonormal Z, λ‖γ‖² = λ‖Z·γ‖² = λ‖β‖² — the
-    # γ-space ridge is verbatim the β-penalized constrained ridge.
+                            row_groups = nothing,
+                            nullspace::Union{Nothing,Matrix{Float64}} = nothing)::Vector{Float64}
+    # With NO metric, `nullspace` is inert: with orthonormal Z, λ‖γ‖² = λ‖Z·γ‖² =
+    # λ‖β‖² — the γ-space ridge is verbatim the β-penalized constrained ridge. With a
+    # metric it is not, because λ·Σ mⱼβⱼ² is not a function of ‖γ‖; the penalty is then
+    # compressed as Z'·Diagonal(m)·Z, exactly as the adaptive estimators already
+    # compress their β-space weight map.
     #
     # Exact zero only: at lambda = 0 the penalty is gone and `XtX` may be singular, so
     # route to the QR (min-norm) OLS path — the same guard `AdaptiveRidge` and
@@ -445,8 +510,14 @@ function solve_coefficients(estimator::Ridge, X::AbstractMatrix, y::AbstractVect
     # at ‖β‖ ~ 1e16 against OLS's 0.48 on a design with one duplicated column — silently,
     # from an estimator whose docstring promises OLS at lambda = 0.
     estimator.lambda == 0.0 && return solve_coefficients(OLS(), X, y)
-    n = size(X, 2)
-    return Symmetric(X' * X + estimator.lambda * I(n)) \ (X' * y)
+    q = size(X, 2)
+    XtX = X' * X
+    m = estimator.metric
+    if m !== nothing
+        _metric_vector(m, _beta_columns(X, nullspace), "Ridge")   # length check
+        _check_free_block(XtX, m, "Ridge"; nullspace = nullspace)
+    end
+    return Symmetric(XtX + _penalty_matrix(estimator.lambda, m, q, nullspace)) \ (X' * y)
 end
 
 function solve_coefficients(estimator::AdaptiveRidge, X::AbstractMatrix, y::AbstractVector;
@@ -462,49 +533,58 @@ function solve_coefficients(estimator::AdaptiveRidge, X::AbstractMatrix, y::Abst
     q = size(XtX, 2)
     nullspace === nothing || size(nullspace, 2) == q || throw(DimensionMismatch(
         "nullspace has $(size(nullspace, 2)) columns but the design has $q"))
-    # Iteration 0: uniform-weight ridge (numerically Ridge(lambda) — with Z
-    # orthonormal, Z'·I·Z = I, so the same seed serves the constrained loop). Only
-    # the penalty changes between iterations; the Gram matrix `XtX` is formed once.
-    # With lambda > 0 and every wⱼ > 0 (epsilon > 0), the shifted matrix is SPD
-    # throughout (Z full column rank).
-    coefs = Symmetric(XtX + estimator.lambda * I(q)) \ Xty
     p = nullspace === nothing ? q : size(nullspace, 1)
-    w = Vector{Float64}(undef, p)
+    m = _metric_vector(estimator.metric, p, "AdaptiveRidge")
+    _check_free_block(XtX, m, "AdaptiveRidge"; nullspace = nullspace)
+    # Iteration 0: the fixed-weight ridge `Dⱼ = mⱼ` (with a uniform metric, numerically
+    # Ridge(lambda) — and with Z orthonormal, Z'·I·Z = I, so the same seed serves the
+    # constrained loop). Only the penalty changes between iterations; the Gram matrix
+    # `XtX` is formed once. The cold start is built from the metric for the same reason
+    # the weight map carries it: a metric-blind iteration 0 would make the converged
+    # point of this non-convex surrogate depend on the column scaling even though its
+    # objective does not. With lambda > 0 and every penalized Dⱼ > 0 (epsilon > 0), the
+    # shifted matrix is SPD on the penalized block throughout (Z full column rank).
+    coefs = Symmetric(XtX +
+                      _penalty_matrix(estimator.lambda, estimator.metric, q,
+                                      nullspace)) \ Xty
+    D = Vector{Float64}(undef, p)
+    sm = sqrt.(m)                    # the stopping rule's coordinates, hoisted
     for _ = 1:estimator.max_iter
         beta = nullspace === nothing ? coefs : nullspace * coefs
-        @. w = 1.0 / (beta^2 + estimator.epsilon)     # the β-space weight map, unchanged
-        P = nullspace === nothing ? estimator.lambda * Diagonal(w) :
-            estimator.lambda * Symmetric(nullspace' * (w .* nullspace))
-        coefs_new = Symmetric(XtX + P) \ Xty
+        # the β-space weight map; `D` is the penalty DIAGONAL `mⱼ·wⱼ`, metric included
+        @. D = m / (m * beta^2 + estimator.epsilon)
+        coefs_new = Symmetric(XtX +
+                              _penalty_matrix(estimator.lambda, D, q, nullspace)) \ Xty
         # Relative ∞-norm change ON β (γ's ∞-norm is factorization-gauge-
-        # dependent under Z); the eps floor only guards the all-zero case.
+        # dependent under Z), in metric coordinates and over the penalized columns.
         beta_new = nullspace === nothing ? coefs_new : nullspace * coefs_new
-        rel = mapreduce((a, b) -> abs(a - b), max, beta_new, beta) /
-              max(maximum(abs, beta_new), eps(Float64))
+        rel = _irls_rel_change(beta_new, beta, sm)
         coefs = coefs_new
         rel < estimator.tol && break
     end
     return coefs
 end
 
-# The group-adaptive-ridge weight map — the ONLY definition of the update
-# `wⱼ = v_g / (‖β_g‖² + p_g·ε)`. The GCV / effective-dof diagnostics recompute the
-# converged penalty diagonal through this same function (`_penalty_diagonal` in
-# fitting/selection.jl); change the formula here and nowhere else. `normsq` is a
-# reusable length-`G` accumulator; fills `w` in place and returns it.
-function _group_adaptive_weights!(w::Vector{Float64}, beta::Vector{Float64},
+# The group-adaptive-ridge weight map — the ONLY definition of the group-form update
+# `wⱼ = v_g / (Σ_{k∈g} m_k·β_k² + p_g·ε)`. What it fills in and returns is the PENALTY
+# DIAGONAL `Dⱼ = mⱼ·wⱼ`, not `wⱼ`: the metric belongs to the penalty, and every
+# consumer (the solvers, and `_penalty_diagonal` behind the GCV / effective-dof
+# diagnostics in fitting/selection.jl) wants the diagonal. Change the formula here and
+# nowhere else. `normsq` is a reusable length-`G` accumulator; fills `D` in place.
+function _group_adaptive_weights!(D::Vector{Float64}, beta::Vector{Float64},
                        column_groups::Vector{Int}, group_weights::Vector{Float64},
-                       group_sizes::Vector{Int}, epsilon::Float64,
+                       group_sizes::Vector{Int}, metric::Vector{Float64},
+                       epsilon::Float64,
                        normsq::Vector{Float64})::Vector{Float64}
     fill!(normsq, 0.0)
     @inbounds for j in eachindex(beta)
-        normsq[column_groups[j]] += abs2(beta[j])
+        normsq[column_groups[j]] += metric[j] * abs2(beta[j])
     end
     @inbounds for j in eachindex(beta)
         g = column_groups[j]
-        w[j] = group_weights[g] / (normsq[g] + group_sizes[g] * epsilon)
+        D[j] = metric[j] * group_weights[g] / (normsq[g] + group_sizes[g] * epsilon)
     end
-    return w
+    return D
 end
 
 # The reweighted-ridge iteration on a precomputed Gram system, shared by
@@ -514,41 +594,43 @@ end
 # callers route the exact `lambda == 0` case to OLS.
 function _solve_gar(XtX::Matrix{Float64}, Xty::Vector{Float64}, lambda::Float64,
                     column_groups::Vector{Int}, group_weights::Vector{Float64},
-                    group_sizes::Vector{Int}, epsilon::Float64, max_iter::Int,
-                    tol::Float64;
+                    group_sizes::Vector{Int}, metric::Vector{Float64},
+                    epsilon::Float64, max_iter::Int, tol::Float64;
                     beta0::Union{Nothing,Vector{Float64}} = nothing,
                     nullspace::Union{Nothing,Matrix{Float64}} = nothing)::Vector{Float64}
     q = length(Xty)
     p = nullspace === nothing ? q : size(nullspace, 1)
-    w = Vector{Float64}(undef, p)
+    D = Vector{Float64}(undef, p)
     normsq = Vector{Float64}(undef, length(group_weights))
-    # Compressed penalty: Diagonal(w) unconstrained, Z'·D·Z under ASR (the weight
+    sm = sqrt.(metric)               # the stopping rule's coordinates, hoisted
+    _check_free_block(XtX, metric, "GroupAdaptiveRidge"; nullspace = nullspace)
+    # Compressed penalty: Diagonal(D) unconstrained, Z'·D·Z under ASR (the weight
     # map stays in β space — the "group penalties on β unchanged" pin).
-    penalty(wv) = nullspace === nothing ? lambda * Diagonal(wv) :
-                  lambda * Symmetric(nullspace' * (wv .* nullspace))
-    # Iteration 0 (cold start): the fixed-weight ridge `wⱼ = v_g` — with unit weights
-    # this is numerically Ridge(lambda), matching the AdaptiveRidge initialization. A
-    # warm start replaces it with the caller's `beta0` (γ0 under ASR) and enters the
-    # loop directly. With lambda > 0 and every wⱼ > 0 (epsilon > 0, Z full column
-    # rank), the shifted matrix is SPD throughout — do NOT widen the callers'
-    # `lambda == 0` routing to a tolerance.
+    penalty(Dv) = _penalty_matrix(lambda, Dv, q, nullspace)
+    # Iteration 0 (cold start): the fixed-weight ridge `Dⱼ = mⱼ·v_g` — with a uniform
+    # metric and unit weights this is numerically Ridge(lambda), matching the
+    # AdaptiveRidge initialization. A warm start replaces it with the caller's `beta0`
+    # (γ0 under ASR) and enters the loop directly. With lambda > 0 and every penalized
+    # Dⱼ > 0 (epsilon > 0, Z full column rank), the shifted matrix is SPD on the
+    # penalized block throughout — do NOT widen the callers' `lambda == 0` routing to a
+    # tolerance.
     coefs = if beta0 === nothing
         @inbounds for j = 1:p
-            w[j] = group_weights[column_groups[j]]
+            D[j] = metric[j] * group_weights[column_groups[j]]
         end
-        Symmetric(XtX + penalty(w)) \ Xty
+        Symmetric(XtX + penalty(D)) \ Xty
     else
         copy(beta0)
     end
     for _ = 1:max_iter
         beta = nullspace === nothing ? coefs : nullspace * coefs
-        _group_adaptive_weights!(w, beta, column_groups, group_weights, group_sizes, epsilon, normsq)
-        coefs_new = Symmetric(XtX + penalty(w)) \ Xty
+        _group_adaptive_weights!(D, beta, column_groups, group_weights, group_sizes,
+                                 metric, epsilon, normsq)
+        coefs_new = Symmetric(XtX + penalty(D)) \ Xty
         # Relative ∞-norm change ON β (γ's ∞-norm is factorization-gauge-
-        # dependent under Z); the eps floor only guards the all-zero case.
+        # dependent under Z), in metric coordinates and over the penalized columns.
         beta_new = nullspace === nothing ? coefs_new : nullspace * coefs_new
-        rel = mapreduce((a, b) -> abs(a - b), max, beta_new, beta) /
-              max(maximum(abs, beta_new), eps(Float64))
+        rel = _irls_rel_change(beta_new, beta, sm)
         coefs = coefs_new
         rel < tol && break
     end
@@ -569,9 +651,11 @@ function solve_coefficients(estimator::GroupAdaptiveRidge, X::AbstractMatrix, y:
     # Exact zero only (see the AdaptiveRidge method above): at lambda = 0 the penalty
     # diagonal is gone and the Gram matrix may be singular — route to QR (min-norm) OLS.
     estimator.lambda == 0.0 && return solve_coefficients(OLS(), X, y)
+    m = _metric_vector(estimator.metric, ncols_beta, "GroupAdaptiveRidge")
     return _solve_gar(Matrix{Float64}(X' * X), Vector{Float64}(X' * y), estimator.lambda,
                       estimator.column_groups, estimator.group_weights, estimator.group_sizes,
-                      estimator.epsilon, estimator.max_iter, estimator.tol; nullspace = nullspace)
+                      m, estimator.epsilon, estimator.max_iter, estimator.tol;
+                      nullspace = nullspace)
 end
 
 function solve_coefficients(estimator::FixedCoefficients, X::AbstractMatrix, y::AbstractVector;
@@ -586,4 +670,128 @@ function solve_coefficients(estimator::FixedCoefficients, X::AbstractMatrix, y::
         "design-matrix column count $(size(X, 2)); the pilot was likely fit on a " *
         "different SLCEBasis."))
     return copy(estimator.beta)
+end
+
+# Metric accessors that work for EVERY estimator, so the fitting doors can check
+# provenance without dispatching on which estimators happen to carry a metric.
+_estimator_metric(::AbstractEstimator)::Union{Nothing,Vector{Float64}} = nothing
+_estimator_provenance(::AbstractEstimator)::Union{Nothing,MetricProvenance} = nothing
+
+# A metric built for another problem is invisible to every numerical gate — scale
+# invariance holds for any `m ∝ c²`, right or wrong — so the doors check the
+# provenance instead. An estimator carrying a metric with NO provenance is a
+# hand-built one and passes: the caller owns it.
+function _check_metric_provenance(estimator::AbstractEstimator, channel::Symbol,
+                                  fingerprint::UInt64, torque_weight::Float64,
+                                  force_weight::Float64 = 0.0)
+    pv = _estimator_provenance(estimator)
+    pv === nothing && return nothing
+    pv.channel === channel || throw(ArgumentError(
+        "the estimator's penalty metric was built for the $(pv.channel) channel, but " *
+        "this is the $channel channel. The two channels have different design rows " *
+        "and different reference norms; build the metric from THIS basis."))
+    pv.fingerprint == fingerprint || throw(ArgumentError(
+        "the estimator's penalty metric was built on a different basis (SALC " *
+        "fingerprint mismatch). Column scales are basis-specific; rebuild it with " *
+        "`penalty_metric` on this basis."))
+    pv.torque_weight == torque_weight || throw(ArgumentError(
+        "the estimator's penalty metric was built at torque_weight = " *
+        "$(pv.torque_weight), but this fit uses $torque_weight. The assembled design " *
+        "mixes the energy and torque blocks by that weight, so the column scales " *
+        "move with it; rebuild the metric at the weight you are fitting at."))
+    # The metric's reference ensemble is spins only, so it has no force block to
+    # weigh — and a pure-spin basis, the only kind `penalty_metric` accepts, has no
+    # force rows either. Refuse rather than let the third block of the objective be
+    # scaled by a metric that never saw it.
+    force_weight == 0.0 || throw(ArgumentError(
+        "the penalty metric is defined on a spin-only reference ensemble, so it " *
+        "cannot scale a fit that carries force rows (force_weight = $force_weight). " *
+        "The displacement reference distribution is a separate design decision; " *
+        "until it is specified, fit the force block with `metric = nothing`."))
+    return nothing
+end
+
+_estimator_metric(e::Ridge) = e.metric
+_estimator_metric(e::AdaptiveRidge) = e.metric
+_estimator_metric(e::GroupAdaptiveRidge) = e.metric
+_estimator_provenance(e::Ridge) = e.metric_provenance
+_estimator_provenance(e::AdaptiveRidge) = e.metric_provenance
+_estimator_provenance(e::GroupAdaptiveRidge) = e.metric_provenance
+# A pilot's metric is not decorative: `AdaptiveLasso` turns the pilot's coefficients
+# into the per-column penalty factors of the whole weighted-L1 solve, so a pilot
+# carrying the wrong metric moves the final fit. Follow the pilot at both accessors.
+_estimator_metric(e::AdaptiveLasso) = _estimator_metric(e.pilot)
+_estimator_provenance(e::AdaptiveLasso) = _estimator_provenance(e.pilot)
+
+"""
+    with_lambda(estimator, lambda) -> typeof(estimator)
+
+`estimator` at a new penalty strength, with everything else carried forward — the
+group labels and weights, the IRLS controls, and, decisively, the **penalty metric and
+its provenance**.
+
+Rebuilding a penalized estimator by hand for a λ sweep (`GroupAdaptiveRidge(
+est.column_groups, est.group_weights; lambda = λ)`) silently drops the metric, and a
+dropped metric is indistinguishable from a deliberate uniform one — the fitting doors
+see no provenance and pass it. Rebuilding through the basis-aware constructor instead
+re-runs [`penalty_metric`](@ref) at every point of the sweep. This does neither.
+
+```julia
+est  = GroupAdaptiveRidge(basis; lambda = 1.0, theta = 1.0)
+fits = [fit(SLCEFit, ds, SLCE.with_lambda(est, l)) for l in lambdas]
+```
+"""
+with_lambda(e::Ridge, lambda::Real)::Ridge =
+    Ridge(lambda, e.metric, e.metric_provenance)
+with_lambda(e::AdaptiveRidge, lambda::Real)::AdaptiveRidge =
+    AdaptiveRidge(lambda, e.epsilon, e.max_iter, e.tol, e.metric, e.metric_provenance)
+with_lambda(e::GroupAdaptiveRidge, lambda::Real)::GroupAdaptiveRidge =
+    GroupAdaptiveRidge(lambda, e.column_groups, e.group_weights, e.epsilon, e.max_iter,
+                       e.tol, e.metric, e.metric_provenance)
+
+# --- column selection --------------------------------------------------------------
+
+# A penalty metric makes `Ridge` and `AdaptiveRidge` column-structured, exactly as
+# `column_groups` does for `GroupAdaptiveRidge` (whose reduction lives with the pointed
+# fit that needs it, in fitting/momentfit.jl): a metric is per-column data and has to
+# be cut with whatever column selection the caller made before the solve — the pointed
+# fit's vanishing-column freeze, and `refit`'s chosen support — or the solve dies on a
+# length check whose message blames a basis mismatch that did not happen.
+
+# The active-column slice of an estimator's penalty metric, or `nothing` when it has
+# none. Refuses a metric built on a different column count by name.
+function _reduce_metric(metric::Union{Nothing,Vector{Float64}}, active::BitVector,
+                        what::AbstractString)::Union{Nothing,Vector{Float64}}
+    metric === nothing && return nothing
+    length(metric) == length(active) || throw(DimensionMismatch(
+        "$what metric length $(length(metric)) does not match the reduced design " *
+        "column count $(length(active)); build it with `penalty_metric` on the basis " *
+        "you are fitting"))
+    return metric[active]
+end
+
+# `AdaptiveLasso` is column-structured through its PILOT: the pilot's coefficients
+# become the weighted-L1 penalty factors, so a pilot carrying a full-length metric
+# into a reduced solve dies inside the length check with a message that blames a
+# basis mismatch that did not happen.
+function _reduce_to_active(estimator::AdaptiveLasso, active::BitVector)::AdaptiveLasso
+    red = _reduce_to_active(estimator.pilot, active)
+    red === estimator.pilot && return estimator
+    return AdaptiveLasso(red, estimator.lambda, estimator.gamma, estimator.epsilon,
+                         estimator.standardize, estimator.nfolds, estimator.select,
+                         estimator.seed, estimator.nlambda)
+end
+
+function _reduce_to_active(estimator::Ridge, active::BitVector)::Ridge
+    (estimator.metric === nothing || all(active)) && return estimator
+    return Ridge(estimator.lambda, _reduce_metric(estimator.metric, active, "Ridge"),
+                 estimator.metric_provenance)
+end
+
+function _reduce_to_active(estimator::AdaptiveRidge, active::BitVector)::AdaptiveRidge
+    (estimator.metric === nothing || all(active)) && return estimator
+    return AdaptiveRidge(estimator.lambda, estimator.epsilon, estimator.max_iter,
+                         estimator.tol,
+                         _reduce_metric(estimator.metric, active, "AdaptiveRidge"),
+                         estimator.metric_provenance)
 end

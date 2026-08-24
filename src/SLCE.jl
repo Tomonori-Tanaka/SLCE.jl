@@ -63,6 +63,7 @@ include("basis/salc.jl")
 include("basis/salcbasis.jl")
 
 # --- fitting + high-level SLCE API ---
+include("fitting/metric.jl")      # the per-column penalty scale + its provenance
 include("fitting/estimators.jl")
 include("slce/truncation.jl")     # BasisSpec sugar → dense canonical resolution
 include("io/provenance.jl")       # DatumProvenance (SLCEDataset stores an identity summary)
@@ -173,6 +174,7 @@ export coeftable, SLCECoefficients
 # model selection: GCV / effective dof (linear estimators), the cost-aware λ path,
 # and the threshold-swept refit front
 export gcv, effective_dof, select_fit, LambdaPath, select_support, SupportPath
+export penalty_metric, MetricProvenance
 export cross_validate, CVResult
 export to_sunny
 # Fitted-model introspection: a code-neutral view of the multipole / bilinear terms of a
@@ -228,6 +230,7 @@ public SectorRule                                                     # resolved
 public has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin, is_soc_free
 public spin_decors, spin_ls, rep_scale
 public islinear, solve_coefficients
+public with_lambda                     # re-lambda an estimator, metric and all
 public salc_groups, group_costs, cost_weights, group_freedom        # MC-cost grouping
 public ASRReparam, build_asr                                         # ASR machinery
 public UnclassifiableBasis          # the resolvability / fitting-door refusal type

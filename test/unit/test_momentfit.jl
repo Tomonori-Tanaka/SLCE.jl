@@ -17,7 +17,7 @@
 
 using Test
 using SLCE
-using SLCE: _design_moment, n_salcs
+using SLCE: _design_moment, n_salcs, salc_groups, with_lambda
 using LinearAlgebra
 using Random
 
@@ -754,6 +754,105 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
             end
         end
         @test nfound >= 2                   # the fixture actually has the case
+    end
+
+    @testset "penalty metric: the μ₀ intercepts are exempt, not shrunk" begin
+        # `_intercept_columns` against an INDEPENDENT read of the design: a μ₀ column
+        # is the indicator of its mark class, so its entries are exactly 0 or 1 and it
+        # is constant over every configuration. Nothing else can be.
+        data = _mf_data(24)
+        ds = _mf_ds(mb, data; gate_eps = 1e-8)
+        ic = SLCE._intercept_columns(mb)
+        @test !isempty(ic)
+        for j = 1:p
+            col = ds.X[:, j]
+            isind = all(v -> v == 0.0 || v == 1.0, col) && any(isone, col)
+            @test (j in ic) == isind
+        end
+        # every μ₀ column belongs to a different mark class, and they partition the
+        # rows of the marked atoms
+        @test sum(ds.X[:, ic]; dims = 2) == ones(size(ds.X, 1), 1)
+
+        m = penalty_metric(mb; nconfig = 512, seed = 5)
+        @test length(m) == p
+        @test all(iszero, m[ic])                       # exempt, exactly
+        rest = setdiff(1:p, vcat(ic, ds.vanishing))
+        @test all(>(0), m[rest])
+        # `false` is the deliberate comparison: the intercepts are then penalized
+        mp = penalty_metric(mb; free_intercepts = false, nconfig = 512, seed = 5)
+        @test all(>(0), mp[ic])
+        @test mp[rest] == m[rest]
+        # A μ₀ column is its mark class's indicator, so its reference second moment is
+        # the class's share of the rows — exactly 1 only when a single class covers
+        # them all. Read that share off the design, not off the metric.
+        share = [count(isone, ds.X[:, j]) / size(ds.X, 1) for j in ic]
+        @test mp[ic] ≈ share rtol = 1e-12
+        @test sum(share) ≈ 1.0 rtol = 1e-12
+    end
+
+    @testset "penalty metric: μ₀ at λ → ∞ is the intercept-only least squares" begin
+        # With the metric, the penalty never touches the intercepts, so as λ → ∞ the
+        # penalized columns are crushed and μ₀ converges to the least-squares fit of
+        # y on the intercept columns ALONE — which, those being class indicators, is
+        # each class's mean target. Without the metric μ₀ is shrunk to zero instead.
+        # The λ → ∞ limit is the oracle: at finite λ the intercepts still move,
+        # `β_F = (X_F'X_F)⁻¹X_F'(y − X_P β_P(λ))`.
+        data = _mf_data(24)
+        ds = _mf_ds(mb, data; gate_eps = 1e-8)
+        ic = SLCE._intercept_columns(mb)
+        rows = ds.keep
+        means = [sum(ds.y[rows] .* ds.X[rows, j]) / sum(ds.X[rows, j]) for j in ic]
+        for est in (Ridge(mb; lambda = 1e12, metric_nconfig = 256),
+                    AdaptiveRidge(mb; lambda = 1e12, metric_nconfig = 256),
+                    GroupAdaptiveRidge(mb; lambda = 1e12, metric_nconfig = 256))
+            f = fit(MomentFit, ds, est)
+            @test coef(f)[ic] ≈ means rtol = 1e-6
+            @test maximum(abs, coef(f)[setdiff(1:p, ic)]) < 1e-6 * maximum(abs, means)
+        end
+        # the control: no metric ⇒ the same λ crushes μ₀ too
+        fu = fit(MomentFit, ds, Ridge(mb; lambda = 1e12, metric = nothing))
+        @test maximum(abs, coef(fu)[ic]) < 1e-6 * maximum(abs, means)
+    end
+
+    @testset "penalty metric: the freeze reduction covers every estimator" begin
+        # A metric makes Ridge/AdaptiveRidge column-structured too, so the
+        # vanishing-column freeze has to cut it down with the design.
+        m = collect(1.0:p)
+        active = trues(p)
+        active[[2, 5]] .= false
+        for est in (Ridge(; lambda = 0.5, metric = m),
+                    AdaptiveRidge(; lambda = 0.5, metric = m),
+                    GroupAdaptiveRidge(salc_groups(mb), ones(maximum(salc_groups(mb)));
+                                       lambda = 0.5, metric = m))
+            red = SLCE._reduce_to_active(est, active)
+            @test red.metric == m[active]
+            @test SLCE._reduce_to_active(est, trues(p)) === est
+        end
+        # length mismatches are refused by name, not by a deep DimensionMismatch
+        @test_throws DimensionMismatch SLCE._reduce_to_active(
+            Ridge(; lambda = 0.5, metric = ones(p + 1)), active)
+    end
+
+    @testset "penalty metric: the pointed fit door checks provenance" begin
+        data = _mf_data(12)
+        ds = _mf_ds(mb, data; gate_eps = 1e-8)
+        # a metric built for the ENERGY channel is refused on this one
+        bad = Ridge(; lambda = 1.0, metric = ones(p),
+                    metric_provenance = MetricProvenance(
+                        :energy, 0.0, 100, 1, mb.salc_basis.fingerprint))
+        @test_throws ArgumentError fit(MomentFit, ds, bad)
+        # ... and so is one built on a different pointed basis
+        wrong = Ridge(; lambda = 1.0, metric = ones(p),
+                      metric_provenance = MetricProvenance(
+                          :moment, 0.0, 100, 1, mb.salc_basis.fingerprint + 0x1))
+        @test_throws ArgumentError fit(MomentFit, ds, wrong)
+        # the basis-aware constructor stamps a provenance that passes
+        good = Ridge(mb; lambda = 1e-6, metric_nconfig = 256)
+        @test good.metric_provenance.channel === :moment
+        @test good.metric_provenance.fingerprint == mb.salc_basis.fingerprint
+        @test fit(MomentFit, ds, good) isa MomentFit
+        # `with_lambda` keeps both
+        @test with_lambda(good, 1e-3).metric_provenance === good.metric_provenance
     end
 
     @testset "_reduce_to_active: non-uniform weights follow the relabeling" begin

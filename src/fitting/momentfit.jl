@@ -390,6 +390,7 @@ end
 function fit(::Type{MomentFit}, ds::MomentDataset,
              estimator::AbstractEstimator = OLS())::MomentFit
     any(ds.keep) || throw(ArgumentError("no rows survive the gate"))
+    _check_metric_provenance(estimator, :moment, ds.basis.salc_basis.fingerprint, 0.0)
     p = size(ds.X, 2)
     active = trues(p)
     active[ds.vanishing] .= false
@@ -642,21 +643,187 @@ function salc_groups(mb::MomentBasis)::Vector{Int}
     return labels
 end
 
+# ── the penalty metric of the pointed channel ──────────────────────────────────────
+
+"""
+    _intercept_columns(mb::MomentBasis) -> Vector{Int}
+
+The μ₀ columns of the pointed design: the 1-body pointed SALCs whose single site is
+the mark with `spin_l = 0`, i.e. the constant `Φ = 1` per mark class. They set the
+reference moment magnitude, so shrinking them toward zero has no physical meaning —
+[`penalty_metric`](@ref)`(mb)` exempts them by setting their scale to exactly `0`.
+
+The discriminant cannot misfire: a `SiteDecor` with `spin_l == 0` must carry a
+displacement factor (its inner constructor refuses a bare `l = 0` spin decor), and in
+a pointed label the displacement factor **is** the mark, so `body == 1` with a single
+`spin_l == 0` decor is exactly the marked constant.
+"""
+function _intercept_columns(mb::MomentBasis)::Vector{Int}
+    out = Int[]
+    for (j, s) in enumerate(salcs(mb))
+        s.key.body == 1 && length(s.key.decors) == 1 || continue
+        d = s.key.decors[1]
+        (d.spin_l == 0 && is_marked(d)) && push!(out, j)
+    end
+    return out
+end
+
+"""
+    penalty_metric(mb::MomentBasis; free_intercepts = true, nconfig = 2048, seed = 1)
+        -> Vector{Float64}
+
+The per-column penalty scale of a pointed moment basis, in design-column order — the
+moment channel's counterpart of [`penalty_metric`](@ref)`(::SLCEBasis)`, and the same
+argument for it: `λ·Σⱼβⱼ²` is not invariant under rescaling a column, and pointed SALC
+column norms are set by the star's member count and the ordering multiplicity the
+member fold absorbs, so the plain penalty prefers large orbits and high body order for
+reasons that are conventions rather than physics.
+
+    mⱼ = E[Φⱼ²]
+
+over `nconfig` independent uniform-random spin configurations, evaluated on the pointed
+design rows (one per marked reference-cell atom per configuration) with the
+identity-substituted evaluation axis. Not centered, unlike the energy channel: the
+moment design has no column centering to match — its rows carry the intercept columns
+explicitly.
+
+Two families of column get an exact `0`, which the estimators read as **unpenalized**:
+
+- the μ₀ intercepts (`_intercept_columns`), unless `free_intercepts = false`. Shrinking
+  the reference moment magnitude toward zero is not a modelling choice anyone wants;
+  `false` exists only to make the comparison measurable.
+- the columns [`moment_resolvability`](@ref) reports as identically vanishing on this
+  cell. They are frozen out of the solve anyway; a zero scale keeps the metric
+  consistent with the design the solver actually sees.
+
+Any OTHER zero is refused: zero means a structural exemption, so it is never inferred
+from a sample.
+
+Unlike the energy channel, the moment design reaches the estimator with **no row
+whitening**, so the column norms the solver sees are `n_rows · mⱼ`. Relative weighting
+and scale invariance are unaffected — it is a uniform factor — but λ on this channel is
+therefore not comparable across datasets of different row count, where the energy
+channel's `√(1/n_E)` makes it so.
+"""
+function penalty_metric(mb::MomentBasis; free_intercepts::Bool = true,
+                        nconfig::Integer = 2048, seed::Integer = 1)::Vector{Float64}
+    # The structural exemptions come FIRST: `moment_resolvability` is also the
+    # `UnclassifiableBasis` door, so on a basis this cell cannot resolve the user should
+    # not first pay a full reference-ensemble evaluation inside a constructor. The
+    # columns it names are then skipped rather than measured and discarded.
+    res = moment_resolvability(mb)
+    structural = copy(res.vanishing)
+    free_intercepts && append!(structural, _intercept_columns(mb))
+    sort!(unique!(structural))
+    p = n_salcs(mb)
+    measured = setdiff(1:p, structural)
+
+    nat = n_atoms(mb.crystal)
+    cfgs = _reference_configs(nat, Int(nconfig), Int(seed))
+    nmark = max(1, length(mb.marked_atoms))
+    # Accumulate over configuration chunks rather than building the whole reference
+    # design: the full `nconfig · n_marked × p` block is ~100 MB for a 3x3x3 supercell
+    # basis, and this runs in a constructor. The chunk is sized by BYTES, so the peak
+    # buffer stays put as the column count grows.
+    chunk = clamp(cld(_METRIC_CHUNK_BYTES, 8 * nmark * max(1, p)), 1, length(cfgs))
+    index = _mark_term_index(salcs(mb), mb.marked_atoms)   # once, not once per chunk
+    acc = zeros(Float64, p)
+    nrow = 0
+    for lo = 1:chunk:length(cfgs)
+        sub = cfgs[lo:min(lo + chunk - 1, length(cfgs))]
+        X = _design_moment(mb, sub, sub; index = index)    # identity axes: mode-4
+        nrow += size(X, 1)
+        # A plain sequential row loop, not `sum`: `sum`'s pairwise tree would make the
+        # last bits of every entry of `m` a function of the chunk size, i.e. of a
+        # tuning constant. This way the accumulation order is the row order whatever
+        # the chunking.
+        for j in measured
+            a = acc[j]
+            @inbounds for i = 1:size(X, 1)
+                a += abs2(X[i, j])
+            end
+            acc[j] = a
+        end
+    end
+    m = acc ./ nrow
+    _refuse_zero_metric(m, "penalty_metric(::MomentBasis)"; exempt = structural,
+                        hint = " `moment_resolvability` should have named it, and " *
+                               "that it did not is worth understanding before fitting.")
+    return m
+end
+
+# Resolve the `metric` keyword of a pointed basis-aware constructor. A separate name
+# from the energy side's `_basis_metric` on purpose: the two would otherwise carry
+# different meanings in the same positional slot (`torque_weight` there,
+# `free_intercepts` here), which is the readability trap the divergence ledger's first
+# row exists for, reintroduced inside the package.
+function _pointed_metric(mb::MomentBasis, metric, free_intercepts::Bool,
+                         nconfig::Integer, seed::Integer)
+    metric === :basis || return (_checked_metric_keyword(metric), nothing)
+    m = penalty_metric(mb; free_intercepts = free_intercepts, nconfig = nconfig,
+                       seed = seed)
+    pv = MetricProvenance(:moment, 0.0, nconfig, seed, mb.salc_basis.fingerprint)
+    return (m, pv)
+end
+
 """
     GroupAdaptiveRidge(mb::MomentBasis; lambda, epsilon = 1e-8, max_iter = 50,
                        tol = 1e-6)
 
 Group-adaptive estimator for a pointed basis: [`salc_groups`](@ref)`(mb)` labels
 with UNIT weights (the moment channel has no MC contraction cost; the energy-side
-`cost_weights` story does not apply). See the primary [`GroupAdaptiveRidge`](@ref)
-constructor for the estimator itself. Note the ridge-family caveat of
-[`fit`](@ref)`(MomentFit, ...)`: the penalty also shrinks the μ₀ intercept columns.
+`cost_weights` story does not apply), and by default
+[`penalty_metric`](@ref)`(mb; free_intercepts, ...)`. See the primary
+[`GroupAdaptiveRidge`](@ref) constructor for the estimator itself.
+
+The metric is what keeps the μ₀ intercept columns **out** of the penalty, and it does
+so identically for all three estimators — a group weight could only have done it for
+the group form, leaving `fit(MomentFit, ds, Ridge(λ))` quietly shrinking the reference
+moment. Pass `metric = nothing` for the unweighted penalty (which does shrink μ₀), or
+a vector of your own.
 """
 function GroupAdaptiveRidge(mb::MomentBasis; lambda::Real, epsilon::Real = 1e-8,
-                            max_iter::Integer = 50, tol::Real = 1e-6)
+                            max_iter::Integer = 50, tol::Real = 1e-6,
+                            metric = :basis, free_intercepts::Bool = true,
+                            metric_nconfig::Integer = 2048, metric_seed::Integer = 1)
     cg = salc_groups(mb)
+    m, pv = _pointed_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
     return GroupAdaptiveRidge(cg, ones(maximum(cg)); lambda = lambda,
-                              epsilon = epsilon, max_iter = max_iter, tol = tol)
+                              epsilon = epsilon, max_iter = max_iter, tol = tol,
+                              metric = m, metric_provenance = pv)
+end
+
+"""
+    Ridge(mb::MomentBasis; lambda, metric = :basis, free_intercepts = true,
+          metric_nconfig = 2048, metric_seed = 1)
+
+Ridge for a pointed basis, carrying [`penalty_metric`](@ref)`(mb; free_intercepts,
+...)`. That metric is what keeps the μ₀ intercept columns out of the penalty; see
+[`GroupAdaptiveRidge`](@ref)`(mb; ...)` for why it is the metric that does it rather
+than a group weight.
+"""
+function Ridge(mb::MomentBasis; lambda::Real, metric = :basis,
+               free_intercepts::Bool = true, metric_nconfig::Integer = 2048,
+               metric_seed::Integer = 1)
+    m, pv = _pointed_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
+    return Ridge(lambda, m, pv)
+end
+
+"""
+    AdaptiveRidge(mb::MomentBasis; lambda, epsilon = 1e-8, max_iter = 50, tol = 1e-6,
+                  metric = :basis, free_intercepts = true, metric_nconfig = 2048,
+                  metric_seed = 1)
+
+The per-coefficient adaptive ridge for a pointed basis. Keyword semantics as in
+[`Ridge`](@ref)`(mb; ...)`.
+"""
+function AdaptiveRidge(mb::MomentBasis; lambda::Real, epsilon::Real = 1e-8,
+                       max_iter::Integer = 50, tol::Real = 1e-6, metric = :basis,
+                       free_intercepts::Bool = true, metric_nconfig::Integer = 2048,
+                       metric_seed::Integer = 1)
+    m, pv = _pointed_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
+    return AdaptiveRidge(; lambda = lambda, epsilon = epsilon, max_iter = max_iter,
+                         tol = tol, metric = m, metric_provenance = pv)
 end
 
 # Column-structured estimators must follow fit's vanishing-column reduction: the
@@ -687,7 +854,10 @@ function _reduce_to_active(estimator::GroupAdaptiveRidge,
     end
     return GroupAdaptiveRidge(labels, estimator.group_weights[old];
                               lambda = estimator.lambda, epsilon = estimator.epsilon,
-                              max_iter = estimator.max_iter, tol = estimator.tol)
+                              max_iter = estimator.max_iter, tol = estimator.tol,
+                              metric = _reduce_metric(estimator.metric, active,
+                                                      "GroupAdaptiveRidge"),
+                              metric_provenance = estimator.metric_provenance)
 end
 
 # --- local-field diagnostics + the simple-feature nested floor ----------------------

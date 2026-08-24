@@ -258,19 +258,204 @@ end
 
 """
     GroupAdaptiveRidge(basis::SLCEBasis; lambda, cost_exponent = 1.0, epsilon = 1e-8,
-                       max_iter = 50, tol = 1e-6)
+                       max_iter = 50, tol = 1e-6, torque_weight = 0.0,
+                       metric = :basis, metric_nconfig = 2048, metric_seed = 1)
 
 Cost-weighted group estimator for `basis`: [`salc_groups`](@ref) column labels with the
-fixed [`cost_weights`](@ref)`(basis; cost_exponent)` weights. See the primary
-[`GroupAdaptiveRidge`](@ref) constructor for the estimator itself.
+fixed [`cost_weights`](@ref)`(basis; cost_exponent)` weights, and by default the
+basis-intrinsic [`penalty_metric`](@ref)`(basis; torque_weight, ...)`. See the primary
+[`GroupAdaptiveRidge`](@ref) constructor for the estimator itself, and
+[`penalty_metric`](@ref) for what the metric does and why it is on by default.
+
+`torque_weight` must be the weight the fit will run at — the metric is a property of
+the assembled design, which mixes the two blocks by it, and the fitting doors refuse a
+mismatch. Pass `metric = nothing` for the unweighted penalty, or a vector of your own.
+The metric is defined on the pure-spin channel only; on a displacement-carrying basis
+`:basis` is refused by name (see [`penalty_metric`](@ref)).
 """
 function GroupAdaptiveRidge(basis::SLCEBasis; lambda::Real, cost_exponent::Real = 1.0,
                             epsilon::Real = 1e-8, max_iter::Integer = 50,
-                            tol::Real = 1e-6)
+                            tol::Real = 1e-6, torque_weight::Real = 0.0,
+                            metric = :basis, metric_nconfig::Integer = 2048,
+                            metric_seed::Integer = 1)
     lw = cost_weights(basis; cost_exponent = cost_exponent)
+    m, pv = _basis_metric(basis, metric, torque_weight, metric_nconfig, metric_seed)
     return GroupAdaptiveRidge(lw.column_groups, lw.weights; lambda = lambda,
                               epsilon = epsilon,
-                              max_iter = max_iter, tol = tol)
+                              max_iter = max_iter, tol = tol, metric = m,
+                              metric_provenance = pv)
+end
+
+"""
+    Ridge(basis::SLCEBasis; lambda, torque_weight = 0.0, metric = :basis,
+          metric_nconfig = 2048, metric_seed = 1)
+
+Ridge for `basis`, carrying the basis-intrinsic
+[`penalty_metric`](@ref)`(basis; torque_weight, ...)` so that λ means the same thing
+across the three penalized estimators.
+
+`torque_weight` is the only metric keyword without a `metric_` prefix, deliberately:
+it must equal the `torque_weight` the fit runs at, because the assembled design mixes
+the energy and torque blocks by it and the column scales move with it. The fitting
+doors refuse a mismatch. `metric = nothing` gives the unweighted penalty and a vector
+is taken as given; anything else is refused by name. Reuse one metric across a λ sweep
+with `SLCE.with_lambda` rather than rebuilding it per point.
+"""
+function Ridge(basis::SLCEBasis; lambda::Real, torque_weight::Real = 0.0,
+               metric = :basis, metric_nconfig::Integer = 2048,
+               metric_seed::Integer = 1)
+    m, pv = _basis_metric(basis, metric, torque_weight, metric_nconfig, metric_seed)
+    return Ridge(lambda, m, pv)
+end
+
+"""
+    AdaptiveRidge(basis::SLCEBasis; lambda, epsilon = 1e-8, max_iter = 50, tol = 1e-6,
+                  torque_weight = 0.0, metric = :basis, metric_nconfig = 2048,
+                  metric_seed = 1)
+
+The per-coefficient adaptive ridge for `basis`, carrying the basis-intrinsic
+[`penalty_metric`](@ref)`(basis; torque_weight, ...)`. Keyword semantics as in
+[`Ridge`](@ref)`(basis; ...)`.
+"""
+function AdaptiveRidge(basis::SLCEBasis; lambda::Real, epsilon::Real = 1e-8,
+                       max_iter::Integer = 50, tol::Real = 1e-6,
+                       torque_weight::Real = 0.0, metric = :basis,
+                       metric_nconfig::Integer = 2048, metric_seed::Integer = 1)
+    m, pv = _basis_metric(basis, metric, torque_weight, metric_nconfig, metric_seed)
+    return AdaptiveRidge(; lambda = lambda, epsilon = epsilon, max_iter = max_iter,
+                         tol = tol, metric = m, metric_provenance = pv)
+end
+
+# Resolve the `metric` keyword of a basis-aware constructor: `:basis` builds the
+# reference metric and stamps its provenance, anything else is taken as given (and
+# carries no provenance — the caller owns it).
+function _basis_metric(basis::SLCEBasis, metric, torque_weight::Real, nconfig::Integer,
+                       seed::Integer)
+    metric === :basis || return (_checked_metric_keyword(metric), nothing)
+    m = penalty_metric(basis; torque_weight = torque_weight, nconfig = nconfig,
+                       seed = seed)
+    pv = MetricProvenance(:energy, torque_weight, nconfig, seed,
+                          basis.salc_basis.fingerprint)
+    return (m, pv)
+end
+
+"""
+    penalty_metric(basis::SLCEBasis; torque_weight = 0.0, nconfig = 2048, seed = 1)
+        -> Vector{Float64}
+
+The per-column penalty scale of `basis`: one entry per SALC column, in design-column
+(`SALCKey`) order, for the `metric` field of [`Ridge`](@ref) / [`AdaptiveRidge`](@ref) /
+[`GroupAdaptiveRidge`](@ref).
+
+`λ·Σⱼβⱼ²` is not invariant under rescaling a design column, and SALC column norms are
+set by basis conventions — an orbit's member count, and the ordering multiplicity the
+member fold absorbs — rather than by physics. A larger column norm means a smaller
+fitted coefficient at the same physical effect, hence *less* shrinkage: the plain
+penalty carries an accidental prior in favour of large orbits and high body order.
+Weighting the penalty by `mⱼ` removes it, leaving whatever prior the caller states
+deliberately (the `cost_exponent` of [`cost_weights`](@ref)).
+
+The scale is the reference norm of the column **as the estimator sees it** — the
+assembled, centered / whitened design of `_assemble_problem` at this `torque_weight`:
+
+    mⱼ(w) = (1 − w)·Var[Φⱼ] + w·(1 / 3n_atoms)·E[ Σ_a ‖(∂Φⱼ/∂e_a) × e_a‖² ]
+
+with both moments taken over `nconfig` independent uniform-random spin configurations.
+The torque term's `1/(3·n_atoms)` is the per-row average the assembly's `√(w/n_T)`
+already applies (`n_T = n_E·3·n_atoms`); dropping it would misscale the two blocks
+against each other by the atom count.
+
+**Pure spin only.** A displacement-decorated basis is refused: the reference ensemble
+is uniform random spin directions, and `|u|^{2k}·R_{lm}(u)` has no value on one — the
+reference distribution of `u` (which amplitude? which temperature?) is a modelling
+decision that has to be written down before it can be sampled. The force block of the
+objective is refused for the same reason at the fitting door.
+
+The metric is a property of the **basis**, not of the training data — deliberately, so
+that λ can be compared between cells, so that cross-validation needs no per-fold
+recomputation to stay leak-free, and so the prior sits on the function space rather
+than on how strongly a particular training set happened to excite each column. The
+price is that a column the reference ensemble excites weakly but the training data
+drives hard is effectively under-penalized; `nothing` (uniform) remains available, and
+the ratio `mⱼ / Var_train[Φⱼ]` is worth looking at when the training set is far from
+uniform (near-collinear low-temperature configurations, say).
+
+`nconfig` / `seed` control the reference ensemble. The generator is specified inside
+this package rather than taken from `Random`, so the sequence does not move between
+Julia versions; the estimate converges as `1/√nconfig` to a closed-form expectation.
+
+The default is sized from that convergence, not guessed. Measured on bcc Fe 2×2×2
+(`lmax = 2`, 2- and 3-body columns) as the spread of `mⱼ` over eight independent
+seeds: the relative standard error is **1.6 % median / 2.8 % worst column at
+`nconfig = 2048`**, and 3.3 % / 5.3 % at 2000. Body order barely moves it (2-body and
+3-body columns agree within the spread), so `1/√nconfig` from these numbers sizes any
+basis. That residual is a seed-dependent wobble on the *prior*, an order of magnitude
+smaller than the systematic factor the metric removes — orbit size times the ordering
+multiplicity of the member fold, which spans decades — but it is not zero, so build the
+metric ONCE and reuse it across a λ sweep (`SLCE.with_lambda`) rather than rebuilding
+per point with a different seed.
+
+See also [`Ridge`](@ref)`(basis; ...)` and [`GroupAdaptiveRidge`](@ref)`(basis; ...)`,
+which attach the metric and its provenance for you.
+"""
+function penalty_metric(basis::SLCEBasis; torque_weight::Real = 0.0,
+                        nconfig::Integer = 2048, seed::Integer = 1)::Vector{Float64}
+    all(s -> all(is_pure_spin, s.key.decors), salcs(basis)) || throw(ArgumentError(
+        "penalty_metric: the basis carries displacement-decorated SALCs. The " *
+        "reference ensemble is uniform random SPIN directions, so a displacement " *
+        "factor has no reference norm on it — the reference distribution of u is a " *
+        "modelling decision (amplitude, temperature, sector) that has to be " *
+        "specified before it can be sampled. Use `metric = nothing` (the unweighted " *
+        "penalty) on a joint basis."))
+    w = Float64(torque_weight)
+    (isfinite(w) && 0 <= w <= 1) ||
+        throw(ArgumentError("torque_weight must be in [0, 1]; got $torque_weight"))
+    nat = n_atoms(basis.crystal)
+    cfgs = _reference_configs(nat, Int(nconfig), Int(seed))
+    sal = salcs(basis)
+    p = length(sal)
+    K = length(cfgs)
+    m = Vector{Float64}(undef, p)
+    # Columns are independent and each task owns one, so the result is identical at
+    # any thread count. The torque block is accumulated, never materialized: the full
+    # `K·3·n_atoms × p` design would be hundreds of MB for a supercell basis.
+    #
+    # The three `w` regimes are separate loops rather than one loop with a test: at
+    # `w = 1` the energy term is multiplied by zero, and evaluating it anyway costs
+    # roughly the whole `w = 0` column.
+    Threads.@threads for j = 1:p
+        scratch = SALCScratch()
+        s1 = 0.0
+        s2 = 0.0
+        st = 0.0
+        if w < 1.0
+            @inbounds for c in cfgs
+                phi = evaluate_salc(sal[j], c, scratch)
+                s1 += phi
+                s2 += phi * phi
+            end
+        end
+        if w > 0.0
+            G = Matrix{Float64}(undef, 3, nat)
+            @inbounds for c in cfgs
+                fill!(G, 0.0)
+                accumulate_grad!(G, sal[j], c, 1.0, scratch)
+                for a = 1:nat
+                    ea = SVector{3,Float64}(c[1, a], c[2, a], c[3, a])
+                    ga = SVector{3,Float64}(G[1, a], G[2, a], G[3, a])
+                    st += sum(abs2, cross(ga, ea))
+                end
+            end
+        end
+        # The textbook one-pass variance. It can go slightly negative on a column whose
+        # variance is genuinely zero, which the clamp absorbs; the reference ensemble is
+        # centered enough (`E[Φ] = 0` for every all-`l ≥ 1` label) that the
+        # cancellation this form is known for does not bite here.
+        varj = max(0.0, s2 / K - (s1 / K)^2)
+        m[j] = (1 - w) * varj + w * (st / K) / (3 * nat)
+    end
+    _refuse_zero_metric(m, "penalty_metric(::SLCEBasis)")
+    return m
 end
 
 # --- GCV / effective degrees of freedom -------------------------------------------
@@ -284,22 +469,24 @@ end
 _penalty_diagonal(::OLS, beta::Vector{Float64}) = (0.0, nothing)
 function _penalty_diagonal(estimator::Ridge, beta::Vector{Float64})
     estimator.lambda == 0.0 && return (0.0, nothing)
-    return (estimator.lambda, ones(Float64, length(beta)))
+    return (estimator.lambda, _metric_vector(estimator.metric, length(beta), "Ridge"))
 end
 function _penalty_diagonal(estimator::AdaptiveRidge, beta::Vector{Float64})
     estimator.lambda == 0.0 && return (0.0, nothing)
-    return (estimator.lambda, @.(1.0 / (beta^2 + estimator.epsilon)))
+    m = _metric_vector(estimator.metric, length(beta), "AdaptiveRidge")
+    return (estimator.lambda, @.(m / (m * beta^2 + estimator.epsilon)))
 end
 function _penalty_diagonal(estimator::GroupAdaptiveRidge, beta::Vector{Float64})
     estimator.lambda == 0.0 && return (0.0, nothing)
     length(beta) == length(estimator.column_groups) || throw(DimensionMismatch(
         "coefficient length $(length(beta)) ≠ column_groups length " *
         "$(length(estimator.column_groups))"))
-    w = Vector{Float64}(undef, length(beta))
+    m = _metric_vector(estimator.metric, length(beta), "GroupAdaptiveRidge")
+    D = Vector{Float64}(undef, length(beta))
     normsq = Vector{Float64}(undef, length(estimator.group_weights))
-    _group_adaptive_weights!(w, beta, estimator.column_groups, estimator.group_weights, estimator.group_sizes,
-                  estimator.epsilon, normsq)
-    return (estimator.lambda, w)
+    _group_adaptive_weights!(D, beta, estimator.column_groups, estimator.group_weights,
+                             estimator.group_sizes, m, estimator.epsilon, normsq)
+    return (estimator.lambda, D)
 end
 _penalty_diagonal(estimator::AbstractEstimator, beta::Vector{Float64}) =
     throw(ArgumentError("gcv/effective_dof require a linear estimator " *
@@ -327,7 +514,12 @@ end
 # A λ-path caller passes its cached `XtX` so the `p ≤ n` branch touches only `p × p`
 # data per λ. Tiny negative eigenvalues from roundoff are clamped out.
 function _effective_dof_gram(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64};
-               XtX::Union{Nothing,Matrix{Float64}} = nothing)::Float64
+               XtX::Union{Nothing,Matrix{Float64}} = nothing,
+               columns::Union{Nothing,Vector{Int}} = nothing)::Float64
+    # `w[j] == 0` marks column `j` as UNPENALIZED. `X̃ = X·D^{-1/2}` is then undefined —
+    # and the cached `XtX` form divides by zero without so much as an `Inf` in the
+    # trace — so the split is taken FIRST, before the `XtX` keyword is consulted.
+    any(iszero, w) && return _effective_dof_free(X, lambda, w; columns = columns)
     n, p = size(X)
     M = if p <= n
         if XtX === nothing
@@ -349,6 +541,62 @@ function _effective_dof_gram(X::Matrix{Float64}, lambda::Float64, w::Vector{Floa
     return df
 end
 
+# `_effective_dof_gram` when part of the penalty diagonal is exactly zero. Split the
+# design as `X = [X_F X_P]` (unpenalized / penalized), `D = diag(0, W)`,
+# `A = X'X + λD`:
+#
+#   tr(H) = tr(A⁻¹X'X) = p − λ·tr((A⁻¹)_PP W),   (A⁻¹)_PP = (X_P'M X_P + λW)⁻¹
+#
+# with `M = I − X_F(X_F'X_F)⁻¹X_F'` the projector off the unpenalized columns, so
+#
+#   tr(H) = p_F + Σᵢ sᵢ/(sᵢ + λ),   sᵢ = eig(W^{-1/2}(X_P'M X_P)W^{-1/2}),
+#
+# recovering the penalized form at `p_F = 0` and giving `df → p_F` as `λ → ∞` (an
+# unpenalized column always costs its full degree of freedom). Preconditions: `λ > 0`,
+# and `X_F` of full column rank — `v'Av = ‖Xv‖² + λΣ_P w_j v_j²` vanishes only for
+# `v_P = 0` and `X_F v_F = 0`, so `A ≻ 0` is exactly a rank condition on `X_F` and the
+# penalized block is safe for any `W ≻ 0`. A rank-deficient `X_F` is refused by name:
+# the model is not identified and any finite dof reported for it would be meaningless.
+#
+# `M` is never formed `n × n`. With `Q` the thin-QR basis of `X_F`, the matrix
+# `B = X̃_P − Q(Q'X̃_P)` has the same nonzero singular values as `M X_P W^{-1/2}`, and
+# the eigenproblem is taken on the smaller of `B'B` (`p_P × p_P`) and `BB'` (`n × n`).
+# A cached `XtX` is deliberately unused: this branch runs once per diagnostic, not once
+# per point of a λ path.
+function _effective_dof_free(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64};
+                             columns::Union{Nothing,Vector{Int}} = nothing)::Float64
+    free = findall(iszero, w)
+    pen = findall(!iszero, w)
+    XF = X[:, free]
+    # ONE factorization: the SVD supplies both the rank test and the orthonormal basis
+    # of the projector, and doing those with two different factorizations would leave
+    # the test and the projection able to disagree. The tolerance is `_rank_df`'s.
+    F = svd(XF)
+    tolr = isempty(F.S) ? 0.0 : minimum(size(XF)) * eps(Float64) * F.S[1]
+    p_F = count(>(tolr), F.S)
+    if p_F != length(free)
+        named = columns === nothing ? free : columns[free]
+        throw(ArgumentError(
+            "effective dof with unpenalized columns: the unpenalized block must have " *
+            "full column rank, but columns $named have numerical rank $p_F < " *
+            "$(length(free)). The penalized least-squares problem is then singular " *
+            "and its hat matrix undefined — drop the dependent columns, or penalize " *
+            "them, rather than reporting a finite dof for a model that is not " *
+            "identified"))
+    end
+    isempty(pen) && return Float64(p_F)
+    Xp = X[:, pen] ./ sqrt.(w[pen])'
+    Q = view(F.U, :, 1:p_F)
+    B = Xp .- Q * (Q' * Xp)
+    G = length(pen) <= size(X, 1) ? Symmetric(B' * B) : Symmetric(B * B')
+    df = Float64(p_F)
+    for s in eigvals(G)
+        s > 0.0 || continue
+        df += s / (s + lambda)
+    end
+    return df
+end
+
 # ASR generalization of `_effective_dof_gram`: the β-space penalty diagonal `w` compresses to the
 # dense SPD matrix `P = Z'·D·Z` in γ space, so the diagonal-whitening shortcut is
 # silently wrong under `Z` — whiten by the Cholesky factor of `P` instead (design
@@ -358,9 +606,17 @@ function _effective_dof_nullspace(X::Matrix{Float64}, lambda::Float64, w::Vector
                   Z::Matrix{Float64})::Float64
     all(>(0.0), w) ||
         throw(ArgumentError("effective_dof/gcv: the penalty diagonal has a " *
-                            "nonpositive weight (a zero GroupAdaptiveRidge " *
-                            "group weight?) — the compressed penalty Z'DZ must " *
-                            "be positive definite"))
+                            "nonpositive weight — the compressed penalty Z'DZ must " *
+                            "be positive definite. A zero comes from either a zero " *
+                            "GroupAdaptiveRidge group weight (refused at " *
+                            "construction) or a penalty metric with an UNPENALIZED " *
+                            "column: the split-block dof of `_effective_dof_free` is " *
+                            "written for the unreparameterized problem, and an " *
+                            "unpenalized β column is not a γ direction, so the two " *
+                            "have to be combined deliberately rather than by " *
+                            "accident. No channel produces the combination today — " *
+                            "`penalty_metric(::SLCEBasis)` refuses a zero and the " *
+                            "pointed channel carries no reparameterization."))
     P = Symmetric(Z' * (w .* Z))
     C = cholesky(P)
     G = X' * X
@@ -817,6 +1073,8 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
     if wF > 0 && !has_force(dataset)
         throw(ArgumentError("force_weight = $wF but the dataset has no force data"))
     end
+    _check_metric_provenance(estimator, :energy,
+                             dataset.basis.salc_basis.fingerprint, w, wF)
     isempty(lambdas) && throw(ArgumentError("lambdas must be nonempty"))
     all(l -> isfinite(l) && l >= 0, lambdas) ||
         throw(ArgumentError("lambdas must be finite and ≥ 0"))
@@ -850,6 +1108,11 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
     XtX = Matrix{Float64}(X' * X)
     Xty = Vector{Float64}(X' * y)
     colnorms = [norm(view(X, :, j)) for j = 1:size(X, 2)]
+    # The penalty metric, resolved once for the whole path: every solve, every GCV
+    # weight, the per-fold solves, and the cold re-solve of the selected point must see
+    # the SAME diagonal, or the returned fit and the score attached to it would
+    # describe different estimators.
+    metric = _metric_vector(estimator.metric, size(X, 2), "GroupAdaptiveRidge")
 
     # Warm-started descending path: each IRLS is seeded with the previous (more
     # regularized, already group-sparse) λ's solution.
@@ -858,7 +1121,8 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
     for i = 1:nl
         b = lams[i] == 0.0 ? (X \ y) :
             _solve_gar(XtX, Xty, lams[i], estimator.column_groups, estimator.group_weights,
-                       estimator.group_sizes, estimator.epsilon, estimator.max_iter, estimator.tol;
+                       estimator.group_sizes, metric, estimator.epsilon,
+                       estimator.max_iter, estimator.tol;
                        beta0 = prev)
         isempty(frozen_cols) || (b[frozen_cols] .= 0.0)
         betas[i] = b
@@ -910,8 +1174,9 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
                 score[i], edof[i] = _gcv_score(X, y, betas[i], 0.0, nothing;
                                                n_eff = neff, intercept = icpt)
             else
-                _group_adaptive_weights!(wv, betas[i], estimator.column_groups, estimator.group_weights,
-                              estimator.group_sizes, estimator.epsilon, normsq)
+                _group_adaptive_weights!(wv, betas[i], estimator.column_groups,
+                              estimator.group_weights, estimator.group_sizes, metric,
+                              estimator.epsilon, normsq)
                 score[i], edof[i] = _gcv_score(X, y, betas[i], lams[i], wv;
                                                XtX = XtX, n_eff = neff,
                                                intercept = icpt)
@@ -982,7 +1247,8 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
                     X[tr_rows, :] \ y[tr_rows]
                 else
                     _solve_gar(XtX_tr, Xty_tr, lams[i], estimator.column_groups,
-                               estimator.group_weights, estimator.group_sizes, estimator.epsilon,
+                               estimator.group_weights, estimator.group_sizes, metric,
+                               estimator.epsilon,
                                estimator.max_iter, estimator.tol; beta0 = prevf)
                 end
                 # Same frozen-column zeroing as the full-data path: the two paths
@@ -1002,7 +1268,8 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
 
     sel = _select_pareto(score, cost, Float64(score_rtol))
     est_sel = GroupAdaptiveRidge(lams[sel], estimator.column_groups, estimator.group_weights,
-                                 estimator.epsilon, estimator.max_iter, estimator.tol)
+                                 estimator.epsilon, estimator.max_iter, estimator.tol,
+                                 estimator.metric, estimator.metric_provenance)
     fsel = fit(SLCEFit, dataset, est_sel; torque_weight = w, force_weight = wF,
                asr = asr)
     # Re-derive the selected row from the cold re-solve, so `fit` / `threshold` /
@@ -1019,8 +1286,9 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
         else
             wv = Vector{Float64}(undef, length(Xty))
             normsq = Vector{Float64}(undef, G)
-            _group_adaptive_weights!(wv, fsel.jphi, estimator.column_groups, estimator.group_weights,
-                          estimator.group_sizes, estimator.epsilon, normsq)
+            _group_adaptive_weights!(wv, fsel.jphi, estimator.column_groups,
+                          estimator.group_weights, estimator.group_sizes, metric,
+                          estimator.epsilon, normsq)
             score[sel], edof[sel] = _gcv_score(X, y, fsel.jphi, lams[sel], wv;
                                                XtX = XtX, n_eff = neff,
                                                intercept = icpt)
@@ -1447,6 +1715,8 @@ function cross_validate(dataset::SLCEDataset, estimator::AbstractEstimator;
     if wF > 0 && !has_force(dataset)
         throw(ArgumentError("force_weight = $wF but the dataset has no force data"))
     end
+    _check_metric_provenance(estimator, :energy,
+                             dataset.basis.salc_basis.fingerprint, w, wF)
     nfolds >= 2 || throw(ArgumentError("nfolds must be ≥ 2; got $nfolds"))
     if _carries_fixed_coefficients(estimator)
         throw(ArgumentError("cross_validate does not accept a FixedCoefficients (or " *

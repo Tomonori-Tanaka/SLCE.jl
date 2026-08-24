@@ -436,18 +436,30 @@ warm-starts trivially along a λ path (the Gram is formed once), and — decisiv
 targets the group-L0 objective directly instead of its convex relaxation. The weight
 map is
 
-    wⱼ = v_g / (‖β_g‖² + p_g·ε)
+    Dⱼ = mⱼ·wⱼ,   wⱼ = v_g / (Σ_{k∈g} m_k·β_k² + p_g·ε)
 
-and the denominator form is deliberate. At a fixed point a surviving group's penalty
-contribution is `λ·v_g·‖β_g‖²/(‖β_g‖² + p_g ε) → λ·v_g`: the fixed multiplier `v_g`
+and the denominator form is deliberate — including where the penalty metric `m` sits.
+`m` is the per-column scale that makes the penalty independent of how the basis
+normalizes its columns (`penalty_metric`; `m ≡ 1` is the unweighted penalty and every
+statement below degenerates to the pre-metric one). It goes INSIDE the denominator: the
+group norm the map sees is then the rescaling invariant `Σ m_k β_k²`, so the estimator
+is scale invariant, and the fixed point below is preserved. Outside the denominator a
+surviving group's converged contribution would be `λ·v_g·⟨m⟩_g` and `v_g` would stop
+being the group-L0 weight — the property the whole cost-pricing story rests on. The
+same argument fixes the cold start (built from `m`) and the stopping rule (measured in
+metric coordinates `√mⱼ·βⱼ`, over the penalized columns only, so that one large
+unpenalized coefficient cannot turn a relative tolerance into a coarse absolute one).
+At a fixed point a surviving group's penalty
+contribution is `λ·v_g·N_g/(N_g + p_g ε) → λ·v_g` with `N_g = Σ m_k β_k²`: the fixed
+multiplier `v_g`
 **is** the group-L0 weight, so pricing groups by cost means simply setting
 `v_g = √p_g·(c_g/c̄)^θ` (`√p_g` is the Yuan–Lin group-size factor; `θ` tilts from
 cost-blind to cost-proportional and changes the *order* in which groups die). The two
 Greek symbols in this section are the derivation's; the API spells them out — `θ` is
 the `cost_exponent` keyword of `cost_weights` / `GroupAdaptiveRidge`, and the `δ`
 below is `score_rtol` on `select_fit` / `select_support`. Writing
-the denominator as `p_g·(mean_j βⱼ² + ε)` also keeps `ε` a per-coefficient magnitude
-floor independent of group size — the same calibration as `AdaptiveRidge`'s `βⱼ² + ε`,
+the denominator as `p_g·(mean_j mⱼβⱼ² + ε)` also keeps `ε` a magnitude
+floor on the metric-weighted coefficients, independent of group size — the same calibration as `AdaptiveRidge`'s `βⱼ² + ε`,
 to which the update degenerates exactly for singleton groups with unit weights (pinned
 by test). The trade-off versus a group lasso is theory: no convexity, selection
 consistency is empirical. That is the same trade already accepted for `AdaptiveRidge`.

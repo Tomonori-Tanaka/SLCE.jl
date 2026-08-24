@@ -6,6 +6,90 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — a basis-intrinsic penalty metric for the two pure-spin channels (2026-08-25)
+
+**BREAKING for recorded penalized fits.** `Ridge` / `AdaptiveRidge` /
+`GroupAdaptiveRidge` built from a basis now carry a per-column penalty scale by
+default, so **λ means something different than it did** and every recorded penalized
+fit has to be re-acquired to be comparable. Ported from SCEFitting.jl (`4d7ed7c`,
+`c6ccdde`, `2c720fb`, `56f4dc5`); the moment-channel λ-selection API that landed
+upstream alongside it (`cross_validate(::MomentDataset, …)`, `gcv` / `effective_dof`
+for `MomentFit`) is **not** ported — see the divergence ledger.
+
+- **Why.** `λ·Σⱼβⱼ²` is not invariant under rescaling a design column, and SALC column
+  norms are set by basis conventions — an orbit's member count times the ordering
+  multiplicity the member fold absorbs — rather than by physics. A larger column norm
+  means a smaller coefficient at the same physical effect, hence *less* shrinkage: the
+  plain penalty carried an accidental prior toward large orbits and high body order,
+  spanning decades. `penalty_metric` measures the column's reference norm as the
+  assembled design presents it and divides that prior out, leaving only the one stated
+  deliberately through `cost_exponent`.
+- **Where it enters.** The DENOMINATOR of every weight map (`Dⱼ = mⱼ·wⱼ`,
+  `wⱼ = v_g/(Σ_{k∈g} m_kβ_k² + p_g·ε)`), never outside it: outside, the adaptive
+  estimators would stop being scale invariant and a surviving group's converged penalty
+  would read `λ·v_g·⟨m⟩_g` instead of `λ·v_g`, which is the property that makes `v_g`
+  the group-L0 weight. Cold starts are built from the metric for the same reason, and
+  the IRLS stopping rule is measured in the rescaling invariant `√mⱼ·βⱼ` over the
+  penalized columns only.
+- **`mⱼ = 0` marks a column unpenalized.** That is how the pointed channel's μ₀
+  intercepts stay out of the penalty — for all three estimators, where a group weight
+  could only have done it for the group form — and it is reserved for a structural
+  exemption: a numerically-zero estimate is refused, never floored. The unpenalized
+  block must have full column rank (`_check_free_block`; a `Symmetric \` on a singular
+  matrix returns garbage rather than throwing), and `effective_dof` gains the
+  split-block form `p_F + Σᵢ sᵢ/(sᵢ+λ)`.
+- **Scope: pure spin.** The reference ensemble is uniform random spin directions, and
+  `|u|^{2k}R_{lm}(u)` has no value on one — the reference distribution of `u` is a
+  modelling decision that has to be specified first. `penalty_metric(::SLCEBasis)`
+  refuses a displacement-carrying basis by name, and a fit with `force_weight > 0`
+  under a metric is refused at the door. Under an ASR / freeze reparameterization the
+  penalty compresses to `Z'·Diagonal(D)·Z` while the metric keeps its basis-column
+  indexing, exactly as `column_groups` does.
+- **Reproducibility.** The reference ensemble comes from an in-package SplitMix64, not
+  from `Random`: Julia's `MersenneTwister` stream carries no cross-version guarantee,
+  and a drifting stream would move every penalized coefficient without a line of this
+  package changing. `MetricProvenance` records channel / `torque_weight` / `nconfig` /
+  `seed` / basis fingerprint and is checked at `fit`, `refit`, `select_fit`,
+  `cross_validate`, and `fit(MomentFit, …)`; a hand-built metric carries none and
+  passes, since the caller owns it.
+- **`SLCE.with_lambda(est, λ)`** re-lambdas an estimator with its metric and provenance
+  intact. Use it for a λ sweep: a hand rebuild
+  (`GroupAdaptiveRidge(est.column_groups, est.group_weights; lambda = λ)`) silently
+  drops the metric and no door can tell that apart from a deliberate uniform one — a
+  trap this package's own `select_fit` test walked into on the first run.
+- Unchanged: `OLS`, `lambda = 0`, and every estimator without a metric are bit-identical
+  to before, including under a reparameterization (the uniform penalty stays `λ·I` in γ
+  space rather than being re-formed as `Z'IZ`).
+
+### Added — general body order in the pointed enumeration; `nbody` cap raised to 4 (2026-08-25)
+
+Ported from SCEFitting.jl (`f297df9`, `679b6fa`, `57a22de`). **No pointed number
+moves at `nbody ≤ 3`**: the generalization was landed as a pure refactor and the door
+opened separately.
+
+- `_moment_labels` and `_pointed_star_candidates` are written for general `N`
+  (`_combinations` / `_permutations` in `clusters/enumerate.jl` replace the hard-coded
+  `_PERMS3`), the `MomentBasis` constructor loops `N = 3:spec.nbody` over one
+  `cutoff_star` neighbor list, and `MomentSpec` accepts `nbody ≤ 4`. The cap is where
+  the test oracles stop, not where the code does.
+- Each body order starts at total spin rank `Σl = 2⌈(N−1)/2⌉`, so the 4-body sector
+  begins at `Σl = 4` and its naive lowest member (a rank-0 mark with three `l = 1`
+  environments) is **absent by time reversal**, not by parity: the only `L_S = 0`
+  invariant of three vectors is the pseudoscalar triple product, which a chiral space
+  group would otherwise allow (this package's own FeGe B20 fixture is one).
+- **A body order that contributes nothing is now loud.** A truncation that cannot reach
+  a sector's `Σl` floor used to drop it in silence while `show` printed the requested
+  `nbody`; there is now a warning naming the floor and the likely cause, and `show`
+  reports the body order actually built.
+- `moment_resolvability`'s repeated-image refusal is widened to include an environment
+  landing on a periodic image of the MARK — excluded by site index before, which could
+  not see it. The enumeration cannot build one, so this is a second lock on the same
+  door.
+- The `MomentBasis` orbit loop is threaded (as `build_salc_basis` already was), the
+  resolvability census is single-pass, and `_moment_labels` is hoisted out of the
+  per-orbit loop.
+
+
 ### Fixed — a self-image (`AllImages`) basis is refused at the fitting door (2026-08-24)
 
 Ported from the spin-only SCEFitting.jl fix (`8b46979`), extended to the joint door
