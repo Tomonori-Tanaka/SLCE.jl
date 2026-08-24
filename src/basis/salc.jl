@@ -485,6 +485,13 @@ function evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real},
 end
 
 # Mixed sibling of `_eval_term`: per-axis factor tables channel-dispatched.
+#
+# `D` is the SLOT count, not the body order: a decorated term carries one axis per
+# FACTOR, and a site may hold two (a spin rank and a displacement). For a pointed
+# `N`-body term that is `N` when the mark's spin rank is 0 — its `|u|²R₀₀` factor is
+# the only one it contributes — and `N + 1` when the mark also carries a spin rank.
+# (`_eval_term`'s `D == body order` holds because it is the pure-spin kernel, where
+# every site contributes exactly one factor.)
 @inline function _eval_term_mixed(folded::Array{Float64,D}, slots::Vector{Slot},
                                   atoms, e::AbstractMatrix{<:Real},
                                   u::AbstractMatrix{<:Real},

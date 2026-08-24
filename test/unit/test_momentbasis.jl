@@ -74,7 +74,7 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
                                               cutoff_pair = 3.0, lmax_mark = -1)
         @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
-                                              cutoff_pair = 3.0, nbody = 4)
+                                              cutoff_pair = 3.0, nbody = 5)
         @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
                                               cutoff_pair = 3.0,
                                               marked = [false])
@@ -218,6 +218,10 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         X = _design_moment(pmb, cfgs, axes)
         sv = svd(X).S
         @test count(>(1e-9 * sv[1]), sv) == res.rank
+        # the two thresholds (1e-9 here, the gate's 1e-10) agree because the
+        # spectrum has a clear gap at the rank — asserted, so the equality above
+        # is not threshold luck
+        @test res.rank == length(sv) || sv[res.rank] / sv[res.rank + 1] > 1e3
         # every symbolic null combination annihilates the actual design
         for comb in res.null_combinations
             v = zeros(n_salcs(pmb))
@@ -247,5 +251,138 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         # into a single environment sphere — the gate must refuse loudly, exactly
         # like the energy side's UnclassifiableBasis, never overcount
         @test_throws UnclassifiableBasis moment_resolvability(mb)
+        # a fourth spoke cannot help: with three environment sites drawn from the same
+        # tied neighbour shell, two of them landing on one reference-cell atom is only
+        # more likely, so the primitive cell refuses at N = 4 as well
+        mb4f = MomentBasis(xt, MomentSpec(; lmax_env = [2, 2], sampled = [true, true],
+                                          lmax_mark = 2, nbody = 4, cutoff_pair = 3.3,
+                                          cutoff_star = 3.3, lsum = 4); backend = bk)
+        @test any(k -> k.body == 4, mb4f.salc_basis.keys)
+        @test_throws UnclassifiableBasis moment_resolvability(mb4f)
+        @test occursin("UnclassifiableBasis", sprint(showerror,
+                                                     UnclassifiableBasis("x")))
+        # ... and the star basis really carries the repeated-image member shape
+        # that triggers it (two environment slots on one reference-cell atom)
+        function _repeated_env(t, m)
+            ms = findfirst(sl -> sl.factor.channel == SLCE.DISP, t.slots)
+            envs = [m.atoms[sl.site] for sl in t.slots
+                    if sl.factor.channel == SLCE.SPIN &&
+                       sl.site != t.slots[ms].site]
+            return !allunique(envs)
+        end
+        @test any(_repeated_env(t, m) for s in salcs(mb) for m in s.members
+                  for t in m.terms)
+    end
+
+    @testset "N = 4 pointed stars" begin
+        # A P1 cell with a trivial site stabilizer, so the Reynolds projector acts on a
+        # ONE-dimensional space per block and the absolute constant closes by hand. The
+        # crystal and the whole `MomentSpec` are load-bearing: they are what makes
+        # `D = 1`, and the constant below is wrong for any fixture whose stabilizer is
+        # not trivial (the FeGe star at line 200 carries an extra 1/√3 for exactly that
+        # reason).
+        L4 = 12.0
+        cr4 = Crystal(Lattice(Matrix(L4 * I(3))),
+                      [0.0 0.20 0.0 0.0; 0.0 0.0 0.24 0.0; 0.0 0.0 0.0 0.28],
+                      [1, 2, 2, 2], ["Fe", "X"])
+        sg4 = _assemble_spacegroup(cr4, [SMatrix{3,3,Float64}(Matrix(1.0I(3)))],
+                                   [SVector{3,Float64}(0, 0, 0)], "P1", 1; tol = 1e-5)
+        spec4 = MomentSpec(; lmax_env = [0, 2], sampled = [true, true], lmax_mark = 0,
+                           marked = [true, false], nbody = 4, cutoff_pair = 4.0,
+                           cutoff_star = 4.0, lsum = 4, soc = false)
+        mb4 = MomentBasis(cr4, spec4; backend = _MBFixedSG(sg4))
+        keys4 = mb4.salc_basis.keys
+        b4 = findall(k -> k.body == 4, keys4)
+
+        # -- the labels. `Σl = 2⌈(N−1)/2⌉` puts the 4-body sector at Σl = 4, and with
+        #    `lmax_mark = 0` / `lmax_env = 2` / `lsum = 4` exactly one label survives:
+        #    mark l = 0 with environment (1, 1, 2). Its naive partner, mark l = 0 with
+        #    (1, 1, 1), has Σl = 3 and dies on the time-reversal screen — the unique
+        #    L_S = 0 invariant of three vectors is the pseudoscalar triple product.
+        @test !isempty(b4)
+        @test all(j -> sort([d.spin_l for d in keys4[j].decors]) == [0, 1, 1, 2], b4)
+        @test all(j -> sum(d.spin_l for d in keys4[j].decors) == 4, b4)
+        # one star, three blocks: which environment site carries the l = 2 factor
+        @test length(b4) == 3
+        @test length(unique(keys4[j].orbit_id for j in b4)) == 1
+        @test sort([keys4[j].block for j in b4]) == [1, 2, 3]
+        # the N! ordering expansion folds to ONE member carrying ONE term
+        for j in b4
+            @test length(mb4.salc_basis.salcs[j].members) == 1
+            @test length(mb4.salc_basis.salcs[j].members[1].terms) == 1
+        end
+
+        # -- the absolute normalization, derived rather than captured.
+        #    Geometry: the unique L_S = 0 invariant of ranks (1, 1, 2) is
+        #      êⱼ·Q(ê_l)·ê_k = (êⱼ·ê_l)(ê_k·ê_l) − (1/3)(êⱼ·ê_k),   Q(ê) = êêᵀ − I/3
+        #    (the same invariant the theory page publishes for the star (2, 1, 1)).
+        #    Constant: N! from the ordering convention, times 1/√D = 1 here, times
+        #      κ = (4π)^{n_spin/2} · (1/√5) · (3/4π) · √(15/8π) = 3√(3/2)
+        #    with n_spin = 3 (the rank-0 mark contributes no spin factor, so the scale
+        #    is NOT (4π)^{N/2}), 1/√5 the unit-Frobenius normalization of the (1,1,2)→0
+        #    tensor (‖T‖² = Σ_r ‖Q_r‖_F² = 5), and the two tesseral constants of
+        #    Z_{1m} and Z_{2m}. A uniform loss of orderings — emitting 12 of the 24, say
+        #    — leaves every RATIO unchanged and moves this constant, which is why the
+        #    gate is absolute and not a ratio.
+        C4 = 24 * (4π)^(3 / 2) * (1 / sqrt(5)) * (3 / (4π)) * sqrt(15 / (8π))
+        @test C4 ≈ 24 * 3 * sqrt(3 / 2) rtol = 1e-14
+        inv112(e, j, k, l) = dot(e[:, j], e[:, l]) * dot(e[:, k], e[:, l]) -
+                             dot(e[:, j], e[:, k]) / 3
+        rng4 = MersenneTwister(20260824)
+        for _ = 1:3
+            e4 = _mb_unit(rng4, 4)
+            X4 = _design_moment(mb4, [e4], [e4])
+            ref = [C4 * inv112(e4, setdiff([2, 3, 4], [l])..., l) for l in (2, 3, 4)]
+            got = X4[1, b4]
+            # Both the block index and the column SIGN are gauge (`_sign_canon!` is
+            # allowed to flip a column; test_normalization.jl puts sign out of scope
+            # for the absolute oracles for the same reason), so the gauge-free
+            # statement is the multiset of MAGNITUDES. What it pins is the constant:
+            # a uniform loss of orderings would move every magnitude.
+            @test sort(abs.(got)) ≈ sort(abs.(ref)) rtol = 1e-12
+            # ...and the three blocks are the three assignments, not three copies of
+            # one: their magnitudes are distinct on a generic configuration
+            @test length(unique(round.(abs.(got); digits = 8))) == 3
+        end
+
+        # -- covariance under an ARBITRARY rotation, not just a space-group operation.
+        #    The mark axis has to turn with the spins; rotating only the spins leaves it
+        #    behind, and an L_S = 0 column would then move.
+        for _ = 1:2
+            e4 = _mb_unit(rng4, 4)
+            X4 = _design_moment(mb4, [e4], [e4])
+            q = qr(randn(rng4, 3, 3))
+            R = Matrix(q.Q) * (det(Matrix(q.Q)) < 0 ? Diagonal([-1.0, 1, 1]) : I)
+            @test _design_moment(mb4, [R * e4], [R * e4]) ≈ X4 rtol = 1e-12
+            # this fixture's mark has rank 0, so its ê factor is the constant |u|²R₀₀
+            # and the evaluation axis is never read — the axes argument is inert here,
+            # which is why the "rotate the spins but not the axes" control lives on a
+            # rank-1 mark instead (the covariance testset above)
+            @test _design_moment(mb4, [e4], [_mb_unit(rng4, 4)]) == X4
+            # time reversal is bitwise: every label has even total spin rank
+            @test _design_moment(mb4, [-e4], [-e4]) == X4
+        end
+
+        # -- a requested body order that cannot be reached is LOUD, and `show`
+        #    reports what was built rather than what was asked for. The sector's
+        #    `Σl` floor is 4, so an `lsum` below it drops the whole 4-body sector
+        #    while every cutoff stays generous — the silent-truncation shape.
+        spec_lo = MomentSpec(; lmax_env = [0, 2], sampled = [true, true],
+                             lmax_mark = 0, marked = [true, false], nbody = 4,
+                             cutoff_pair = 4.0, cutoff_star = 4.0, lsum = 2,
+                             soc = false)
+        mb_lo = @test_logs (:warn, r"body order 4 contributes no SALC") match_mode =
+            :any MomentBasis(cr4, spec_lo; backend = _MBFixedSG(sg4))
+        @test !any(k -> k.body == 4, mb_lo.salc_basis.keys)
+        @test occursin("of 4 requested", sprint(show, mb_lo))
+        @test !occursin("requested", sprint(show, mb4))    # nothing to disclose
+
+        # -- opening the door adds columns rather than replacing them
+        spec3 = MomentSpec(; lmax_env = [0, 2], sampled = [true, true], lmax_mark = 0,
+                           marked = [true, false], nbody = 3, cutoff_pair = 4.0,
+                           cutoff_star = 4.0, lsum = 4, soc = false)
+        mb3 = MomentBasis(cr4, spec3; backend = _MBFixedSG(sg4))
+        @test n_salcs(mb3) == n_salcs(mb4) - length(b4)
+        @test [k for k in keys4 if k.body <= 3] == mb3.salc_basis.keys
     end
 end

@@ -28,6 +28,32 @@ function _ordered_subsets(n::Int, k::Int)::Vector{Vector{Int}}
     return out
 end
 
+# All ascending `k`-subsets of `1:n` — the unordered sibling of `_ordered_subsets`,
+# for an enumeration that picks a SET of neighbors and imposes its own ordering
+# convention afterwards (the pointed star candidates). Small `k` only; cheap.
+function _combinations(n::Int, k::Int)::Vector{Vector{Int}}
+    k == 0 && return [Int[]]
+    out = Vector{Int}[]
+    function grow!(cur::Vector{Int}, lo::Int)
+        if length(cur) == k
+            push!(out, copy(cur))
+            return
+        end
+        for i = lo:n
+            push!(cur, i)
+            grow!(cur, i + 1)
+            pop!(cur)
+        end
+    end
+    grow!(Int[], 1)
+    return out
+end
+
+# All permutations of `1:n`, in the deterministic order `_ordered_subsets` emits: at
+# `k = n` "ordered tuples of distinct indices" is exactly "permutations", and naming
+# the idiom once keeps callers from re-explaining it.
+_permutations(n::Int)::Vector{Vector{Int}} = _ordered_subsets(n, n)
+
 # Per-atom-pair minimum-image squared distance, read off a neighbor list (Inf where
 # the pair has no in-list image — i.e. its minimum image is beyond the cutoff).
 function _dmin2_matrix(neighbors::NeighborList, nat::Int)::Matrix{Float64}
