@@ -72,6 +72,14 @@ opened separately.
   `_PERMS3`), the `MomentBasis` constructor loops `N = 3:spec.nbody` over one
   `cutoff_star` neighbor list, and `MomentSpec` accepts `nbody ≤ 4`. The cap is where
   the test oracles stop, not where the code does.
+- **`Threads.@threads :greedy`** on the `MomentBasis` orbit loop, the
+  `penalty_metric(::SLCEBasis)` column loop and `_design_moment`'s column loop. All
+  three emit work in ascending body order, so the expensive items are contiguous at the
+  END — and the default schedule (and `:dynamic`, which differs only in thread affinity)
+  cuts the range into one contiguous chunk per thread, putting every high-body item in
+  the last chunk. Bitwise identical at any schedule.
+- The resolvability census is one grouping pass instead of orbits × columns × members
+  (the changelog claimed this at the body-order port; it was not actually carried over).
 - **`cutoff_star` is now per star order** (BREAKING for anything reading the field:
   it is a `Vector{Matrix{Float64}}`, body order `N` at index `N - 2`, read through
   `_star_cutoff`). A scalar or a matrix still broadcasts to every order, so every

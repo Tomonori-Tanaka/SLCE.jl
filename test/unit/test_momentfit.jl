@@ -839,17 +839,22 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         # a metric built for the ENERGY channel is refused on this one
         bad = Ridge(; lambda = 1.0, metric = ones(p),
                     metric_provenance = MetricProvenance(
-                        :energy, 0.0, 100, 1, mb.salc_basis.fingerprint))
+                        :energy, 0.0, false, 100, 1, mb.salc_basis.fingerprint))
         @test_throws ArgumentError fit(MomentFit, ds, bad)
         # ... and so is one built on a different pointed basis
         wrong = Ridge(; lambda = 1.0, metric = ones(p),
                       metric_provenance = MetricProvenance(
-                          :moment, 0.0, 100, 1, mb.salc_basis.fingerprint + 0x1))
+                          :moment, 0.0, true, 100, 1, mb.salc_basis.fingerprint + 0x1))
         @test_throws ArgumentError fit(MomentFit, ds, wrong)
         # the basis-aware constructor stamps a provenance that passes
         good = Ridge(mb; lambda = 1e-6, metric_nconfig = 256)
         @test good.metric_provenance.channel === :moment
         @test good.metric_provenance.fingerprint == mb.salc_basis.fingerprint
+        # `free_intercepts` is recorded: exempting μ₀ or not is a materially different
+        # penalty, and without it the two metrics carry identical provenance
+        @test good.metric_provenance.free_intercepts
+        @test !Ridge(mb; lambda = 1e-6, metric_nconfig = 256,
+                     free_intercepts = false).metric_provenance.free_intercepts
         @test fit(MomentFit, ds, good) isa MomentFit
         # `with_lambda` keeps both
         @test with_lambda(good, 1e-3).metric_provenance === good.metric_provenance

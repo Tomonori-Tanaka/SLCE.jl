@@ -18,35 +18,45 @@
 
 Where a penalty metric came from: the `channel` it was built for (`:energy` or
 `:moment`), the `torque_weight` its reference norms were taken at (`0.0` on the moment
-channel, which has no torque block), the reference-ensemble size `nconfig` and its
-`seed`, and the `fingerprint` of the SALC basis it was built on. Carried on the
-estimator so a fit can refuse a metric built for a different problem. The metric enters
-every penalized coefficient, and a mismatch is invisible to the scale-invariance gates
-— those hold for any `m ∝ c²`, right or wrong — so it has to be checked from outside.
+channel, which has no torque block), `free_intercepts` (whether the moment channel's
+μ₀ columns were left unpenalized; always `false` on the energy channel, which has no
+such column), the reference-ensemble size `nconfig` and its `seed`, and the
+`fingerprint` of the SALC basis it was built on. Carried on the estimator so a fit can
+refuse a metric built for a different problem. The metric enters every penalized
+coefficient, and a mismatch is invisible to the scale-invariance gates — those hold for
+any `m ∝ c²`, right or wrong — so it has to be checked from outside. `free_intercepts`
+is recorded for the same reason: exempting μ₀ or not is a materially different penalty,
+and the two metrics are otherwise indistinguishable from the outside.
 """
 struct MetricProvenance
     channel::Symbol
     torque_weight::Float64
+    free_intercepts::Bool
     nconfig::Int
     seed::Int
     fingerprint::UInt64
 
-    function MetricProvenance(channel::Symbol, torque_weight::Real, nconfig::Integer,
+    function MetricProvenance(channel::Symbol, torque_weight::Real,
+                              free_intercepts::Bool, nconfig::Integer,
                               seed::Integer, fingerprint::UInt64)
         channel in (:energy, :moment) || throw(ArgumentError(
             "metric channel must be :energy or :moment; got :$channel"))
         (isfinite(torque_weight) && 0 <= torque_weight <= 1) || throw(ArgumentError(
             "metric torque_weight must be in [0, 1]; got $torque_weight"))
+        channel === :energy && free_intercepts && throw(ArgumentError(
+            "metric free_intercepts = true is a moment-channel property (the μ₀ " *
+            "columns); the energy channel has no such column"))
         nconfig >= 2 ||
             throw(ArgumentError("metric nconfig must be ≥ 2; got $nconfig"))
         seed >= 0 || throw(ArgumentError("metric seed must be ≥ 0; got $seed"))
-        return new(channel, Float64(torque_weight), Int(nconfig), Int(seed),
-                   fingerprint)
+        return new(channel, Float64(torque_weight), free_intercepts, Int(nconfig),
+                   Int(seed), fingerprint)
     end
 end
 
 Base.show(io::IO, p::MetricProvenance) =
-    print(io, "MetricProvenance(", p.channel, ", w=", p.torque_weight, ", K=",
+    print(io, "MetricProvenance(", p.channel, ", w=", p.torque_weight,
+          p.channel === :moment ? ", free_mu0=$(p.free_intercepts)" : "", ", K=",
           p.nconfig, ", seed=", p.seed, ")")
 
 # --- penalty metric: shared validation and use ------------------------------------
@@ -58,6 +68,11 @@ Base.show(io::IO, p::MetricProvenance) =
 # check lives at the `solve_coefficients` door.
 function _validated_metric(metric)::Union{Nothing,Vector{Float64}}
     metric === nothing && return nothing
+    # Before the conversion, not after: this is the ONE place every path — the plain
+    # keyword constructors, the basis-aware ones, `with_lambda`, `_reduce_to_active` —
+    # converges, so a mistyped sentinel is refused by name everywhere rather than only
+    # where the caller happened to remember the check.
+    _checked_metric_keyword(metric)
     m = Vector{Float64}(metric)
     isempty(m) &&
         throw(ArgumentError("metric must be nonempty (one entry per design column)"))
@@ -116,7 +131,7 @@ _penalty_matrix(lambda::Float64, D::Union{Nothing,Vector{Float64}}, q::Int,
 # factorization reports failure. A Cholesky with `check = false` is not enough — on an
 # exactly duplicated column the trailing pivot lands a rounding step above zero and
 # succeeds — so the test is on the spectrum. The cut stays well inside `_rank_df`'s
-# `min(size)·eps·σ₁`, which `_edof_free` applies to the same block, so a solve accepted
+# `min(size)·eps·σ₁`, which `_effective_dof_free` applies to the same block, so a solve accepted
 # here is never rejected by the diagnostic afterwards.
 const _FREE_BLOCK_GRAM_RCOND = eps(Float64)
 
@@ -125,6 +140,13 @@ const _FREE_BLOCK_GRAM_RCOND = eps(Float64)
 # indices, so the message can name columns. Under `Z` an unpenalized β column is no
 # longer a γ coordinate, so the subspace is `null(diag(√m)·Z)`, taken from an SVD;
 # for the selection `Z` a freeze produces this reduces to the index case exactly.
+# NOTE the two branches define "unpenalized" with different tolerances: the index one
+# is exact (`iszero`), matching `_effective_dof_free`'s own `findall(iszero, ...)`, while
+# the reparameterized one has to call a singular value zero at a relative threshold. They
+# can only disagree for a metric whose entries span more than ~1/eps in ratio, which
+# `_refuse_zero_metric` already forbids from a sampled metric; a hand-built one that
+# extreme would put the solver's free block and the diagnostic's free block out of step,
+# in the conservative direction (the SVD branch calls MORE directions free).
 function _free_directions(metric::Vector{Float64},
                           nullspace::Union{Nothing,Matrix{Float64}})
     nullspace === nothing && return findall(iszero, metric)

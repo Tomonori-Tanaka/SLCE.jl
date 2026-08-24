@@ -762,13 +762,15 @@ function _pointed_metric(mb::MomentBasis, metric, free_intercepts::Bool,
     metric === :basis || return (_checked_metric_keyword(metric), nothing)
     m = penalty_metric(mb; free_intercepts = free_intercepts, nconfig = nconfig,
                        seed = seed)
-    pv = MetricProvenance(:moment, 0.0, nconfig, seed, mb.salc_basis.fingerprint)
+    pv = MetricProvenance(:moment, 0.0, free_intercepts, nconfig, seed,
+                          mb.salc_basis.fingerprint)
     return (m, pv)
 end
 
 """
     GroupAdaptiveRidge(mb::MomentBasis; lambda, epsilon = 1e-8, max_iter = 50,
-                       tol = 1e-6)
+                       tol = 1e-6, metric = :basis, free_intercepts = true,
+                       metric_nconfig = 2048, metric_seed = 1)
 
 Group-adaptive estimator for a pointed basis: [`salc_groups`](@ref)`(mb)` labels
 with UNIT weights (the moment channel has no MC contraction cost; the energy-side

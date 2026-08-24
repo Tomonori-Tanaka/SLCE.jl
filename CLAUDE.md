@@ -1296,6 +1296,35 @@ Easy to break silently — confirm before touching the algorithm.
   predicate here that a sampler will plausibly want, `public` it so the downstream
   `import` is a supported move rather than a reach into internals.
 
+## Downstream divergence: the pure-spin carve-out (SCEFitting.jl)
+
+`SCEFitting.jl` is the pure-spin carve-out of this package and a **standalone**
+package (it does not depend on this one). Files are kept close on both sides so
+patches apply either way, but a set of divergences is deliberate — and several of
+them are the same name with the OPPOSITE meaning, which is the kind that bites
+silently.
+
+**The authoritative table is `../SCEFitting.jl/CLAUDE.md`, "Upstream divergence
+ledger".** Read it before porting anything in either direction; do not maintain a
+second copy here, which would drift. The traps that matter when editing THIS package:
+
+- `_orbit_salcs_decors`'s screen is `soc::Bool` **positional** here (`soc = true`
+  keeps every `L_S`); downstream it is a required keyword `isotropy` with the
+  opposite polarity. A verbatim copy of a call in either direction must be a
+  `MethodError`, never a silently inverted screen — so never give either a default.
+- `MomentSpec(; soc = false)` here is `MomentSpec(; isotropy = true)` there.
+- Penalty-metric names: `_group_adaptive_weights!`, `_effective_dof_gram` /
+  `_effective_dof_free`, `cost_exponent`, `FixedCoefficients`, and the `row_groups` /
+  `nullspace` keywords are this package's spellings; downstream they are
+  `_gar_weights!`, `_edof` / `_edof_free`, `theta`, `PrecomputedPilot`, `groups`.
+  Port LOGIC, never signatures.
+- Things that exist only here: the ASR / freeze reparameterization (so the penalty
+  compresses to `Z'·Diagonal(D)·Z` and the metric is indexed by BASIS columns), the
+  displacement channel, `SolidHarmonics`' gradient API, `CountingOracle`.
+- Things that exist only downstream: the moment channel's λ-selection API
+  (`cross_validate(::MomentDataset, …)`, `MomentCVResult`, `gcv` / `effective_dof`
+  for `MomentFit`), the `[moment]` TOML section, the function-space reduction.
+
 ## Tests
 
 | Command | Purpose |

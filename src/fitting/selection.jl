@@ -334,7 +334,7 @@ function _basis_metric(basis::SLCEBasis, metric, torque_weight::Real, nconfig::I
     metric === :basis || return (_checked_metric_keyword(metric), nothing)
     m = penalty_metric(basis; torque_weight = torque_weight, nconfig = nconfig,
                        seed = seed)
-    pv = MetricProvenance(:energy, torque_weight, nconfig, seed,
+    pv = MetricProvenance(:energy, torque_weight, false, nconfig, seed,
                           basis.salc_basis.fingerprint)
     return (m, pv)
 end
@@ -386,10 +386,10 @@ Julia versions; the estimate converges as `1/√nconfig` to a closed-form expect
 
 The default is sized from that convergence, not guessed. Measured on bcc Fe 2×2×2
 (`lmax = 2`, 2- and 3-body columns) as the spread of `mⱼ` over eight independent
-seeds: the relative standard error is **1.6 % median / 2.8 % worst column at
-`nconfig = 2048`**, and 3.3 % / 5.3 % at 2000. Body order barely moves it (2-body and
-3-body columns agree within the spread), so `1/√nconfig` from these numbers sizes any
-basis. That residual is a seed-dependent wobble on the *prior*, an order of magnitude
+seeds: the relative standard error is **3.3 % median / 5.3 % worst column at
+`nconfig = 2048`**, falling to 1.6 % / 2.8 % at 8192. Body order barely moves it
+(2-body and 3-body columns agree within the spread), so `1/√nconfig` from these
+numbers sizes any basis. That residual is a seed-dependent wobble on the *prior*, an order of magnitude
 smaller than the systematic factor the metric removes — orbit size times the ordering
 multiplicity of the member fold, which spans decades — but it is not zero, so build the
 metric ONCE and reuse it across a λ sweep (`SLCE.with_lambda`) rather than rebuilding
@@ -416,14 +416,25 @@ function penalty_metric(basis::SLCEBasis; torque_weight::Real = 0.0,
     p = length(sal)
     K = length(cfgs)
     m = Vector{Float64}(undef, p)
+    # PRECONDITION on the torque block: the assembly whitens it by `√(w/n_T)` with
+    # `n_T = length(dataset.y_T)`, and this restates that as `n_T = n_E·3·n_atoms` —
+    # true when every training configuration carries torques, which is the only shape
+    # `SCEDataset` builds today. On a dataset with torques for only SOME configurations
+    # the two differ, and the energy/torque mixture the metric encodes stops matching
+    # the assembled column norms. `MetricProvenance` records `torque_weight` but not
+    # coverage, so the fitting doors cannot see it: this is the price of the metric
+    # being a property of the BASIS rather than of a dataset.
     # Columns are independent and each task owns one, so the result is identical at
     # any thread count. The torque block is accumulated, never materialized: the full
     # `K·3·n_atoms × p` design would be hundreds of MB for a supercell basis.
+    # `:greedy` because column cost grows steeply with body order and the columns are
+    # in sorted-key order, so the expensive ones are contiguous at the end — the
+    # default (contiguous per-thread chunks) would put them all in one task.
     #
     # The three `w` regimes are separate loops rather than one loop with a test: at
     # `w = 1` the energy term is multiplied by zero, and evaluating it anyway costs
     # roughly the whole `w = 0` column.
-    Threads.@threads for j = 1:p
+    Threads.@threads :greedy for j = 1:p
         scratch = SALCScratch()
         s1 = 0.0
         s2 = 0.0

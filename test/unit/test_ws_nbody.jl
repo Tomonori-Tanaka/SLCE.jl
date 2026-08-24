@@ -247,11 +247,17 @@ _wsnb_siteset(m) = sort([(m.atoms[k], m.shifts[k][1], m.shifts[k][2], m.shifts[k
         # minimum-image neighbour list has no self-pairs); an oracle that dropped only
         # the mark's zero-shift site would admit it and go red here. Below 3.0 the
         # branch is unreachable and the gate says nothing about that rule.
-        for (nm, cr) in cases, cut in (3.2, 2.0, 1.6, 1.3)
+        # `cut` is a Tuple `(star3, star4)` handed to `cutoff_star` as a per-order
+        # VECTOR, so the oracle sees the per-order layout too — with the last two cases
+        # genuinely splitting the orders. A single radius is the equal-entry case; the
+        # brute force reads `spec.cutoff_star[N - 2]` from the definition, so nothing
+        # about the split is taken on the production accessor's word.
+        for (nm, cr) in cases, cut in ((3.2, 3.2), (2.0, 2.0), (1.6, 1.6), (1.3, 1.3),
+                                       (2.0, 1.3), (1.3, 2.0))
             spec = MomentSpec(; lmax_env = [1], sampled = [true], lmax_mark = 1,
-                              nbody = 4, cutoff_pair = cut, cutoff_star = cut,
-                              lsum = 4)
-            nl = build_neighbor_list(cr, cut, MinimumImage())
+                              nbody = 4, cutoff_pair = maximum(cut),
+                              cutoff_star = collect(cut), lsum = 4)
+            nl = build_neighbor_list(cr, maximum(cut), MinimumImage())
             for N = 3:4
                 prod = SLCE._pointed_star_candidates(cr, nl, spec, N)
                 @test _wsnb_prodset(prod) == _ptstar_brute(cr, spec, N)

@@ -72,8 +72,8 @@ indexed like `Crystal.species`; `lmax_env` fixes the species count.
   leaves the same label and "the first spoke is short, the second long" has no
   symmetry-invariant meaning. A total-spoke-length or cluster-diameter cap would be
   permutation invariant; neither is implemented.) Only the `N−1` mark–environment
-  spokes are constrained; the environment–environment edges are free. That asymmetry with the energy side's
-  compact-cluster rule is deliberate: a star has a distinguished centre, so — **as long
+  spokes are constrained; the environment–environment edges are free. That asymmetry
+  with the energy side's compact-cluster rule is deliberate: a star has a distinguished centre, so — **as long
   as every spoke has a unique minimum image** — each environment site is fixed by the
   mark's cell plus its own spoke, and two orbits cannot carry the same monomial. Where
   a spoke has several minimum images (a Wigner–Seitz tie) that uniqueness is exactly
@@ -105,7 +105,7 @@ function MomentSpec(; lmax_env::AbstractVector{<:Integer},
                     nbody::Integer = 3,
                     cutoff_pair::Union{Real,AbstractMatrix{<:Real}},
                     cutoff_star::Union{Nothing,Real,AbstractMatrix{<:Real},
-                                       AbstractVector} = nothing,
+                                       AbstractVector,AbstractDict} = nothing,
                     lsum::Union{Nothing,Integer} = nothing,
                     soc::Bool = false)::MomentSpec
     nkd = length(lmax_env)
@@ -139,26 +139,48 @@ function MomentSpec(; lmax_env::AbstractVector{<:Integer},
     _cut(c) = c isa Real ? fill(Float64(c), nkd, nkd) : Matrix{Float64}(c)
     cp = _cut(cutoff_pair)
     # `cutoff_star` is stored per star order (`nbody - 2` entries, body `N` at `N - 2`).
-    # A scalar or a matrix means "the same radius at every star order"; a vector gives
-    # one per order. Below body order 3 there is no star, so the vector is empty and an
-    # explicit `cutoff_star` is refused rather than silently stored and never read.
+    # Four spellings, all resolved here: a scalar or a matrix means "the same radius at
+    # every star order"; a body-keyed collection (`[3 => 4.1, 4 => 2.5]`, or a `Dict`)
+    # names the order it applies to — the same shape the energy side's `cutoff` takes
+    # and the same shape the TOML reader emits; and a plain vector is positional. The
+    # keyed form exists because the positional one has no way to catch a transposed
+    # pair: `[2.5, 4.1]` is a perfectly valid spec that builds the WIDE sector at the
+    # NARROW order, which is the memory blow-up per-order radii were added to avoid.
+    # Below body order 3 there is no star, so the vector is empty and an explicit
+    # `cutoff_star` is refused rather than silently stored and never read.
     nstar = max(Int(nbody) - 2, 0)
+    _star_entry(c, what) = c isa Real || c isa AbstractMatrix{<:Real} ? _cut(c) :
+        throw(ArgumentError("$what must be a number or a species-pair matrix; " *
+                            "got $(typeof(c))"))
+    # An explicit `cutoff_star` below body order 3 is refused whatever its shape — an
+    # empty collection included. There is no star to cut, so the value would be stored
+    # and never read.
+    cutoff_star === nothing || nstar > 0 || throw(ArgumentError(
+        "cutoff_star was given but nbody = $nbody has no star order (stars start at " *
+        "body order 3), so the radius would never be read — drop it or raise nbody"))
+    want = collect(3:Int(nbody))
     cs = if cutoff_star === nothing
         Matrix{Float64}[copy(cp) for _ = 1:nstar]
+    elseif cutoff_star isa AbstractDict ||
+           (cutoff_star isa AbstractVector && !isempty(cutoff_star) &&
+            all(x -> x isa Pair, cutoff_star))
+        kv = collect(cutoff_star)
+        keys_ = sort([Int(first(e)) for e in kv])
+        keys_ == want || throw(ArgumentError(
+            "cutoff_star's body-order keys must be exactly $want for nbody = $nbody; " *
+            "got $keys_. Stars start at body order 3, and every order needs its own " *
+            "entry — a scalar or a species-pair matrix applies to all of them"))
+        byN = Dict(Int(first(e)) => last(e) for e in kv)
+        Matrix{Float64}[_star_entry(byN[N], "cutoff_star[$N]") for N in want]
     elseif cutoff_star isa AbstractVector
         length(cutoff_star) == nstar || throw(ArgumentError(
             "cutoff_star has $(length(cutoff_star)) entries but nbody = $nbody needs " *
-            "$nstar (one per star order, entry i for body order i + 2). A scalar or a " *
-            "species-pair matrix applies to every star order instead"))
-        Matrix{Float64}[c isa Real || c isa AbstractMatrix{<:Real} ? _cut(c) :
-                        throw(ArgumentError("cutoff_star[$i] must be a number or a " *
-                                            "species-pair matrix; got $(typeof(c))"))
+            "$nstar (one per star order, entry i for body order i + 2). The " *
+            "alternatives are a scalar, a species-pair matrix (both apply to every " *
+            "star order), or the body-keyed form [3 => 4.1, 4 => 2.5]"))
+        Matrix{Float64}[_star_entry(c, "cutoff_star[$i]")
                         for (i, c) in enumerate(cutoff_star)]
     else
-        nstar > 0 || throw(ArgumentError(
-            "cutoff_star was given but nbody = $nbody has no star order (stars start " *
-            "at body order 3), so the radius would never be read — drop it or raise " *
-            "nbody"))
         Matrix{Float64}[_cut(cutoff_star) for _ = 1:nstar]
     end
     named = Tuple{String,Matrix{Float64}}[("cutoff_pair", cp)]
@@ -183,9 +205,16 @@ end
 _star_cutoff(spec::MomentSpec, N::Int)::Matrix{Float64} = spec.cutoff_star[N - 2]
 
 # The elementwise envelope of every star radius — the radius the ONE shared neighbor
-# list must reach. Enlarging that list never changes which stars are admitted (each
-# order re-filters on its own radius); it only makes `_dmin2_matrix` see shorter images,
-# which is strictly more correct.
+# list must reach. Sharing it changes nothing, and the reason is not "each order
+# re-filters" alone (the `dmin2_star` test lives INSIDE `admit`, so a wider list does
+# feed that test a possibly different matrix). It is this: `admit` only ever consults
+# `dmin2_star[a, b]` for a pair whose edge already passed `edges ≤ r_N·fac`, and every
+# image of that pair is at least the pair's true minimum distance — so the true minimum
+# is itself ≤ `r_N·fac` and was therefore already in the NARROW list too. On every entry
+# the conjunction reads, the envelope-built matrix and the per-order one agree. Where
+# they differ (a pair with no image inside `r_N`) the edge test has already rejected the
+# star. The minimum-image search box is cutoff-independent, so the entries themselves
+# are exact distances, not radius-truncated ones.
 function _star_cutoff_envelope(spec::MomentSpec)::Matrix{Float64}
     isempty(spec.cutoff_star) && return zeros(0, 0)
     out = copy(spec.cutoff_star[1])
@@ -417,9 +446,16 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
     # task owns one orbit and writes only its own slot, `wcache` is built above and
     # read-only, and the output is sorted by key below — so the result is identical at
     # any thread count and any schedule.
+    #
+    # `:greedy` because per-orbit cost spans orders of magnitude AND the expensive
+    # orbits are all at the end: `orbits` is built in ascending body order, and the
+    # projection's `eigen` grows with the carrier dimension. The default schedule (and
+    # `:dynamic`, which differs only in thread affinity) cuts the range into one
+    # CONTIGUOUS chunk per thread, so every high-body orbit lands in the last chunk and
+    # runs serially while the rest idle. `:greedy` hands out iterations one at a time.
     parts = Vector{Vector{SALC}}(undef, length(orbits))
     rec_parts = Vector{Vector{NamedTuple}}(undef, length(orbits))
-    Threads.@threads for w in eachindex(orbits)
+    Threads.@threads :greedy for w in eachindex(orbits)
         body, oid, O = orbits[w]
         labels = labels_by_body[body]
         if isempty(labels)
@@ -491,7 +527,10 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
                    "reversal keeps only even Σl), so raise lsum / lmax_mark / " *
                    "lmax_env to reach it" :
                    ". Labels exist, so no cluster orbit admits them: check " *
-                   "cutoff_pair / cutoff_star and the marked and sampled species")
+                   (body >= 3 ?
+                    "cutoff_star[$(body - 2)] (the radius of THIS star order, " *
+                    "$(_star_cutoff(spec, body)) Å)" : "cutoff_pair") *
+                   " and the marked and sampled species")
         end
     end
     perm = sortperm(out; by = s -> s.key)
@@ -553,7 +592,12 @@ function _design_moment(mb::MomentBasis, configs::Vector{Matrix{Float64}},
         size(axes[ci]) == (3, nat) ||
             throw(ArgumentError("axes $ci is $(size(axes[ci])), expected (3, $nat)"))
     end
-    Threads.@threads for j = 1:length(sal)
+    # `:greedy`: a 1-body intercept column and a 4-body star column differ by orders of
+    # magnitude in cost, and the columns are emitted in orbit order, so the heavy ones
+    # sit together at the end — the default (one contiguous chunk per thread) would put
+    # them all in one task. Each `j` writes only column `j`, so no value depends on the
+    # schedule.
+    Threads.@threads :greedy for j = 1:length(sal)
         scratch = SALCScratch()
         esub = Matrix{Float64}(undef, 3, nat)
         u = zeros(3, nat)
@@ -707,6 +751,12 @@ function _moment_resolvability(mb::MomentBasis, rtol::Float64)
         for sl in t.slots
             sl.factor.channel == DISP && (mark_site = sl.site)
         end
+        # Before the guard reads `mem.atoms[mark_site]`: a markless term would index
+        # position 0 and die on a `BoundsError` instead of saying what is wrong. The
+        # label enumeration gives every pointed label exactly one mark, so this is the
+        # invariant's loud statement, not a reachable path.
+        mark_site == 0 && error("pointed SALC $j (key $(s.key)) has a term with no " *
+                                "mark slot — every pointed label carries exactly one")
         for sl in t.slots
             (sl.factor.channel == SPIN && sl.site != mark_site) || continue
             push!(env_atoms, mem.atoms[sl.site])
@@ -808,27 +858,28 @@ function _moment_resolvability(mb::MomentBasis, rtol::Float64)
         end
     end
     # census: per cluster orbit (body, orbit_id), the stabilizer-inequivalent
-    # admissible mark placements of the representative
-    seen = Set{Tuple{Int,Int}}()
-    census = NamedTuple[]
+    # admissible mark placements of the representative.
+    # Reconstruct each orbit's mark classes from the SALCs sharing the orbit: every
+    # member's marked atom, folded under "same reference-cell atom". ONE pass, grouping
+    # by orbit key — the obvious nested form is orbits × columns × members, which is
+    # quadratic in the column count on exactly the many-orbit bases the pointed channel
+    # is used on. `order` keeps first appearance, so the census order is unchanged.
+    marks_by_key = Dict{Tuple{Int,Int},Set{Int}}()
+    order = Tuple{Int,Int}[]
     for s in sal
         key = (s.key.body, s.key.orbit_id)
-        key in seen && continue
-        push!(seen, key)
-        # reconstruct the orbit's mark classes from the SALCs sharing the orbit:
-        # each member's marked atom, folded under "same reference-cell atom"
-        marks = Set{Int}()
-        for s2 in sal
-            (s2.key.body, s2.key.orbit_id) == key || continue
-            for mem in s2.members, t in mem.terms
-                for sl in t.slots
-                    sl.factor.channel == DISP || continue
-                    push!(marks, mem.atoms[sl.site])
-                end
+        marks = get!(marks_by_key, key) do
+            push!(order, key)
+            Set{Int}()
+        end
+        for mem in s.members, t in mem.terms
+            for sl in t.slots
+                sl.factor.channel == DISP || continue
+                push!(marks, mem.atoms[sl.site])
             end
         end
-        push!(census, (; body = key[1], orbit_id = key[2],
-                        n_mark_atoms = length(marks)))
     end
+    census = NamedTuple[(; body = k[1], orbit_id = k[2],
+                          n_mark_atoms = length(marks_by_key[k])) for k in order]
     return (; vanishing, rank, kept, null_combinations, census)
 end
