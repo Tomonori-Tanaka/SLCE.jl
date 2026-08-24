@@ -66,7 +66,32 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
     @testset "MomentSpec validation" begin
         ok = MomentSpec(; lmax_env = [2, 0], sampled = [true, false],
                         cutoff_pair = 3.0)
-        @test ok.nbody == 3 && ok.cutoff_star == ok.cutoff_pair
+        @test ok.nbody == 3 && ok.cutoff_star == [ok.cutoff_pair]
+        # per-star-order radii: one matrix per order, body N at index N - 2. A scalar
+        # or a matrix broadcasts to every order; a vector must have exactly nbody - 2
+        # entries; below body order 3 there is no star to cut, so a radius that would
+        # never be read is refused rather than stored.
+        pb = MomentSpec(; lmax_env = [2], sampled = [true], nbody = 4,
+                        cutoff_pair = 3.0, cutoff_star = [3.0, [1.5;;]])
+        @test length(pb.cutoff_star) == 2
+        @test pb.cutoff_star[1] == fill(3.0, 1, 1) && pb.cutoff_star[2] == fill(1.5, 1, 1)
+        @test SLCE._star_cutoff(pb, 4) == pb.cutoff_star[2]
+        @test SLCE._star_cutoff_envelope(pb) == fill(3.0, 1, 1)
+        @test MomentSpec(; lmax_env = [2], sampled = [true], nbody = 4,
+                         cutoff_pair = 3.0, cutoff_star = 2.0).cutoff_star ==
+              [fill(2.0, 1, 1), fill(2.0, 1, 1)]
+        @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
+                                              nbody = 4, cutoff_pair = 3.0,
+                                              cutoff_star = [3.0])        # too few
+        @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
+                                              nbody = 3, cutoff_pair = 3.0,
+                                              cutoff_star = [3.0, 1.5])   # too many
+        @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
+                                              nbody = 2, cutoff_pair = 3.0,
+                                              cutoff_star = 3.0)          # no star order
+        @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
+                                              nbody = 4, cutoff_pair = 3.0,
+                                              cutoff_star = [3.0, -1.0])  # negative
         # the M3-1 assert: environment spin factors only on sampled species
         @test_throws ArgumentError MomentSpec(; lmax_env = [2, 1],
                                               sampled = [true, false],
@@ -384,5 +409,35 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         mb3 = MomentBasis(cr4, spec3; backend = _MBFixedSG(sg4))
         @test n_salcs(mb3) == n_salcs(mb4) - length(b4)
         @test [k for k in keys4 if k.body <= 3] == mb3.salc_basis.keys
+
+        # -- per-star-order radii COMPOSE. The mark's three neighbours sit at 2.40,
+        #    2.88 and 3.36 Å, so a 3.0 Å star radius sees two of them and a 4.0 Å one
+        #    sees three; C(z, N−1) then makes the 4-body sector empty at 3.0 and the
+        #    3-body sector one star instead of three. The claim under test is what a
+        #    per-order cut MEANS: order N reads `cutoff_star[N−2]` and nothing else,
+        #    so a mixed spec must carry exactly the body-b content of the single-radius
+        #    spec at that order — stated from the definition, not from captured counts.
+        _sp4(cut) = MomentSpec(; lmax_env = [0, 2], sampled = [true, true],
+                               lmax_mark = 0, marked = [true, false], nbody = 4,
+                               cutoff_pair = 4.0, cutoff_star = cut, lsum = 4,
+                               soc = false)
+        _bodykeys(mb, b) = [k for k in mb.salc_basis.keys if k.body == b]
+        mb_narrow = MomentBasis(cr4, _sp4(3.0); backend = _MBFixedSG(sg4))
+        # wide 3-body, narrow 4-body: the 4-body sector empties, and does so LOUDLY
+        mb_w3 = @test_logs (:warn, r"body order 4 contributes no SALC") match_mode =
+            :any MomentBasis(cr4, _sp4([4.0, 3.0]); backend = _MBFixedSG(sg4))
+        for b = 1:3
+            @test _bodykeys(mb_w3, b) == _bodykeys(mb4, b)
+        end
+        @test isempty(_bodykeys(mb_w3, 4)) == isempty(_bodykeys(mb_narrow, 4)) == true
+        # narrow 3-body, wide 4-body: the other side of the same statement
+        mb_w4 = MomentBasis(cr4, _sp4([3.0, 4.0]); backend = _MBFixedSG(sg4))
+        for b = 1:3
+            @test _bodykeys(mb_w4, b) == _bodykeys(mb_narrow, b)
+        end
+        @test _bodykeys(mb_w4, 4) == _bodykeys(mb4, 4)
+        # ...and the two orders really do see different neighbourhoods, so a single
+        # shared radius could not have passed both halves above
+        @test length(_bodykeys(mb4, 3)) > length(_bodykeys(mb_narrow, 3))
     end
 end

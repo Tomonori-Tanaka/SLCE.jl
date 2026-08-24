@@ -1106,9 +1106,13 @@ energy/torque/force pipeline is untouched (bit-identity gated).
   kwarg on `_orbit_salcs_decors`); mark-aware admission (mark ê factor for any
   species up to `lmax_mark`, environment spins only for `sampled` species up to
   `lmax_env` — refused loudly when a spin-bearing species is unsampled);
-  1/2-body clusters from the ordinary enumeration at `cutoff_pair`, 3-body stars
-  MARK–ENVIRONMENT-BOND cut at `cutoff_star` (env–env edge free) with
-  `candidate_clusters`' all-orderings multiplicity convention; even-Σl (TR) only.
+  1/2-body clusters from the ordinary enumeration at `cutoff_pair`, stars
+  (`N ≥ 3`, cap 4) MARK–ENVIRONMENT-SPOKE cut at `cutoff_star` (env–env edges
+  free) with `candidate_clusters`' all-orderings multiplicity convention;
+  even-Σl (TR) only, each body order starting at `Σl = 2⌈(N−1)/2⌉`.
+  `cutoff_star` is stored **per star order** (`cutoff_star[N-2]`, read through
+  `_star_cutoff`); a scalar or matrix broadcasts to every order, and the one
+  shared star neighbor list is built at the elementwise envelope.
   The 1-body `[MARK]` columns are the per-orbit intercepts μ₀.
 - **`_design_moment`**: rows `(config, marked atom)`, marked-column substitution
   (exact — one mark per label), `Threads.@threads` per column.

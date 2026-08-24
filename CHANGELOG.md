@@ -72,6 +72,16 @@ opened separately.
   `_PERMS3`), the `MomentBasis` constructor loops `N = 3:spec.nbody` over one
   `cutoff_star` neighbor list, and `MomentSpec` accepts `nbody ≤ 4`. The cap is where
   the test oracles stop, not where the code does.
+- **`cutoff_star` is now per star order** (BREAKING for anything reading the field:
+  it is a `Vector{Matrix{Float64}}`, body order `N` at index `N - 2`, read through
+  `_star_cutoff`). A scalar or a matrix still broadcasts to every order, so every
+  existing spelling builds the same basis; a vector cuts one order without touching
+  the others, which is what makes a 4-body probe affordable — star members grow as
+  `C(z, N−1)·N!`, so a 3NN 3-body shell and a 1NN 4-body shell differ by orders of
+  magnitude in column count. Below body order 3 an explicit `cutoff_star` is refused
+  rather than stored and never read. Per-*spoke* radii remain impossible (the label is
+  a multiset, so "first spoke short, second long" has no symmetry-invariant meaning);
+  a total-spoke-length or diameter cap would be, and is not implemented.
 - Each body order starts at total spin rank `Σl = 2⌈(N−1)/2⌉`, so the 4-body sector
   begins at `Σl = 4` and its naive lowest member (a rank-0 mark with three `l = 1`
   environments) is **absent by time reversal**, not by parity: the only `L_S = 0`

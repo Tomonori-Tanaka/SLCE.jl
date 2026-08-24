@@ -99,10 +99,13 @@ function _ptstar_brute(cr, spec, N; rtol = SLCE._SAME_DIST_RTOL, box = 2)
         d < dmin[i, j] && (dmin[i, j] = d)
     end
     sp = cr.species
+    # `cutoff_star` is stored one matrix per STAR order, body `N` at index `N - 2`.
+    # Spelled out here rather than through the production accessor: this oracle reads
+    # the layout from the definition, not from the code it is checking.
+    cut = spec.cutoff_star[N - 2]
     spoke_ok(a, b, R) = begin
         d = norm(pos(b, R) - pos(a, z))
-        d <= dmin[a, b] * (1 + rtol) &&
-            d <= spec.cutoff_star[sp[a], sp[b]] * (1 + rtol)
+        d <= dmin[a, b] * (1 + rtol) && d <= cut[sp[a], sp[b]] * (1 + rtol)
     end
     out = Set{Tuple}()
     member(sites) = (Tuple(s[1] for s in sites),
