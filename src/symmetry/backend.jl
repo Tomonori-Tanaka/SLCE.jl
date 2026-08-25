@@ -71,59 +71,109 @@ end
 
 # ── tolerances ───────────────────────────────────────────────────────────────────
 #
-# `tol` is the backend's symprec: a CARTESIAN distance in Å. That is Spglib's
-# own definition of the number, and it is already how `_sunny_primitive` reads
-# `SpaceGroup.tol` back out. Every comparison of `tol` against a POSITION or a
-# TRANSLATION therefore has to be made in Å. Comparing it against a difference
-# of FRACTIONAL coordinates instead makes the effective tolerance scale with the cell
-# — an 8×8×8 supercell of a 3 Å cell would be 24× looser than the value the backend
-# accepted its operations at, so the in-tree check would rubber-stamp whatever it was
-# handed — and direction-dependent in a non-orthogonal one (a ~3× spread across
-# directions in a 120° hexagonal cell).
+# `tol` is the backend's symprec: a CARTESIAN distance in Å. That is Spglib's own
+# definition of the number. Every comparison of `tol` against a POSITION or a
+# TRANSLATION is therefore made in Å. Comparing it against a difference of FRACTIONAL
+# coordinates instead makes the effective tolerance scale with the cell — the factor
+# is the cell edge measured in Å, so already 3× in a 3 Å primitive cell and 24× in an
+# 8×8×8 supercell of it — and direction-dependent in an anisotropic one (4× between
+# the two axes of a c/a = 4 hexagonal cell).
 #
-# Asking whether a MATRIX is integral, orthogonal, or the identity is a different
-# question with a different unit: those quantities are dimensionless and symprec says
-# nothing about them. `_mat_atol` is that second tolerance. It only has to clear the
-# round-off of `R = A W A⁻¹`, which grows with the cell's condition number — scale
-# free, so unlike a fractional threshold it does not drift with the cell size.
-const _MAT_ATOL = 1e-8
-_mat_atol(lattice::Lattice)::Float64 =
-    _MAT_ATOL * norm(lattice.vectors) * norm(lattice.reciprocal)
+# A MATRIX tolerance is a different question with a different unit. `W` and `RᵀR − I`
+# are dimensionless, so `tol` cannot be handed to them directly either; what symprec
+# vouches for is a LENGTH, and each of the two quantities converts that length into
+# its own dimensionless band. Both bands sit above a floor set by the round-off of
+# `R = A W A⁻¹`, which grows with the cell's condition number and is scale free, so
+# unlike a fractional threshold it does not drift with the cell size.
+const _MATRIX_RTOL = 1e-8
+const _MATRIX_FLOOR_MAX = 1e-4
 
-# Fold a fractional difference into (-1/2, 1/2] — the minimum image along a periodic
-# axis, and the residual after the operation's own integer shift along an aperiodic
-# one (callers require that shift to be `round(d)` before they get here).
-@inline _wrap(d::Real)::Float64 = d - round(d)
+# The round-off floor, capped. A cell conditioned badly enough to need more than
+# `_MATRIX_FLOOR_MAX` is not one whose symmetry any tolerance can rescue, and an
+# uncapped floor would silently disable every matrix test at once — at a floor of 1 an
+# `isapprox(W, I)` marks EVERY operation a pure translation, which wrecks
+# `translation_ops` and the primitive-cell recovery that reads it.
+_matrix_floor(lattice::Lattice)::Float64 =
+    min(_MATRIX_RTOL * norm(lattice.vectors) * norm(lattice.reciprocal),
+        _MATRIX_FLOOR_MAX)
+
+# Band on an entry of the FRACTIONAL matrix `W` — its integrality, the identity test,
+# and the periodic/aperiodic axis blocks. A deviation `δ` in one entry moves a point of
+# the cell by up to `δ·max_k‖a_k‖` Å, so the length `tol` buys `δ ≤ tol/max_k‖a_k‖`.
+_fractional_matrix_atol(lattice::Lattice, tol::Real)::Float64 =
+    max(_matrix_floor(lattice), tol / maximum(k -> norm(lattice.vectors[:, k]), 1:3))
+
+# Band on the orthogonality residual `RᵀR − I`. Its size is set by the precision of the
+# lattice vectors the caller typed, not by round-off: the residual is a relative
+# distortion of SQUARED lengths, so a vector carrying an absolute error of `tol` Å shows
+# up in it as `2·tol/‖a_k‖` — worst on the SHORTEST vector, which is therefore the one
+# the band is written against. Anything tighter refuses cells the backend legitimately
+# accepted at the same symprec. Measured on a hexagonal cell (a = 3 Å, c = 5 Å) whose
+# `a√3/2` entry is written to a fixed number of decimals: six decimals put the residual
+# at 1.2e-7 and five at 2.2e-6, while the lattice errors they imply are 2.1e-7 Å and
+# 3.8e-6 Å — both inside a symprec of 1e-5 Å, and both accepted here. Four decimals
+# (2.4e-5 Å, outside it) is refused, and comes back as soon as `tol` covers it.
+_orthogonality_atol(lattice::Lattice, tol::Real)::Float64 =
+    max(_matrix_floor(lattice), 2 * tol / minimum(k -> norm(lattice.vectors[:, k]), 1:3))
+
+# Fold a fractional difference to the half-cell: the minimum image along a periodic
+# axis, and the residual after the operation's own integer shift along an aperiodic one
+# (callers require that shift to be `round(d)` before they get here). The interval is
+# [−1/2, 1/2]; which end a half-integer lands on follows `round`'s ties-to-even rule,
+# which no caller here can reach (their bands are ≪ 1/2). Not `_wrap01`
+# (`geometry/crystal.jl`), whose convention is the opposite one, [0, 1).
+@inline _wrap_half(d::Real)::Float64 = d - round(d)
 
 # Squared Cartesian length (Å²) of a fractional offset.
-@inline _dcart2(A::SMatrix{3,3,Float64,9}, df::SVector{3,Float64})::Float64 =
-    sum(abs2, A * df)
+@inline _cartesian_distance2(A::SMatrix{3,3,Float64,9},
+                             df::SVector{3,Float64})::Float64 = sum(abs2, A * df)
 
-# Per-axis fractional bound implied by `tol`: ‖A df‖ ≤ tol forces
-# |df[k]| ≤ tol/d_k with `d_k` the interplanar spacing, because df = B r with
-# B = A⁻¹ whose rows are the reciprocal vectors. Necessary, not sufficient — it
-# rejects almost every candidate pair before the matrix-vector product is paid for.
+# Per-axis fractional bound implied by `tol`: ‖A df‖ ≤ tol forces |df[k]| ≤ tol/d_k
+# with `d_k` the interplanar spacing, because df = B r with B = A⁻¹ whose rows are the
+# reciprocal vectors. Necessary, not sufficient — it rejects almost every candidate pair
+# before the matrix–vector product is paid for. The 1-ulp slack keeps it a pure filter:
+# a candidate that would pass the Å test can never be dropped here by the rounding of
+# the division.
 _frac_bound(lattice::Lattice, tol::Real)::SVector{3,Float64} =
-    SVector{3,Float64}(ntuple(k -> tol / interplanar_spacing(lattice, k), 3))
+    SVector{3,Float64}(ntuple(k -> tol / interplanar_spacing(lattice, k) * (1 + 1e-12), 3))
 
-# The same-species atom nearest to the fractional point `xn` modulo a lattice vector,
-# and that distance in Å. Diagnostic only: it runs on the failure path of the
-# strict match, which is reached only for a fully periodic crystal, so there is no
-# aperiodic shift for it to respect.
+# Minimum-image length (Å) of a Cartesian displacement, over an image box proved
+# sufficient for it (`_sufficient_range`, `geometry/neighborlist.jl`). Diagnostic paths
+# only: an axis-by-axis fold is NOT the minimum image in a skewed cell, and these
+# callers run precisely where the deviation is large enough for that to show.
+function _min_image_length(lattice::Lattice, delta::SVector{3,Float64})::Float64
+    A = lattice.vectors
+    brow = SVector{3,Float64}(norm(lattice.reciprocal[1, :]),
+                              norm(lattice.reciprocal[2, :]),
+                              norm(lattice.reciprocal[3, :]))
+    s0 = ntuple(k -> lattice.pbc[k] ? 2 : 0, 3)
+    d = _min_image_dist(delta, A, s0)
+    s = _sufficient_range(brow, lattice.pbc, d, s0)
+    s == s0 || (d = _min_image_dist(delta, A, s))
+    return d
+end
+
+# The same-species atom nearest to the fractional point `xn`, and that distance in Å.
 function _nearest_same_species(crystal::Crystal, xn::SVector{3,Float64},
                                iat::Integer)::Tuple{Int,Float64}
-    A = crystal.lattice.vectors
+    lattice = crystal.lattice
     x = crystal.frac_positions
     best = Inf
     at = 0
     @inbounds for jat = 1:n_atoms(crystal)
         crystal.species[jat] == crystal.species[iat] || continue
-        df = SVector{3,Float64}(ntuple(k -> _wrap(xn[k] - x[k, jat]), 3))
-        d = _dcart2(A, df)
+        d = _min_image_length(lattice, lattice.vectors * SVector{3,Float64}(
+            xn[1] - x[1, jat], xn[2] - x[2, jat], xn[3] - x[3, jat]))
         d < best && (best = d; at = jat)
     end
-    return at, sqrt(best)
+    return at, best
 end
+
+# Minimum-image distance (Å) between two atoms of the crystal.
+_atom_separation(crystal::Crystal, a::Integer, b::Integer)::Float64 =
+    (x = crystal.frac_positions;
+     _min_image_length(crystal.lattice, crystal.lattice.vectors * SVector{3,Float64}(
+         x[1, a] - x[1, b], x[2, a] - x[2, b], x[3, a] - x[3, b])))
 
 """
     _assemble_spacegroup(crystal, rotations, translations, symbol, number; tol) -> SpaceGroup
@@ -142,16 +192,20 @@ function _assemble_spacegroup(crystal::Crystal,
                               tol::Real)::SpaceGroup
     length(rotations) == length(translations) ||
         throw(ArgumentError("rotations and translations must have equal length"))
+    _check_symprec(crystal.lattice, tol)
     A = crystal.lattice.vectors
     Ainv = crystal.lattice.reciprocal
-    matol = _mat_atol(crystal.lattice)
+    matol = _fractional_matrix_atol(crystal.lattice, tol)
     ops = Vector{SymOp}(undef, length(rotations))
     @inbounds for i in eachindex(rotations)
         W = SMatrix{3,3,Float64}(rotations[i])
         Rcart = A * W * Ainv
         t = translations[i]
-        # Snap a component to zero by the DISTANCE it moves an atom, |t_k|·‖a_k‖ Å:
-        # `tol` is a length, so the bare fractional component is not comparable to it.
+        # Snap a component to zero by the DISTANCE it moves an atom, which for a
+        # single component is exactly |t_k|·‖a_k‖ Å (`_frac_bound`'s `d_k` answers a
+        # different question — the largest fractional component a bounded Cartesian
+        # length can have — and is not the scale here). `tol` is a length, so the bare
+        # fractional component is not comparable to it.
         tfrac = SVector{3,Float64}(ntuple(
             k -> abs(t[k]) * norm(A[:, k]) >= tol ? Float64(t[k]) : 0.0, 3))
         ops[i] = SymOp(W, Rcart, tfrac, det(Rcart) > 0, isapprox(W, I; atol = matol))
@@ -166,6 +220,24 @@ function _assemble_spacegroup(crystal::Crystal,
               reduce(hcat, cols; init = Matrix{Int}(undef, n_atoms(crystal), 0))
     translation_ops = [i for i in eachindex(ops) if ops[i].is_translation]
     return SpaceGroup(symbol, Int(number), ops, map_sym, translation_ops, Float64(tol))
+end
+
+# `tol` is a length in Å, and two things bound it. It must be positive and finite to
+# be a distance at all; and it must stay below half the smallest interplanar spacing,
+# because every image search here folds a fractional offset axis by axis (`round`), and
+# that fold is the minimum image only while the true offset is well inside the half
+# cell. Above that bound `tol` is not a symmetry tolerance any more, whatever it is.
+function _check_symprec(lattice::Lattice, tol::Real)
+    (isfinite(tol) && tol > 0) || throw(ArgumentError(
+        "`tol` must be a finite positive distance in Å (the backend's symprec); " *
+        "got $tol"))
+    half = minimum(k -> interplanar_spacing(lattice, k), 1:3) / 2
+    tol < half || throw(ArgumentError(
+        "`tol` = $(Float64(tol)) Å is not below half the smallest interplanar " *
+        "spacing ($half Å). At that size the per-axis fold that matches an atom to " *
+        "its image is no longer the minimum image, so `tol` has stopped being a " *
+        "symmetry tolerance"))
+    return nothing
 end
 
 """
@@ -199,11 +271,12 @@ function _restrict_to_pbc(crystal::Crystal, ops::Vector{SymOp}, symbol::String,
                           tol::Real)
     pbc = crystal.lattice.pbc
     all(pbc) && return ops, symbol, nothing
+    matol = _fractional_matrix_atol(crystal.lattice, tol)
     kept = SymOp[]
     cols = Vector{Int}[]
     ndrop = 0
     for (i, op) in enumerate(ops)
-        r = _op_permutation(crystal, op, tol, i, false)
+        r = _op_permutation(crystal, op, tol, i, false, matol)
         if r === nothing
             ndrop += 1
             continue
@@ -250,7 +323,8 @@ const _MAX_CLOSURE_OPS = 192
 # axes and compared IN ÅNGSTRÖM — see the tolerance note above.
 _translations_equal(A::SMatrix{3,3,Float64,9}, a::SVector{3,Float64},
                     b::SVector{3,Float64}, tol::Real) =
-    _dcart2(A, SVector{3,Float64}(ntuple(k -> _wrap(a[k] - b[k]), 3))) <= tol * tol
+    _cartesian_distance2(A, SVector{3,Float64}(ntuple(k -> _wrap_half(a[k] - b[k]),
+                                                    3))) <= tol * tol
 
 # Index of the operation `(W|t)` in `ops` (0 if absent). `bykey` groups operation
 # indices by their integer rotation, so only the same-rotation coset is scanned.
@@ -266,7 +340,7 @@ function _find_op(ops::Vector{SymOp}, bykey::Dict{SMatrix{3,3,Int,9},Vector{Int}
 end
 
 """
-    _validate_ops(ops, tol)
+    _validate_ops(ops, lattice, tol)
 
 Check that an assembled operation list really is a space group of the lattice.
 
@@ -293,25 +367,32 @@ function _validate_ops(ops::Vector{SymOp}, lattice::Lattice, tol::Real)
     n == 0 && throw(ArgumentError("the operation list is empty; a space group " *
                                   "contains at least the identity"))
     A = lattice.vectors
-    # Integrality and orthogonality are questions about a DIMENSIONLESS matrix, so they
-    # get the dimensionless tolerance; symprec is a length and says nothing about them.
-    otol = _mat_atol(lattice)
+    # Two DIMENSIONLESS bands, both derived from the length `tol` — see the tolerance
+    # note above. They differ because the quantities do: `matol` bounds an entry of the
+    # fractional `W`, `otol` bounds a relative distortion of squared lengths.
+    matol = _fractional_matrix_atol(lattice, tol)
+    otol = _orthogonality_atol(lattice, tol)
     Wint = Vector{SMatrix{3,3,Int,9}}(undef, n)
     for i = 1:n
         W = ops[i].rotation_frac
-        isapprox(W, round.(W); atol = otol) || throw(ArgumentError(
-            "symmetry op $i: the fractional rotation is not an integer matrix " *
-            "($(W)) — a space-group operation maps the lattice onto itself"))
+        maximum(abs, W - round.(W)) <= matol || throw(ArgumentError(
+            "symmetry op $i: the fractional rotation is not an integer matrix to " *
+            "$matol ($(W)) — a space-group operation maps the lattice onto itself"))
         Wi = SMatrix{3,3,Int,9}(round.(Int, W))
         dW = round(Int, det(Wi))             # exact: Wi is integral
         abs(dW) == 1 || throw(ArgumentError(
             "symmetry op $i: |det W| = $(abs(dW)) ≠ 1 — the operation is not a " *
             "bijection of the lattice"))
         R = ops[i].rotation_cart
-        maximum(abs, R' * R - I) <= otol || throw(ArgumentError(
-            "symmetry op $i: the Cartesian rotation is not orthogonal to $otol — " *
-            "the fractional matrix is integral but does not preserve this " *
-            "lattice's metric, so it is not a symmetry of the crystal"))
+        dev = maximum(abs, R' * R - I)
+        dev <= otol || throw(ArgumentError(
+            "symmetry op $i: the Cartesian rotation is not orthogonal to $otol " *
+            "(measured $dev) — the fractional matrix is integral but does not " *
+            "preserve this lattice's metric, so it is not a symmetry of the crystal. " *
+            "The band is what `tol` = $(Float64(tol)) Å buys on the shortest lattice " *
+            "vector, so if the lattice is genuinely this one, write its vectors to " *
+            "more decimals or raise `tol` to about " *
+            "$(round(dev * minimum(k -> norm(A[:, k]), 1:3) / 2; sigdigits = 2)) Å"))
         Wint[i] = Wi
     end
 
@@ -363,8 +444,9 @@ end
 # does not map the *declared* translation lattice onto itself — there are no lattice
 # vectors along an aperiodic axis to receive it — so it cannot be a symmetry however
 # well it happens to permute the atoms.
-# `atol` is the dimensionless matrix tolerance (`_mat_atol`), not symprec: `W` is a
-# fractional rotation, and a length has nothing to say about its entries.
+# `atol` is the dimensionless matrix band (`_fractional_matrix_atol`), not symprec
+# itself: `W` is a fractional rotation, and a length cannot be compared to its entries
+# until it has been divided by one.
 @inline function _axis_blocks_ok(W::SMatrix{3,3,Float64,9}, pbc::SVector{3,Bool},
                                  atol::Real)::Bool
     @inbounds for k = 1:3, m = 1:3
@@ -396,7 +478,7 @@ function _perm_with_shift(crystal::Crystal, op::SymOp, tol::Real, o::Integer,
     pbc = crystal.lattice.pbc
     A = crystal.lattice.vectors
     tol2 = tol * tol
-    fb = _frac_bound(crystal.lattice, tol)
+    frac_bound = _frac_bound(crystal.lattice, tol)
     col = zeros(Int, nat)
     hit = falses(nat)                      # each column must be a *permutation*
     W = op.rotation_frac
@@ -418,8 +500,9 @@ function _perm_with_shift(crystal::Crystal, op::SymOp, tol::Real, o::Integer,
             (pbc[1] || r1 == dt[1]) && (pbc[2] || r2 == dt[2]) &&
                 (pbc[3] || r3 == dt[3]) || continue
             df = SVector{3,Float64}(d1 - r1, d2 - r2, d3 - r3)
-            abs(df[1]) <= fb[1] && abs(df[2]) <= fb[2] && abs(df[3]) <= fb[3] || continue
-            if _dcart2(A, df) < tol2
+            abs(df[1]) <= frac_bound[1] && abs(df[2]) <= frac_bound[2] &&
+                abs(df[3]) <= frac_bound[3] || continue
+            if _cartesian_distance2(A, df) <= tol2
                 found = jat
                 break
             end
@@ -428,19 +511,24 @@ function _perm_with_shift(crystal::Crystal, op::SymOp, tol::Real, o::Integer,
             strict || return nothing
             near, dist = _nearest_same_species(crystal, xn, iat)
             error("map_sym: atom $iat has no image under operation $o: the nearest " *
-                  "same-species atom ($near) is $dist Å away modulo a lattice " *
-                  "vector, and `tol` = $tol Å (the backend's symprec, a Cartesian " *
-                  "distance)")
+                  "same-species atom ($near) is $(round(dist; sigdigits = 3)) Å away " *
+                  "(minimum image), while `tol` = $(Float64(tol)) Å — the backend's " *
+                  "symprec, a Cartesian distance. Symmetrize the coordinates, or " *
+                  "raise `tol` above $(round(dist; sigdigits = 2)) Å")
         end
         # Two atoms sharing an image means the operation does not map the crystal onto
         # itself at this tolerance. `SpaceGroup` documents these columns as permutations
         # and the orbit code inverts them, so catch it here.
         if hit[found]
             strict || return nothing
-            prev = findfirst(==(found), view(col, 1:(iat - 1)))
+            # `hit[found]` guarantees an earlier atom mapped there, so the search
+            # cannot come back empty — `something` is what says so in the type.
+            prev = something(findfirst(==(found), view(col, 1:(iat - 1))))
+            sep = _atom_separation(crystal, iat, prev)
             error("map_sym: atoms $prev and $iat share the image $found under " *
-                  "operation $o at `tol` = $tol Å — the column is not a permutation, " *
-                  "so `tol` is too loose for this structure")
+                  "operation $o: they sit $(round(sep; sigdigits = 3)) Å apart, " *
+                  "inside `tol` = $(Float64(tol)) Å, so the column is not a " *
+                  "permutation — lower `tol` below $(round(sep; sigdigits = 2)) Å")
         end
         hit[found] = true
         col[iat] = found
@@ -494,7 +582,7 @@ function _shift_seeds(crystal::Crystal, op::SymOp,
     pbc = crystal.lattice.pbc
     A = crystal.lattice.vectors
     tol2 = tol * tol
-    fb = _frac_bound(crystal.lattice, tol)
+    frac_bound = _frac_bound(crystal.lattice, tol)
     xi = SVector{3,Float64}(x[1, 1], x[2, 1], x[3, 1])
     xn = op.rotation_frac * xi + op.translation_frac
     seeds = SVector{3,Float64}[]
@@ -502,8 +590,8 @@ function _shift_seeds(crystal::Crystal, op::SymOp,
         species[jat] == species[1] || continue
         r = SVector{3,Float64}(ntuple(k -> round(xn[k] - x[k, jat]), 3))
         df = SVector{3,Float64}(ntuple(k -> xn[k] - x[k, jat] - r[k], 3))
-        all(k -> abs(df[k]) <= fb[k], 1:3) || continue
-        _dcart2(A, df) < tol2 || continue
+        all(k -> abs(df[k]) <= frac_bound[k], 1:3) || continue
+        _cartesian_distance2(A, df) <= tol2 || continue
         dt = SVector{3,Float64}(ntuple(k -> pbc[k] ? 0.0 : r[k], 3))
         dt in seeds || push!(seeds, dt)
     end
@@ -525,11 +613,10 @@ end
 # every atom matches" — ONE shift for the whole operation, which is what makes the
 # surviving set a group and forces `_site_image` to produce zero cell shifts there.
 function _op_permutation(crystal::Crystal, op::SymOp, tol::Real, o::Integer,
-                         strict::Bool)
+                         strict::Bool, matol::Real)
     z = zero(SVector{3,Float64})
     strict && return _perm_with_shift(crystal, op, tol, o, z, true), z
-    _axis_blocks_ok(op.rotation_frac, crystal.lattice.pbc,
-                    _mat_atol(crystal.lattice)) || return nothing
+    _axis_blocks_ok(op.rotation_frac, crystal.lattice.pbc, matol) || return nothing
     for dt in _shift_seeds(crystal, op, tol)
         col = _perm_with_shift(crystal, op, tol, o, dt, false)
         col === nothing || return col, dt
@@ -544,7 +631,7 @@ end
 function _build_map_sym(crystal::Crystal, ops::Vector{SymOp}, tol::Real)::Matrix{Int}
     map_sym = Matrix{Int}(undef, n_atoms(crystal), length(ops))
     @inbounds for (o, op) in enumerate(ops)
-        map_sym[:, o] = first(_op_permutation(crystal, op, tol, o, true))
+        map_sym[:, o] = first(_op_permutation(crystal, op, tol, o, true, 0.0))
     end
     return map_sym
 end

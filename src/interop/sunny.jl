@@ -127,7 +127,9 @@ function _sunny_primitive(model::SLCEModel)::SunnyPrimitive
         fb = Lp \ (SVector{3,Float64}(cart[1, b], cart[2, b], cart[3, b]) +
                    A * SVector{3,Float64}(R[1], R[2], R[3]))
         cb = round.(Int, fb - positions[j])
-        clean &= maximum(abs.(fb - positions[j] - cb)) < tol
+        # In Å: `fb`, `positions[j]` and `cb` are all PRIMITIVE-cell fractional
+        # coordinates, while `tol` is the space group's symprec, a Cartesian distance.
+        clean &= norm(Lp * (fb - positions[j] - cb)) < tol
         n = SVector{3,Int}(cb - cellof(a))
         key, val = (i < j || (i == j && _is_nonnegative(n))) ? ((i, j, n), M) :
                    ((j, i, -n), SMatrix{3,3,Float64}(transpose(M)))

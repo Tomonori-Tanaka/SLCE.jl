@@ -19,26 +19,60 @@ release, so everything lives under *Unreleased*.
   accepted its operations at, so it rubber-stamped whatever it was handed. The comparison
   now runs through `A·Δx` (with a per-axis `tol/dᵢ` pre-rejection, so the matrix–vector
   product is paid only for real candidates), which also settles an inconsistency inside
-  the package: `_sunny_primitive` already read `SpaceGroup.tol` as Å.
-- **The dimensionless matrix tests no longer borrow `tol`.** Whether a fractional
-  rotation is integral, whether its Cartesian image is orthogonal, whether it is the
-  identity, and whether it mixes periodic with aperiodic axes are questions about a
-  dimensionless matrix; handing them a length is the same category error in reverse, and
-  at a large `tol` it was load-bearing — at `tol = 0.5` a rotation 0.3 away from an
-  integer matrix was rounded to the identity and admitted. Those four sites now use
-  `_mat_atol = 1e-8·‖A‖·‖A⁻¹‖`, which is scale free and so, unlike a fractional
-  threshold, does not drift with the cell.
+  the package: `_sunny_primitive` read `SpaceGroup.tol` as Å in two of its three
+  comparisons (see below for the third).
+- **The dimensionless matrix tests no longer borrow `tol` — they DIVIDE by a length
+  first.** Whether a fractional rotation is integral, whether its Cartesian image is
+  orthogonal, whether it is the identity, and whether it mixes periodic with aperiodic
+  axes are questions about a dimensionless matrix; handing them a length is the same
+  category error in reverse, and at a large `tol` it was load-bearing — at `tol = 0.5` a
+  rotation 0.3 away from an integer matrix was rounded to the identity and admitted.
+  Each of the two quantities now converts `tol` into its own band, both above a scale-free
+  floor `1e-8·‖A‖·‖A⁻¹‖` (capped) from the round-off of `R = A W A⁻¹`:
+    - an entry of the fractional `W` moves a point of the cell by `δ·max_k‖a_k‖` Å, so
+      the band is `tol / max_k‖a_k‖` (`_fractional_matrix_atol`);
+    - the residual `RᵀR − I` is a relative distortion of SQUARED lengths, so a lattice
+      vector carrying an absolute error of `tol` Å shows up in it as `2·tol/‖a_k‖` —
+      worst on the shortest vector, which the band is written against
+      (`_orthogonality_atol`).
+  The second one is not decoration. That residual is set by the **precision of the
+  lattice vectors the caller typed**, not by round-off: a hexagonal cell whose `a√3/2`
+  entry is written to six decimals lands at 1.2e-7 and five decimals at 2.2e-6, and a
+  bare `1e-8·κ` floor (~3.8e-8) refuses both — cells whose implied lattice errors,
+  2.1e-7 Å and 3.8e-6 Å, are comfortably inside a symprec of 1e-5 Å. Written this way
+  the gate refuses when, and only when, the implied lattice error exceeds `tol`: four
+  decimals (2.4e-5 Å) is refused at `tol = 1e-5` and accepted at `tol = 1e-3`.
+- **`analyze_symmetry` validates `tol`**: finite, positive, and below half the smallest
+  interplanar spacing — the last because every image search here folds a fractional
+  offset axis by axis, which is the minimum image only while the offset stays well
+  inside the half cell. The `(0, 0.1]` bound on `[symmetry].tol` in a TOML input is
+  unchanged and still the tighter one in practice.
+- **`_sunny_primitive` had one of these comparisons too** (`interop/sunny.jl`): the
+  bond-recovery check `maximum(abs.(fb - positions[j] - cb)) < tol` reads
+  primitive-cell FRACTIONAL coordinates against the same Å tolerance. It now converts
+  with `Lp` first. Only the `clean` flag depended on it — the permissive direction sent
+  the exporter to an explicit supercell rather than producing wrong numbers — but it
+  was the one site inside the package that already read `SpaceGroup.tol` as Å, so the
+  claim had to be made true rather than repeated.
 - A translation component is snapped to zero by the DISTANCE it moves an atom
   (`|t_k|·‖a_k‖`), not by the bare fractional component.
 - `map_sym`'s two refusals now speak in Å: "no image" names the nearest same-species
   atom and how far away it is, "shares an image" names the tolerance as a length.
-- Gates (`test/unit/test_symmetry.jl`): a new testset asserts the two properties the
-  number's MEANING implies — the collision verdict is independent of cell **size** (3 Å
-  vs 24 Å) and of cell **shape** (the two axes of a hexagonal cell) — and that the
-  tolerance still fires when the separation really is below it. Both halves fail on the
-  fractional form. The existing `tol = 1e-2` collision test is unchanged: its 1e-3
-  fractional separation in a 3 Å cell is 3e-3 Å, which lands on the same side of both
-  readings.
+- Gates (`test/unit/test_symmetry.jl`), all written from what the number MEANS rather
+  than from what the code returns: the collision verdict is independent of cell **size**
+  (3 Å vs 24 Å) and of cell **shape** (the two axes of a hexagonal cell), and the
+  tolerance still fires when the separation really is below it; a hexagonal lattice
+  keeps its 3-fold axis when its vectors are written to six and to five decimals and
+  loses it at four, at `tol = 1e-5`; and `tol` is refused when it is not a length this
+  cell can carry. The first two fail on the fractional form, the third on a
+  symprec-blind matrix band. The existing `tol = 1e-2` collision test is unchanged: its
+  1e-3 fractional separation in a 3 Å cell is 3e-3 Å, which lands on the same side of
+  both readings.
+- **Saved models re-validate on load.** `_symmetry_from` (`io/persist.jl`) rebuilds the
+  group by replaying `_assemble_spacegroup` on the stored fractional operations, so a
+  model TOML written when the comparisons were looser is re-checked at the stored `tol`
+  when it is read back. A file whose lattice or positions only satisfied the old,
+  cell-scaled tolerance will now say so on load rather than at build time.
 - What this does NOT cover: real Spglib output on relaxed coordinates, which no suite
   here exercises (Spglib is not a test dependency). The in-tree check is now exactly as
   tight as the symprec the backend was called with rather than looser, so a structure

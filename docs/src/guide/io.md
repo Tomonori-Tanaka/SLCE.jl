@@ -60,7 +60,7 @@ soc      = false
 
 [symmetry]
 backend = "spglib"          # or "none"
-tol     = 1.0e-5
+tol     = 1.0e-5            # symprec: a Cartesian distance in Å, in (0, 0.1]
 ```
 
 ```julia

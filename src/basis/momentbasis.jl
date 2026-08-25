@@ -408,6 +408,13 @@ serves every symmetry-equivalent site. Built on the ordinary decor SALC engine �
 full space group, orbits split under the site group through the SALC projection —
 with the mark-aware admission rules of the design record (see the file header).
 
+`tol` is the symmetry backend's symprec: a **Cartesian distance in Å**, the slack the
+backend is allowed when matching an atom to its image, and the accuracy the lattice
+vectors themselves are taken to have. It is compared in Å throughout, so the same
+value means the same physical slack in a primitive cell and in a supercell of it. It
+is a different quantity from `tie_tol`, which is a *relative* band on distances
+between atoms; raising one is not a substitute for raising the other.
+
 Fields: `crystal`, `spacegroup`, `spec`, `salc_basis` (keys sorted, addressable),
 `records` (one NamedTuple per SALC: representative geometry for reporting —
 `body`, `species`, `edges`, `nmem`), and `marked_atoms` (the design's row atoms).

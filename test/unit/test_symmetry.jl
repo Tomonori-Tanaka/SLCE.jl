@@ -115,13 +115,17 @@ SLCE.analyze_symmetry(::_MirrorZBackend, c::Crystal; tol::Real = 1e-5) =
         # along `a`, a 4× spread in effective tolerance across directions of one cell).
         E = SMatrix{3,3,Float64}(I)
         z0 = SVector{3,Float64}(0, 0, 0)
-        collides(lat, dfrac, tol) =
+        collides(lattice, dfrac, tol) =
             try
-                _assemble_spacegroup(Crystal(lat, hcat([0.0, 0.0, 0.0], dfrac),
+                _assemble_spacegroup(Crystal(lattice, hcat([0.0, 0.0, 0.0], dfrac),
                                              [1, 1], ["Fe"]),
                                      [E], [z0], "P1", 1; tol = tol)
                 false
-            catch
+            catch e
+                # NOT a catch-all: an `ArgumentError` from the assembler would otherwise
+                # be read as "the atoms collided", which is the one verdict these tests
+                # exist to measure.
+                e isa ErrorException || rethrow()
                 true
             end
 
@@ -149,6 +153,60 @@ SLCE.analyze_symmetry(::_MirrorZBackend, c::Crystal; tol::Real = 1e-5) =
         end
         @test collides(hex, [small / a, 0.0, 0.0], tol)
         @test collides(hex, [0.0, 0.0, small / c], tol)
+    end
+
+    @testset "a lattice written to finite precision keeps its operations" begin
+        # The orthogonality gate reads `RᵀR − I` off `R = A W A⁻¹`, and its size is set
+        # by the precision of the lattice vectors the CALLER typed, not by round-off —
+        # it is roughly twice their relative error. A hexagonal lattice has a 3-fold
+        # axis (physics, not a property of this code), so writing `a₂ = (−a/2, a√3/2, 0)`
+        # to a handful of decimals must not cost the crystal that axis at a symprec far
+        # larger than the error those decimals carry. The rule the band implements is
+        # exactly that: refuse when, and only when, the implied lattice error exceeds
+        # `tol`. Deviations measured on this cell: 1.2e-7 at six decimals, 2.2e-6 at
+        # five, 1.4e-5 at four.
+        E = SMatrix{3,3,Float64}(I)
+        z0 = SVector{3,Float64}(0, 0, 0)
+        c3 = SMatrix{3,3,Float64}([0 -1 0; 1 -1 0; 0 0 1])   # integral on a hex lattice
+        # NOT `lat`: an assignment inside a nested function updates the enclosing
+        # local of the same name, which would silently rebind this file's cubic cell.
+        function accepts(y, tol)
+            hexlat = Lattice([3.0 -1.5 0.0; 0.0 y 0.0; 0.0 0.0 5.0])
+            cryst = Crystal(hexlat, reshape([0.0, 0.0, 0.0], 3, 1), [1], ["Fe"])
+            try
+                _assemble_spacegroup(cryst, [E, c3, c3 * c3], fill(z0, 3), "P3", 143;
+                                     tol = tol)
+                true
+            catch e
+                e isa ArgumentError || rethrow()
+                false
+            end
+        end
+        exact = 3 * sqrt(3) / 2                              # 2.598076211353316…
+        @test accepts(exact, 1e-5)
+        # six decimals is off by 2.1e-7 Å and five by 3.8e-6 Å — both inside a symprec
+        # of 1e-5 Å, so the 3-fold survives both.
+        @test accepts(2.598076, 1e-5)
+        @test accepts(2.59808, 1e-5)
+        # four decimals is off by 2.4e-5 Å, outside it: at that tolerance this is a
+        # different lattice and the operation has to go.
+        @test !accepts(2.5981, 1e-5)
+        # ... and it comes back the moment the tolerance covers the error.
+        @test accepts(2.5981, 1e-3)
+    end
+
+    @testset "`tol` must be a length this cell can carry" begin
+        # `tol` is a distance in Å, so it has to be one; and every image search here
+        # folds a fractional offset axis by axis, which is the minimum image only while
+        # the offset stays well inside the half cell.
+        E = SMatrix{3,3,Float64}(I)
+        z0 = SVector{3,Float64}(0, 0, 0)
+        cryst = Crystal(lat, [0.0; 0.0; 0.0;;], [1], ["Fe"])
+        @test _assemble_spacegroup(cryst, [E], [z0], "P1", 1; tol = 1.4) isa SpaceGroup
+        for bad in (0.0, -1e-5, NaN, Inf, 1.5, 10.0)   # `lat` is 3 Å cubic: half = 1.5
+            @test_throws ArgumentError _assemble_spacegroup(cryst, [E], [z0], "P1", 1;
+                                                            tol = bad)
+        end
     end
 
     @testset "unloaded backend → friendly error" begin

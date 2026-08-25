@@ -301,6 +301,13 @@ generalized-Bloch / spin-spiral seam, finite cutoff only). The `images` value is
 applied to the cluster-edge admissibility, so the neighbor list and the clusters stay
 consistent.
 
+`tol` is the symmetry backend's symprec: a **Cartesian distance in Å**, the slack the
+backend is allowed when matching an atom to its image, and the accuracy the lattice
+vectors themselves are taken to have. It is compared in Å throughout, so the same
+value means the same physical slack in a primitive cell and in a supercell of it. It
+is a different quantity from `tie_tol`, which is a *relative* band on distances
+between atoms; raising one is not a substitute for raising the other.
+
 `tie_tol` is the relative same-distance band for minimum-image tie decisions (WS
 boundary) and the radial-cutoff edge, threaded to **both** the neighbor list and the
 cluster-edge admission. The default is far above round-off and far below any physical
