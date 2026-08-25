@@ -257,12 +257,15 @@ function _build_nl_minimage(crystal::Crystal, cutmat::Matrix{Float64}, rtol::Flo
             best = _min_image_dist(δ, A, s0)
             s = _sufficient_range(brow, lat.pbc, best, s0)
             s == s0 || (best = _min_image_dist(δ, A, s))
-            # minimum image beyond the radial cutoff ⇒ pair contributes nothing
-            # (the tie band is relative to this pair's own radius, so a degenerate
-            # shell at a species-pair-specific cutoff is never split)
+            # Two DIFFERENT questions are asked here, and `rtol` spells both. This
+            # one is the CUTOFF test — is the pair inside its species-pair radius at
+            # all — and its band is relative slack on the RADIUS, so a shell of
+            # different atom pairs sitting exactly on that radius is kept or dropped
+            # whole. It is not the Wigner–Seitz multiplicity; that is pass 2.
             (isfinite(best) && best <= cut * (1 + rtol)) || continue
-            # pass 2: emit every image tied with the minimum (the WS-boundary
-            # multiplicity), each as its own directed member
+            # pass 2: the TIE test. Emit every image tied with THIS pair's minimum
+            # image (the WS-boundary multiplicity), each as its own directed member.
+            # `tie_tol` earns its name here, and only here.
             thr = best * (1 + rtol)
             for n1 = -s[1]:s[1], n2 = -s[2]:s[2], n3 = -s[3]:s[3]
                 offset = A * SVector{3,Float64}(n1, n2, n3)
@@ -283,9 +286,14 @@ Enumerate every directed atom pair `(i, j, shift)` with interatomic distance
 [`AllImages`](@ref) enumeration; for plain-PBC SLCE fitting use the three-argument
 form with [`MinimumImage`](@ref).
 
-Pair admission here is exact (`d ≤ cutoff`, no band). `tol` is recorded on the
-returned list for the *downstream* same-distance decisions — cluster-edge
-admissibility and per-sector re-admission — which need one shared band; see
+Pair admission here is exact (`d ≤ cutoff`, no band), and `tol` does **not** widen
+it. Under [`AllImages`](@ref) every image stands on its own against the radius, so
+there is no minimum-image multiplicity for a tie band to protect — widening `tie_tol`
+changes nothing about which pairs this function returns. `tol` is recorded on the
+returned list for the *downstream* decisions — cluster-edge admissibility and
+per-sector re-admission; note that `candidate_clusters` does apply it there as a
+relative band to an `AllImages` clique edge, so the two sides do not judge an edge by
+the same rule. Whether that band belongs on a cutoff at all is unsettled; see
 [`NeighborList`](@ref).
 
 # Notes

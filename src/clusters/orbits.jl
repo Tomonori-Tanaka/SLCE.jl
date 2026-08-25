@@ -205,7 +205,11 @@ function _orbits_from_members(crystal::Crystal, spacegroup::SpaceGroup,
                     "coordinates are relaxed/noisy (symmetric only to within the symprec " *
                     "that recognized this space group), widen `SLCEBasis(...; tie_tol)` " *
                     "above the coordinate symmetry residual relative to the bond length, " *
-                    "or symmetrize the coordinates")
+                    "or symmetrize the coordinates. Under AllImages that first " *
+                    "remedy is INERT: build_neighbor_list admits an image at " *
+                    "`d <= cutoff` with no band there, so tie_tol cannot change " *
+                    "which pairs exist -- move the cutoff off the shell, or " *
+                    "symmetrize")
                 append!(idxs, sig2members[s])
             end
             sort!(idxs)

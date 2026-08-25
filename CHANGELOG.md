@@ -6,6 +6,41 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Documentation — what the three same-distance bands actually do (2026-08-26)
+
+No behaviour change; four places said something false about `tie_tol` and now do not.
+
+- **`CLAUDE.md`'s coupled-site entry claimed one band on "both sides".** There are
+  three admission rules reading `_SAME_DIST_RTOL` and they are not the same rule:
+  `_build_nl_minimage` gates the pair at `best <= cut*(1 + rtol)` and then emits the
+  tie shell at `thr = best*(1 + rtol)`; `_build_nl_allimages` gates each image at
+  `d2 <= cut2`, unbanded; `candidate_clusters` re-checks an `AllImages` clique edge at
+  `cut^2*(1 + tol)^2`, banded. The entry now names all three and records why the
+  asymmetry was left alone.
+- **The minimum-image builder's comment called its cutoff test a tie band.** The two
+  passes ask different questions — "is this pair inside its radius" and "is this image
+  tied with that pair's minimum image" — and only the second is what `tie_tol` is
+  named for. Both are now labelled.
+- **`build_neighbor_list(crystal, cutoff)`'s docstring was true but incomplete.**
+  Admission there really is exact; what it did not say is that `tie_tol` therefore
+  cannot widen it, and that `candidate_clusters` nevertheless applies a band to the
+  same edge downstream.
+- **The orbit-closure error prescribed a remedy that is inert on this path.** It tells
+  the reader to widen `tie_tol` when the coordinates are relaxed or noisy; under
+  `AllImages` that changes nothing about which pairs exist. The message now says so
+  and points at the two remedies that do work.
+
+**Why no code changed.** The asymmetry is structural — the same edge is judged one way
+as an anchor spoke and another as a cross edge, so an `N >= 3` cluster's admission can
+depend on which atom the search anchored from — but no instance was produced. A
+simple-cubic cell with the cutoff on its 1NN shell measures `d2 == cut2` exactly, and
+so does a hexagonal one (`(3*sqrt(3)/2)^2` is exactly `6.75`), so the default 1e-8
+window is not reached by the obvious constructions. Widening `tie_tol` does not open
+it either, because `tie_tol` is not a cutoff quantity: it answers "are these two
+distances equal", while a cutoff answers "is this distance inside R". Coupling them is
+a separate defect — a `tie_tol = 1e-3` set to rescue noisy coordinates silently grows a
+4.0 Å cutoff to 4.004 Å — and it has to be settled before any of the three rules moves.
+
 ### Fixed — the mechanical half of the cross-cutting review (2026-08-26)
 
 A five-axis review over this session's changes. These are the findings that needed no

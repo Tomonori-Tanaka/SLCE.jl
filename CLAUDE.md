@@ -253,11 +253,25 @@ Easy to break silently — confirm before touching the algorithm.
   inside its species-pair radius. A bare radial cutoff there made admission depend on
   which atom the search anchored from — the same triangle was in or out according to
   the ordering, since the anchor's radius was applied to a spoke belonging to another
-  species pair. The tie/cutoff
-  tolerance is relative (`_SAME_DIST_RTOL`) on both sides so a degenerate WS-boundary
-  shell is never split; it is user-facing as `SLCEBasis(...; tie_tol)` (default the
+  species pair. **Three admission rules read `_SAME_DIST_RTOL`, and they are NOT the
+  same rule** — this entry used to say "one value, both sides"; the code does not:
+  `_build_nl_minimage` gates the PAIR at `best <= cut*(1 + rtol)` (relative slack on
+  the radius) and then emits the tie shell at `thr = best*(1 + rtol)` (the WS
+  multiplicity — the only one of the three that is a tie test);
+  `_build_nl_allimages` gates each image at `d2 <= cut2`, **unbanded**, and `tie_tol`
+  does nothing to it; `candidate_clusters` re-checks an `AllImages` clique edge at
+  `cut^2*(1 + tol)^2`, **banded**. So the same edge is judged one way as an anchor
+  spoke and another way as a cross edge, which makes an N >= 3 cluster's admission
+  depend on the anchor. Reviewed 2026-08-26 and left as it is: the asymmetry is
+  structural but no instance has been produced (simple-cubic and hexagonal cells put
+  their shells on exactly representable distances, so the default 1e-8 window is not
+  reached), and it is not settled whether a cutoff should carry a tie band at all —
+  `tie_tol` answers "are these two distances equal", a cutoff answers "is this
+  distance inside R", and coupling them means a `tie_tol = 1e-3` set to rescue noisy
+  coordinates silently grows a 4.0 Å cutoff to 4.004 Å. Settle that before touching
+  any of the three. `tie_tol` is user-facing as `SLCEBasis(...; tie_tol)` (default the
   same constant, hard cap `_TIE_TOL_MAX = 1e-2`), riding on `NeighborList.tol` which
-  `candidate_clusters` reads back — one value, both sides. Widening it is the remedy
+  `candidate_clusters` reads back. Widening it is the remedy
   for relaxed/noisy coordinates whose symmetry residual splits ties (the orbit
   builder's closure refusal names it; the MnTe(0001) slab case, fixed first in
   SCEFitting.jl); the resolvability layer then freezes whatever the merged shell's
