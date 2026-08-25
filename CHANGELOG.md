@@ -6,6 +6,66 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — an aperiodic axis now restricts the space group (2026-08-25)
+
+- **`analyze_symmetry` intersects the backend's group with the crystal's declared
+  periodicity.** A backend analyses the cell as a fully periodic 3D crystal — Spglib is
+  not told about `Lattice(...; pbc)` and has no way to be — while the neighbour list
+  refuses to emit an image along an aperiodic axis. `_build_map_sym` then folded mod 1
+  on all three axes unconditionally, so an operation that closes only through the
+  artificial periodicity was accepted and surfaced downstream as
+  `build_clusters`' closure assertion, blamed on "the image selection and the tie
+  tolerance" — a cause it does not have. Reproduced on a three-layer slab straddling
+  `z = 0` with `pbc = (true, true, false)`; the same slab placed at the centre of the
+  cell, and either placement fully periodic, built fine.
+- Operations whose rotation mixes a periodic with an aperiodic axis are refused on the
+  rotation alone: they send a lattice translation into a direction with none to receive
+  it, so the declared translation lattice is not mapped onto itself.
+- **Translations are re-seated, not just filtered.** A backend reports `t` modulo a
+  lattice translation, which along an aperiodic axis is not an identification one may
+  make — exactly one representative is the operation the finite structure has. A slab
+  centred at `z = 1/2` has a mirror there, and Spglib is entitled to report it as the
+  mirror at `z = 0` with `t_z = 0`; the assembler now searches for the single integer
+  shift along the aperiodic axes that makes every atom match exactly, and keeps the
+  operation with that representative. So the centred slab keeps its full group, and
+  `_site_image` produces a zero cell shift along the aperiodic axes by construction.
+- The kept set is a **subgroup** (the aperiodic match is exact, so it composes; the
+  identity satisfies it; a bijection's inverse does too) and is re-validated with
+  `_validate_ops`. Using a subgroup never over-reduces: the basis is larger than the
+  fully periodic one, never short. A fully periodic crystal returns before any of this
+  and is bit-for-bit unchanged.
+- **An aperiodic axis is never wrapped, so positions may legitimately span cells along
+  it** (`Crystal` wraps only the periodic axes). Two same-species atoms an exact cell
+  apart there are indistinguishable to the mod-1 comparison the matcher uses to find a
+  candidate, which used to make even the IDENTITY fail as "atoms 1 and 2 share the
+  image 1" — under `NoSymmetry()` too, so there was no fallback. The whole-operation
+  shift is therefore searched over the candidates atom 1 can map to, nearest zero
+  first, instead of being read off the first hit; "no consistent shift" is a drop, not
+  an error. That seed list is complete (atom 1 must map to something), so nothing
+  legitimate is lost, and a drop is the conservative direction anyway.
+- **The load-bearing invariant is checked directly.** `_check_zero_aperiodic_shift`
+  asserts, for every kept operation and atom, that `round(W·x_a + t − x_b)` vanishes on
+  each aperiodic axis — the property `_site_image` needs. `_validate_ops` cannot stand
+  in for it: its `_tclose` folds mod 1 on all three axes, so a re-seated operation and
+  the representative it replaced are the same object to it. It is now also run on the
+  kept set whether or not anything was dropped, since re-seating is a change on its own.
+- **`PERSIST_SCHEMA_VERSION` 6 → 7, and a pre-v7 document whose crystal declares an
+  aperiodic axis is refused on load.** Its stored operations are the full group a
+  backend reported for the fully periodic cell and its SALCs were projected with those,
+  while this build re-derives the restricted subgroup — pairing them would give a basis
+  whose group is not the one its columns came from, and nothing downstream would notice
+  (the `SALCBasis` fingerprint hashes keys, not operations). A document's `pbc` cannot
+  be changed from the loader, so the answer is to rebuild the basis. Fully periodic
+  documents of every readable version load unchanged.
+- The dropped count is warned once per `analyze_symmetry` call (no `maxlog`: a user
+  building several slabs needs to be told about each), and `symbol` gains a
+  `" (pbc subgroup)"` suffix so a group that is not the reported one cannot be mistaken
+  for it. `guide/basis.md`, the `Lattice` docstring and the `analyze_symmetry` docstring
+  say all of this, including the alternative: for a vacuum-padded slab meant as a 3D
+  crystal, keep `pbc = (true, true, true)` — the vacuum and the cutoff already keep the
+  images apart.
+- [Backported from SCEFitting.jl `46226d4` + `db1200f`.]
+
 ### Fixed — `select_fit(:cv)` reported the objective divided by the row count (2026-08-25)
 
 - **`select_fit(...; criterion = :cv)` no longer divides the pooled out-of-fold sum by

@@ -4,6 +4,17 @@ using SLCE: _assemble_spacegroup, n_ops, SpaceGroup
 using StaticArrays
 using LinearAlgebra
 
+# A backend that hands back {E, m_z} — the mirror through z = 0 — however the crystal
+# is placed. It stands in for Spglib in the aperiodic-axis tests below: Spglib is not
+# available in this environment, and the point of those tests is what the assembler
+# does with a backend's answer, not which answer Spglib gives.
+struct _MirrorZBackend <: SLCE.AbstractSymmetryBackend end
+SLCE.analyze_symmetry(::_MirrorZBackend, c::Crystal; tol::Real = 1e-5) =
+    _assemble_spacegroup(c, [SMatrix{3,3,Float64}(I),
+                             SMatrix{3,3,Float64}(Diagonal([1.0, 1.0, -1.0]))],
+                         [SVector{3,Float64}(0, 0, 0), SVector{3,Float64}(0, 0, 0)],
+                         "Pm", 6; tol = tol)
+
 @testset "symmetry" begin
     lat = Lattice(Matrix(3.0 * I(3)))
 
@@ -89,5 +100,124 @@ using LinearAlgebra
         # Spglib is not loaded in the core test env, so SpglibBackend falls through
         # to the abstract-supertype method, which errors clearly.
         @test_throws ErrorException analyze_symmetry(SpglibBackend(), crystal)
+    end
+    @testset "an aperiodic axis restricts the group to the operations it really has" begin
+        # A backend analyses the cell as a fully periodic 3D crystal — Spglib is not
+        # told about `Lattice(...; pbc)`. Its answer must therefore be intersected
+        # with the declared periodicity before anything downstream (`build_clusters`
+        # demands closure under the group; the neighbour list refuses images along an
+        # aperiodic axis, so an operation that closes only through the artificial
+        # periodicity surfaces as a closure failure blamed on the tie tolerance).
+        #
+        # All three cases below are decided by hand from the geometry, not read off
+        # the implementation. `slab` is a tetragonal cell with `c = 12`; `m_z` is the
+        # mirror through `z = 0`, which the backend reports with `t = 0`.
+        tall = Lattice([3.0 0 0; 0 3.0 0; 0 0 12.0]; pbc = (true, true, false))
+        tallp = Lattice([3.0 0 0; 0 3.0 0; 0 0 12.0])
+
+        # (a) CENTRED at z = 1/2: the three layers sit at 3/8, 1/2, 5/8, which IS
+        # mirror-symmetric — about z = 1/2, not about z = 0. The two mirrors differ by
+        # the lattice translation `c`, which along an aperiodic axis is not an
+        # identification one may make: exactly one of them is the operation the finite
+        # slab has. So nothing may be dropped, and the surviving mirror must carry the
+        # representative `t_z = 1` (`m_z` about z = 0 composed with +c), which is what
+        # makes `round(W·x_a + t − x_b)` vanish along z for every atom.
+        centred = Crystal(tall, [0.0 0.0 0.0; 0.0 0.0 0.0; 0.375 0.5 0.625],
+                          [1, 1, 1], ["Fe"])
+        sg_c = analyze_symmetry(_MirrorZBackend(), centred)
+        @test n_ops(sg_c) == 2
+        @test !occursin("pbc subgroup", sg_c.symbol)
+        gi = findfirst(o -> o.rotation_frac[3, 3] < 0, sg_c.ops)
+        mirror = sg_c.ops[gi]
+        @test mirror.translation_frac[3] ≈ 1.0
+        # Stated where it is physical: in Cartesian terms the layers sit at 4.5, 6.0
+        # and 7.5 Å, and the mirror at z = 6 Å sends them to 7.5, 6.0, 4.5 — every
+        # image an atom that is there, with no cell translation added. The backend's
+        # `t_z = 0` representative sends 4.5 Å to −4.5 Å, which is not.
+        cart = cartesian_positions(centred)
+        A = centred.lattice.vectors
+        for a = 1:3
+            img = A * (mirror.rotation_frac * centred.frac_positions[:, a] +
+                       mirror.translation_frac)
+            @test isapprox(img, cart[:, sg_c.map_sym[a, gi]]; atol = 1e-12)
+        end
+
+        # (b) STRADDLING z = 0: layers at 7/8, 0, 1/8. Under the artificial
+        # periodicity that is the same slab as (a) shifted, and `m_z` maps 1/8 to
+        # −1/8 ≡ 7/8. Along a FINITE z it is three layers at 0, 1.5, 10.5 Å, and no
+        # mirror plane fixes that set (a plane at 0.75 Å would send 1.5 → 0 but 10.5
+        # to −9). So `m_z` must go, leaving the identity alone.
+        straddle = Crystal(tall, [0.0 0.0 0.0; 0.0 0.0 0.0; 0.875 0.0 0.125],
+                           [1, 1, 1], ["Fe"])
+        sg_s = @test_logs (:warn,) match_mode = :any analyze_symmetry(_MirrorZBackend(),
+                                                                      straddle)
+        @test n_ops(sg_s) == 1
+        @test sg_s.ops[1].is_translation                     # the identity
+        @test endswith(sg_s.symbol, "(pbc subgroup)")
+
+        # (c) the SAME atoms declared fully periodic keep both operations and the
+        # backend's symbol: the restriction is a consequence of the declaration, not a
+        # change of behaviour for a periodic crystal.
+        periodic = Crystal(tallp, [0.0 0.0 0.0; 0.0 0.0 0.0; 0.875 0.0 0.125],
+                           [1, 1, 1], ["Fe"])
+        sg_p = analyze_symmetry(_MirrorZBackend(), periodic)
+        @test n_ops(sg_p) == 2
+        @test sg_p.symbol == "Pm"
+
+        # (d) end to end: (b) used to build a neighbour list that cannot produce the
+        # z-shifted image `m_z` implies, and died in `build_clusters` with "check the
+        # image selection and the tie tolerance" — a cause it does not have.
+        @test SLCEBasis(straddle, BasisSpec(; nbody = 2, cutoff = 3.2, lmax = [1],
+                                           soc = false);
+                       backend = _MirrorZBackend()) isa SLCEBasis
+    end
+
+    @testset "an aperiodic axis is never wrapped, so positions may span cells" begin
+        # There is no period to wrap with along an aperiodic axis, so `Crystal` leaves
+        # those coordinates as given and a legitimate structure may list positions
+        # outside `[0, 1)` there. Two atoms an exact cell apart are then indivisible to
+        # a mod-1 comparison — which is what the matcher uses to find a candidate — so
+        # the whole-operation integer shift has to be searched over, not read off the
+        # first candidate atom 1 happens to hit.
+        #
+        # `c = 6` Å with atoms at `z = 0` and `z = 1`, i.e. Cartesian 0 and 6 Å.
+        # By hand: the two points are mirror-symmetric about `z = 3` Å, the plane
+        # `z_frac = 1/2`. The backend reports that mirror as the one at `z = 0` with
+        # `t_z = 0` (the same operation modulo `c`), so the physical representative is
+        # `t_z = 1`. Both operations are genuine and neither may be dropped — the
+        # identity least of all.
+        span = Lattice([3.0 0 0; 0 3.0 0; 0 0 6.0]; pbc = (true, true, false))
+        cryst = Crystal(span, [0.0 0.0; 0.0 0.0; 0.0 1.0], [1, 1], ["Fe"])
+        @test cryst.frac_positions[3, :] == [0.0, 1.0]        # not wrapped
+        sg = analyze_symmetry(_MirrorZBackend(), cryst)
+        @test n_ops(sg) == 2
+        @test !occursin("pbc subgroup", sg.symbol)
+        mirror = sg.ops[findfirst(o -> o.rotation_frac[3, 3] < 0, sg.ops)]
+        @test mirror.translation_frac[3] ≈ 1.0
+        @test sg.map_sym[:, findfirst(o -> o.rotation_frac[3, 3] < 0, sg.ops)] == [2, 1]
+        # and the identity is still the identity, not "atom 2 maps to atom 1"
+        @test sg.map_sym[:, findfirst(o -> o.is_translation, sg.ops)] == [1, 2]
+    end
+
+    @testset "an operation that mixes a periodic and an aperiodic axis is refused" begin
+        # `x ↔ z` on a cell with `a = c` permutes the two atoms below exactly, so the
+        # atom-image test alone would keep it. It still cannot be a symmetry when `c`
+        # is aperiodic: it sends the lattice translation `a` into a direction with no
+        # lattice translations to receive it, so the declared translation lattice is
+        # not mapped onto itself. Refused on the rotation alone, before any atom is
+        # looked at.
+        cube = Lattice(Matrix(3.0 * I(3)); pbc = (true, true, false))
+        cryst = Crystal(cube, [0.0 0.5; 0.0 0.0; 0.0 0.5], [1, 1], ["Fe"])
+        swap = SMatrix{3,3,Float64}([0.0 0 1; 0 1 0; 1 0 0])
+        z0 = SVector{3,Float64}(0, 0, 0)
+        sg = @test_logs (:warn,) match_mode = :any _assemble_spacegroup(
+            cryst, [SMatrix{3,3,Float64}(I), swap], [z0, z0], "manual", 0; tol = 1e-6)
+        @test n_ops(sg) == 1
+        @test endswith(sg.symbol, "(pbc subgroup)")
+        # ... and it survives when all three axes are periodic
+        cubep = Crystal(Lattice(Matrix(3.0 * I(3))), [0.0 0.5; 0.0 0.0; 0.0 0.5],
+                        [1, 1], ["Fe"])
+        @test n_ops(_assemble_spacegroup(cubep, [SMatrix{3,3,Float64}(I), swap],
+                                         [z0, z0], "manual", 0; tol = 1e-6)) == 2
     end
 end

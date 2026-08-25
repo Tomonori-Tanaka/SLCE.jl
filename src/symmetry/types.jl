@@ -25,8 +25,17 @@ end
 Space-group data for a `Crystal`, produced by [`analyze_symmetry`](@ref).
 
 # Fields
-- `symbol::String`: international (Hermann–Mauguin) symbol.
-- `number::Int`: space-group number (`1` for P1).
+- `symbol::String`: international (Hermann–Mauguin) symbol. When the crystal declares
+  an aperiodic axis and [`analyze_symmetry`](@ref) had to drop operations that close
+  only through the periodicity along it, the symbol carries a `" (pbc subgroup)"`
+  suffix — the group held is then a proper subgroup of the named one. The suffix marks
+  DROPPED operations only: on an aperiodic axis the translations are re-seated on the
+  representative the finite structure has whether or not anything was dropped, so an
+  unsuffixed symbol does not promise a backend's `t` verbatim.
+- `number::Int`: space-group number (`1` for P1). Deliberately left at the number of
+  the group the backend named, even when `symbol` carries the suffix: there is no
+  international number for the subgroup, and the pair records what was reported and
+  what was kept.
 - `ops::Vector{SymOp}`: the operations.
 - `map_sym::Matrix{Int}`: `map_sym[atom, op]` is the atom that `atom` maps to
   under operation `op` (a permutation of atoms for each op). Derived in-tree, so

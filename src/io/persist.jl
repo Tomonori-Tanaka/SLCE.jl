@@ -45,8 +45,8 @@ const _LEGACY_SCHEMA_TAGS = Dict("scefitting/sce-basis" => _SCHEMA_BASIS,
 #     COUNT, never the BasisSpec-style body-order cap), and the schema tags moved
 #     from "scefitting/sce-*" to "slce/*". Early-v5 documents are read through the
 #     legacy key and the legacy tags.
-const PERSIST_SCHEMA_VERSION = 6
-const _PERSIST_READABLE_VERSIONS = (2, 3, 4, 5, 6)
+const PERSIST_SCHEMA_VERSION = 7
+const _PERSIST_READABLE_VERSIONS = (2, 3, 4, 5, 6, 7)
 
 # Normalize -0.0 → +0.0 so two builds of the same object serialize byte-identically
 # (eigensolvers on different BLAS can flip a sign of zero); -0.0 == 0.0 anyway.
@@ -361,6 +361,27 @@ stored one is provenance only — `hash` is Julia-version dependent).
 function _basis_from_doc(d)::SLCEBasis
     _check_schema(d, (_SCHEMA_BASIS, _SCHEMA_MODEL))
     crystal = _crystal_from(d["crystal"])
+    # Pre-v7 documents were written before `analyze_symmetry` intersected the group
+    # with the crystal's declared periodicity. Their stored operations are the FULL
+    # group a backend reported for the fully periodic cell and their SALCs were
+    # projected with it, while `_symmetry_from` below re-derives the restricted
+    # subgroup — pairing it with those SALCs would give a basis whose group is not the
+    # group its columns came from, and nothing downstream would notice (the
+    # `SALCBasis` fingerprint hashes keys, not operations). A stored document's `pbc`
+    # cannot be changed from here, so refuse instead of reconstructing that.
+    # [Backported from SCEFitting.jl db1200f.]
+    if Int(d["schema_version"]) < 7 && !all(crystal.lattice.pbc)
+        throw(ArgumentError(
+            "this document is schema_version $(Int(d["schema_version"])) and its " *
+            "crystal declares an aperiodic axis. It was written before the space " *
+            "group was intersected with that declaration, so its stored operations " *
+            "may include ones that close only through the periodicity along the " *
+            "aperiodic axis — the SALCs were projected with those, and this build " *
+            "would drop them, leaving a basis whose group is not the one its columns " *
+            "came from. Rebuild the basis from the crystal (`SLCEBasis(...)`) and " *
+            "save it again. A fully periodic document of any readable version loads " *
+            "unchanged."))
+    end
     sg = _symmetry_from(crystal, d["symmetry"])
     spec = _spec_from(d["spec"])
     salcs = SALC[_salc_from(s) for s in d["salcs"]]

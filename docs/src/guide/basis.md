@@ -28,8 +28,24 @@ cr  = Crystal(lat,
 ```
 
 Periodic directions default to all three axes; pass `pbc = (true, true, false)` to a
-`Lattice` for a slab. Fractional positions are wrapped into `[0, 1)` — a precondition the
-neighbor list relies on.
+`Lattice` for a slab. Fractional positions are wrapped into `[0, 1)` **along the periodic
+axes** — a precondition the neighbor list relies on. An aperiodic axis is left as given,
+because there is no period to wrap with.
+
+!!! note "An aperiodic axis restricts the space group"
+    A symmetry backend analyzes the cell as a fully periodic 3D crystal — Spglib is not
+    told about `pbc` and has no way to be. Operations that close only through the
+    periodicity along an aperiodic axis are therefore dropped, with a warning naming how
+    many and a `" (pbc subgroup)"` suffix on `basis.spacegroup.symbol`; what remains is a
+    subgroup, so the basis it builds is larger than the fully periodic one, never short.
+    Translations are also re-seated on the representative the finite structure actually
+    has — a slab centred at `z = 1/2` keeps its mirror even though the backend reports it
+    as the mirror at `z = 0` — and that happens whether or not anything was dropped, so
+    the suffix marks dropped operations, not re-seated ones.
+
+    If the cell is a vacuum-padded slab and you mean the 3D group of that padded cell,
+    keep the default `pbc = (true, true, true)` — the vacuum and the cutoff already keep
+    the images apart, and nothing is dropped.
 
 ## The interaction specification
 

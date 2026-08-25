@@ -307,7 +307,8 @@ end
         @test length(bv.spec.sector_rules) == 2          # the downgrade below is not a no-op
 
         doc = MR._to_doc(mv)
-        @test doc["schema"] == "slce/model" && Int(doc["schema_version"]) == 6
+        @test doc["schema"] == "slce/model" &&
+              Int(doc["schema_version"]) == MR.PERSIST_SCHEMA_VERSION
         @test all(sec -> haskey(sec, "sites"), doc["spec"]["sectors"])
 
         # Downgrade to exactly what this package used to write.
@@ -414,5 +415,34 @@ end
         push!(term(twice)["shape"], term(twice)["shape"][1])
         term(twice)["folded"] = repeat(term(twice)["folded"], term(twice)["shape"][1])
         @test_throws ArgumentError MR._basis_from_doc(twice)   # two SPIN on one site
+    end
+    @testset "a pre-v7 document with an aperiodic axis is refused" begin
+        # Before schema 7 the stored operations were whatever a backend reported for
+        # the fully periodic cell, and the stored SALCs were projected with THOSE.
+        # This build re-derives the group under the declared periodicity, so pairing
+        # the two would give a basis whose group is not the group its columns came
+        # from — and nothing downstream would notice, because the `SALCBasis`
+        # fingerprint hashes keys, not operations. A document's `pbc` cannot be
+        # changed from the loader, so the only honest answer is to refuse.
+        # [Backported from SCEFitting.jl db1200f.]
+        slab = Crystal(Lattice([3.0 0 0; 0 3.0 0; 0 0 12.0]; pbc = (true, true, false)),
+                       [0.0 0.0; 0.0 0.0; 0.375 0.625], [1, 1], ["Fe"])
+        basis = SLCEBasis(slab, BasisSpec(; nbody = 2, cutoff = 3.2, lmax = [1],
+                                         soc = false))
+        doc = MR._to_doc(basis)
+        @test Int(doc["schema_version"]) == MR.PERSIST_SCHEMA_VERSION
+        @test MR._basis_from_doc(doc) isa SLCEBasis          # at the current version
+        for v in (2, 3, 4, 5, 6)
+            stale = copy(doc)
+            stale["schema_version"] = v
+            @test_throws ArgumentError MR._basis_from_doc(stale)
+        end
+        # the same stale version is fine when every axis is periodic
+        cube = Crystal(Lattice(Matrix(3.0 * I(3))), [0.0 0.0; 0.0 0.0; 0.375 0.625],
+                       [1, 1], ["Fe"])
+        pdoc = MR._to_doc(SLCEBasis(cube, BasisSpec(; nbody = 2, cutoff = 3.2,
+                                                   lmax = [1], soc = false)))
+        pdoc["schema_version"] = 6
+        @test MR._basis_from_doc(pdoc) isa SLCEBasis
     end
 end
