@@ -163,15 +163,15 @@ SLCE.analyze_symmetry(::_MirrorZBackend, c::Crystal; tol::Real = 1e-5) =
         # to a handful of decimals must not cost the crystal that axis at a symprec far
         # larger than the error those decimals carry. The rule the band implements is
         # exactly that: refuse when, and only when, the implied lattice error exceeds
-        # `tol`. Deviations measured on this cell: 1.2e-7 at six decimals, 2.2e-6 at
-        # five, 1.4e-5 at four.
+        # `tol`. Residuals measured on the a = 3 Å cell: 1.2e-7 at six decimals,
+        # 2.2e-6 at five, 1.4e-5 at four.
         E = SMatrix{3,3,Float64}(I)
         z0 = SVector{3,Float64}(0, 0, 0)
         c3 = SMatrix{3,3,Float64}([0 -1 0; 1 -1 0; 0 0 1])   # integral on a hex lattice
         # NOT `lat`: an assignment inside a nested function updates the enclosing
         # local of the same name, which would silently rebind this file's cubic cell.
-        function accepts(y, tol)
-            hexlat = Lattice([3.0 -1.5 0.0; 0.0 y 0.0; 0.0 0.0 5.0])
+        function accepts(a, c, y, tol)
+            hexlat = Lattice([a -a/2 0.0; 0.0 y 0.0; 0.0 0.0 c])
             cryst = Crystal(hexlat, reshape([0.0, 0.0, 0.0], 3, 1), [1], ["Fe"])
             try
                 _assemble_spacegroup(cryst, [E, c3, c3 * c3], fill(z0, 3), "P3", 143;
@@ -182,17 +182,31 @@ SLCE.analyze_symmetry(::_MirrorZBackend, c::Crystal; tol::Real = 1e-5) =
                 false
             end
         end
+        small(y, tol) = accepts(3.0, 5.0, y, tol)
         exact = 3 * sqrt(3) / 2                              # 2.598076211353316…
-        @test accepts(exact, 1e-5)
+        @test small(exact, 1e-5)
         # six decimals is off by 2.1e-7 Å and five by 3.8e-6 Å — both inside a symprec
         # of 1e-5 Å, so the 3-fold survives both.
-        @test accepts(2.598076, 1e-5)
-        @test accepts(2.59808, 1e-5)
+        @test small(2.598076, 1e-5)
+        @test small(2.59808, 1e-5)
         # four decimals is off by 2.4e-5 Å, outside it: at that tolerance this is a
         # different lattice and the operation has to go.
-        @test !accepts(2.5981, 1e-5)
+        @test !small(2.5981, 1e-5)
         # ... and it comes back the moment the tolerance covers the error.
-        @test accepts(2.5981, 1e-3)
+        @test small(2.5981, 1e-3)
+        # The SAME SHAPE ten times larger. `RᵀR − I` is dimensionless and does not
+        # change with the scale — four decimals leave a residual of 2.2e-6 on both
+        # cells — but the LENGTH those decimals get wrong does: 2.4e-5 Å at a = 3 Å,
+        # 3.8e-5 Å at a = 30 Å. The rule is stated in Å, so a symprec of 1e-5 Å must
+        # refuse the 3-fold here and one of 1e-4 Å must keep it. A band that used
+        # `tol` as a dimensionless number would accept BOTH (2.2e-6 < 1e-5), and
+        # every verdict above would be unchanged — this pair is what makes the
+        # testset able to tell a length-derived band from a cell-size-blind one.
+        big(y, tol) = accepts(30.0, 50.0, y, tol)
+        @test !big(25.9808, 1e-5)
+        @test big(25.9808, 1e-4)
+        # five decimals on the big cell is off by 2.1e-6 Å, inside 1e-5 Å
+        @test big(25.98076, 1e-5)
     end
 
     @testset "`tol` must be a length this cell can carry" begin

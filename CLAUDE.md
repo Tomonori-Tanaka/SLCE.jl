@@ -214,12 +214,46 @@ Easy to break silently — confirm before touching the algorithm.
   removing the snap turns the geometry side red and removing the fold turns the I/O side
   red. `MinimumImage` survives a `1.0` only by the slack of `_sufficient_range`'s `+1`,
   i.e. by luck, not by its stated argument.
+- **`tol` is a LENGTH wherever it is read** (`symmetry/backend.jl`,
+  `interop/sunny.jl`, `io/persist.jl`): `SpaceGroup.tol` is the backend's symprec, a
+  CARTESIAN distance in Å, never a fractional difference. Comparing it against a
+  fractional difference makes the effective tolerance scale with the cell — the factor
+  is the cell edge in Å, so 3× in a 3 Å primitive cell and 24× in an 8×8×8 supercell —
+  and direction-dependent in an anisotropic one. Four derived quantities carry it, each
+  with its own conversion, and they move together:
+  `_frac_bound[k] = tol / interplanar_spacing(lattice, k)` (a per-axis NECESSARY
+  condition, cheap, before the exact Cartesian test `‖A·df‖ ≤ tol`);
+  `_fractional_matrix_atol = tol / max_k‖a_k‖` (band on an entry of the FRACTIONAL `W` —
+  a deviation `δ` moves a point of the cell by up to `δ·max‖a_k‖`, so this is the
+  GUARANTEE side and takes `max`); `_orthogonality_atol = 2·tol / min_k‖a_k‖` (band on
+  `RᵀR − I`, a relative distortion of SQUARED lengths, worst on the SHORTEST vector —
+  the ACCEPTANCE side, hence `min`); and the translation zero-snap
+  `|t_k|·‖a_k‖ ≥ tol`. Both matrix bands sit above `_matrix_floor`, the round-off of
+  `R = A W A⁻¹`, which is CAPPED (`_MATRIX_FLOOR_MAX`): uncapped, a pathological cell
+  reaches a floor ≥ 1, `isapprox(W, I)` then marks every operation a pure translation,
+  and `translation_ops` — with the primitive-cell recovery that reads it — is silently
+  wrong. `_check_symprec` bounds `tol` below half the smallest interplanar spacing,
+  which is what makes the per-axis `round()` fold the minimum image. Gates: the two
+  property testsets in `test/unit/test_symmetry.jl` (verdicts independent of cell SIZE
+  and of cell SHAPE — both fail on the fractional form) and the finite-precision
+  hexagonal sweep, run at two scales precisely so a band that used `tol` as a
+  dimensionless number is distinguishable. The same rule binds `_sunny_primitive`,
+  whose geometry checks are in Å (`√3·tol` on the lattice matrix — three columns each
+  good to `tol`, compared in the Frobenius norm — and `tol` on a bond offset).
+  **A saved model re-runs `_assemble_spacegroup` on load** (`_symmetry_from` hands the
+  stored `tol` straight back to it), so changing any of these bands changes which
+  already-written documents still open, and the diagnostic a reader sees blames the
+  coordinates rather than the band.
 - **Image selection ↔ neighbor list ↔ cluster edges** (`geometry/neighborlist.jl`,
   `clusters/enumerate.jl`, `slce/model.jl`): `SLCEBasis` threads one `images` value to
   **both** `build_neighbor_list` and `candidate_clusters`/`build_clusters`; they must
   agree. `MinimumImage` keeps minimum-image pairs (no `i==j`) and admits a clique edge
   only at its atom-pair minimum-image distance with all atoms distinct; `AllImages` keeps
-  every in-cutoff image and admits edges within the radial cutoff. The tie/cutoff
+  every in-cutoff image and admits a clique edge only when that edge's OWN length is
+  inside its species-pair radius. A bare radial cutoff there made admission depend on
+  which atom the search anchored from — the same triangle was in or out according to
+  the ordering, since the anchor's radius was applied to a spoke belonging to another
+  species pair. The tie/cutoff
   tolerance is relative (`_SAME_DIST_RTOL`) on both sides so a degenerate WS-boundary
   shell is never split; it is user-facing as `SLCEBasis(...; tie_tol)` (default the
   same constant, hard cap `_TIE_TOL_MAX = 1e-2`), riding on `NeighborList.tol` which

@@ -6,6 +6,56 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — the mechanical half of the cross-cutting review (2026-08-26)
+
+A five-axis review over this session's changes. These are the findings that needed no
+judgement call; what remains open is listed at the end of this entry.
+
+- **`_sunny_primitive`'s lattice-tiling check was still dimensionless.** It compared
+  `Lp·reshape` against `A` with `atol = tol·(1 + ‖A‖)`, a band that GROWS with the cell
+  — the same cell-size blindness the symprec work removed elsewhere, in a different
+  disguise (20x too loose on a 20 Å supercell). Both sides are lattice matrices in Å
+  and `isapprox` compares them in the Frobenius norm, so three columns each good to
+  `tol` bound the residual by `√3·tol`, which is now the band. `clean = false` only
+  costs the primitive-cell export path, so no result changes; the check simply now
+  means what it says. Sunny suite unchanged (26/26).
+- **`_is_toml_int(v) = v isa Int` broke on a 32-bit build.** TOML.jl parses every
+  integer as `Int64` regardless of the platform's `Int`, so on a 32-bit Julia every
+  `nbody` / `lmax` / `lsum` would have been refused as "not an integer". The test is
+  now `v isa Integer && !(v isa Bool)` — `Bool <: Integer`, and a boolean key written
+  `1` must stay refused.
+- **The finite-precision hexagonal testset did not discriminate the band it was added
+  for.** `RᵀR − I` is dimensionless and scale-free, so on the a = 3 Å / c = 5 Å cell
+  every one of its five verdicts is the same under the derived band (`2·tol/min‖a_k‖`
+  = 6.7e-6 at `tol` = 1e-5) and under a band that used `tol` as a dimensionless number
+  (1e-5): the residuals are 1.2e-7, 2.2e-6 and 1.4e-5, none of them between the two.
+  The same shape at ten times the size separates them — four decimals get the length
+  wrong by 3.8e-5 Å there, so `tol` = 1e-5 Å must refuse and `tol` = 1e-4 Å must
+  accept, while a dimensionless band accepts both. That pair is now in the testset.
+- **A non-vacuity guard was dropped from the N = 4 pointed-star fixture.** The
+  repeated-atom rewrite replaced `@test any(k -> k.body == 4, …)` with an `all(…)`
+  over members, which is true of an empty collection; the `body == 4` assertion is
+  back alongside it.
+- **`_build_map_sym` passes a matrix band that is never read** (the strict path returns
+  before the axis-block test). Left as it is and named in a comment, rather than made
+  to look load-bearing.
+- **Three comments in `symmetry/backend.jl` named `_tclose`**, a helper only the
+  sibling package has; here it is `_translations_equal`.
+- CLAUDE.md's coupled-site list gained the entry it was missing for `tol`: the four
+  quantities derived from it, each conversion, why the round-off floor is capped, and
+  the fact that a saved model re-runs `_assemble_spacegroup` on load. Its
+  neighbour-list entry still described `AllImages` as admitting "edges within the
+  radial cutoff", which stopped being true when every clique edge was gated by its own
+  species-pair radius.
+
+**Left open, deliberately.** `_build_nl_allimages` admits `d2 <= cut2` with no
+same-distance band, while the minimum-image builder uses `best <= cut·(1 + rtol)` and
+`candidate_clusters` re-checks with `(1 + tol)²` — the anchor-order asymmetry that the
+per-pair radii fixed in the radius dimension survives in the BAND dimension. That is a
+change to image selection, so it is not in this batch. Four coverage holes named by the
+review (the aggregate `select_fit` warning, the Å-side translation snap, the
+`NeighborList` validation branches, the extxyz band's ACCEPT side) also remain.
+
 ### Fixed — a pointed star never repeats a reference-cell atom (2026-08-25)
 
 - **`_pointed_star_candidates` now requires the star's sites to be distinct

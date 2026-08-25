@@ -116,7 +116,10 @@ _is_bodykey(k::AbstractString) = !isnothing(match(r"^\d+$", k))
 # the crystal's. 0.1 Å is already far past any coordinate noise worth symmetrizing.
 const _SYMPREC_MAX = 1e-1
 
-_is_toml_int(v) = v isa Int
+# TOML.jl parses every integer as `Int64`, whatever the platform's `Int` is, so the
+# test is `Integer` and not `Int`. `Bool <: Integer` in Julia, and a boolean key
+# written `1` must stay refused, so booleans are excluded here too.
+_is_toml_int(v) = v isa Integer && !(v isa Bool)
 _is_toml_number(v) = v isa Real && !(v isa Bool)
 
 # A number / integer / boolean read from a named key, refusing the wrong TOML kind.
@@ -229,9 +232,10 @@ the `SLCEBasis` default). Training data and the estimator are **not** part of th
 file (see [`SLCEDataset`](@ref) / [`fit`](@ref)). See also `SLCEBasis(path)`.
 Every value is **kind-checked**, and the TOML kind is the contract: `nbody`, `lmax` and
 `lsum` take TOML integers (`nbody = 2.0` is refused, not rounded), `cutoff`, `tol` and
-`tie_tol` take TOML numbers, and `soc` (and `[structure].pbc`) takes a TOML boolean — `1` is not a boolean
-and `true` is not a number, in either direction. `Bool <: Real` in Julia, so without
-this a radius written `cutoff = true` would silently become 1.0 Å.
+`tie_tol` take TOML numbers, and `soc` (and `[structure].pbc`) takes a TOML
+boolean — `1` is not a boolean and `true` is not a number, in either direction.
+`Bool <: Real` in Julia, so without this a radius written `cutoff = true` would
+silently become 1.0 Å.
 
 """
 function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,

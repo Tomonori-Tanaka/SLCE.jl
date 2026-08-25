@@ -262,8 +262,8 @@ subgroup never over-reduces: the basis it builds is larger than necessary, never
 
 The load-bearing property is checked directly, by
 `_check_zero_aperiodic_shift`, and NOT by `_validate_ops` — that one compares
-translations through `_tclose`, which folds mod 1 on all three axes and so cannot tell
-a re-seated operation from the representative it replaced.
+translations through `_translations_equal`, which folds mod 1 on all three axes
+and so cannot tell a re-seated operation from the representative it replaced.
 
 A fully periodic crystal keeps every operation and never reaches the filter.
 """
@@ -292,9 +292,9 @@ function _restrict_to_pbc(crystal::Crystal, ops::Vector{SymOp}, symbol::String,
     end
     # `_validate_ops` runs on the kept set whether or not anything was dropped: the
     # re-seated translations are a change on their own. It does NOT see the re-seating
-    # (`_tclose` folds mod 1 on all three axes, so `t_z = 0` and `t_z = 1` are the same
-    # operation to it) — that is what `_check_zero_aperiodic_shift` above is for. What
-    # it does check is that dropping operations left a group.
+    # (`_translations_equal` folds mod 1 on all three axes, so `t_z = 0` and `t_z = 1`
+    # are the same operation to it) — that is what `_check_zero_aperiodic_shift` above
+    # is for. What it does check is that dropping operations left a group.
     _validate_ops(kept, crystal.lattice, tol)
     # `kept` is returned even when nothing was dropped: the re-seated translations are
     # the point on their own, and leaving them at the backend's mod-1 representative
@@ -541,9 +541,10 @@ end
 # `round.(Int, W·x_a + t − x_b)`, and along an aperiodic axis there are no cells for a
 # nonzero one to name — the neighbour list emits none (`nrange[d] = 0` there), so a
 # nonzero shift reappears downstream as `build_clusters`' closure assertion, blamed on
-# image selection and the tie tolerance. `_validate_ops` cannot see this (its `_tclose`
-# folds mod 1 on every axis, so it reads a re-seated operation and the representative it
-# replaced as the same thing), so check it here, on the data already in hand.
+# image selection and the tie tolerance. `_validate_ops` cannot see this (its
+# `_translations_equal` folds mod 1 on every axis, so it reads a re-seated operation and
+# the representative it replaced as the same thing), so check it here, on the data
+# already in hand.
 function _check_zero_aperiodic_shift(crystal::Crystal, op::SymOp, col::Vector{Int},
                                      o::Integer)
     pbc = crystal.lattice.pbc
@@ -631,6 +632,9 @@ end
 function _build_map_sym(crystal::Crystal, ops::Vector{SymOp}, tol::Real)::Matrix{Int}
     map_sym = Matrix{Int}(undef, n_atoms(crystal), length(ops))
     @inbounds for (o, op) in enumerate(ops)
+        # The matrix band is unread on the strict path — `_op_permutation` returns
+        # before the axis-block test, which is the only thing that reads it — so the
+        # value passed here never enters a comparison.
         map_sym[:, o] = first(_op_permutation(crystal, op, tol, o, true, 0.0))
     end
     return map_sym

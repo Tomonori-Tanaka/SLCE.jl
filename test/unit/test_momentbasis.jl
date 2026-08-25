@@ -285,6 +285,10 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         mb4f = MomentBasis(xt, MomentSpec(; lmax_env = [2, 2], sampled = [true, true],
                                           lmax_mark = 2, nbody = 4, cutoff_pair = 3.3,
                                           cutoff_star = 3.3, lsum = 4); backend = bk)
+        # the fixture is not vacuous: the N = 4 sector is actually populated, so
+        # `all(allunique(...))` above is a property of the members and not of an
+        # empty collection
+        @test any(k -> k.body == 4, mb4f.salc_basis.keys)
         @test all(allunique(m.atoms) for s in salcs(mb4f) for m in s.members)
         @test moment_resolvability(mb4f) isa NamedTuple
         @test occursin("UnclassifiableBasis", sprint(showerror,

@@ -119,9 +119,13 @@ function _sunny_primitive(model::SLCEModel)::SunnyPrimitive
     bonds = Dict{Tuple{Int,Int,SVector{3,Int}},SMatrix{3,3,Float64,9}}()
     # The recovered cell must tile the supercell exactly: `supercell = primitive·reshape`
     # with `|det(reshape)|` primitive cells. A single-ion-only model has no bonds to
-    # catch a mis-recovered lattice, so check the geometry directly.
+    # catch a mis-recovered lattice, so check the geometry directly. Both sides are
+    # lattice matrices in Å and `tol` is the symprec, also in Å; `isapprox` compares
+    # them in the Frobenius norm, so three column vectors each good to `tol` give the
+    # bound `√3·tol`. A band of `tol·(1 + ‖A‖)` would scale with the CELL instead,
+    # which is the fractional-tolerance mistake in a different disguise.
     clean = abs(det(SMatrix{3,3,Float64}(reshape_m))) ≈ length(sg.translation_ops) &&
-            isapprox(Lp * SMatrix{3,3,Float64}(reshape_m), A; atol = tol * (1 + norm(A)))
+            isapprox(Lp * SMatrix{3,3,Float64}(reshape_m), A; atol = sqrt(3) * tol)
     for ((a, b, R), M) in terms.pairs
         i, j = sublattice[a], sublattice[b]
         fb = Lp \ (SVector{3,Float64}(cart[1, b], cart[2, b], cart[3, b]) +
