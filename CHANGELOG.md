@@ -6,6 +6,36 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — a neighbour list keeps its species-pair radii, not their maximum (2026-08-25)
+
+- **`NeighborList.cutoff` is now the symmetric per-species-pair radius matrix the list
+  was built with** (a scalar build broadcasts it), replacing the `Float64` maximum.
+  `maximum(nl.cutoff)` recovers the old value.
+- **`candidate_clusters` gates every `AllImages` clique edge by its own species-pair
+  radius.** An `N ≥ 3` clique is grown from one anchor's neighbours and its remaining
+  edges are re-checked here; with only the maximum radius on hand, the anchor's edges
+  were gated by the species radii and the rest by that maximum. Two rules in one
+  predicate, so **which sites a cluster happened to be reachable from decided its
+  fate**. Measured on Fe + 2 Te with `d(Fe,Te) = 2.5 Å`, `d(Te,Te) = 4.0 Å` and radii
+  `[6 6; 6 3]` under `NoSymmetry`: the `{Fe,Te,Te}` triangle came out with 2 of its 6
+  anchor-variants where its own Te–Te radius asks for 0. The predicate is written in
+  species and distances, hence group-invariant, so `build_clusters`' closure assertion
+  never fired; and because `_canonicalize_members` *sums* the anchor-variants of an
+  instance rather than deduplicating them, an orbit short of its variants carries a
+  design column scaled against its siblings — the ratio of one `J` to another.
+- **Per-order radii may only trim the list.** A `cutoff` entry above the list's own
+  radius for that species pair now raises rather than silently under-generating: an
+  edge the list never enumerated cannot be recovered here, so the wider radius would
+  reach a cluster's re-checked edges and not its anchor's. Same failure, other
+  direction — measured as 2 of 6 again, with the list at 2.5001 Å and `cutoff` at
+  6.0 Å.
+- Production fits were never affected: `SLCEBasis` always passes
+  `cutoff = spec.cutoff` with the list built at the element-wise maximum over the
+  orders, and the pointed moment basis uses the `nbody ≤ 2` `MinimumImage` path. The
+  `MinimumImage` path was already anchor-independent — `_dmin2_matrix` re-derives the
+  species admission from the list's own contents. Reachable only through the public
+  `build_neighbor_list` (matrix form) → `build_clusters` / `candidate_clusters`.
+
 ### Fixed — an aperiodic axis now restricts the space group (2026-08-25)
 
 - **`analyze_symmetry` intersects the backend's group with the crystal's declared

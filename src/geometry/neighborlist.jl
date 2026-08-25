@@ -20,9 +20,22 @@ end
 """
     NeighborList(cutoff, pairs, tol)
 
-All directed neighbor pairs within `cutoff` (Å), built by
-[`build_neighbor_list`](@ref), together with the relative same-distance tolerance
-`tol` the list was built with.
+All directed neighbor pairs built by [`build_neighbor_list`](@ref), together with
+the per-**species**-pair radii `cutoff` (Å, a symmetric `n_species × n_species`
+matrix indexed like `crystal.species`) and the relative same-distance tolerance
+`tol` the list was built with. A scalar-radius build stores that radius broadcast
+over every entry; write `maximum(nl.cutoff)` for the largest radius present.
+
+The radii travel *with* the list as a matrix rather than as their maximum because
+they are the list's admission rule, and a consumer that re-decides an edge must
+re-decide it under the *same* rule: `candidate_clusters` builds an `N ≥ 3` clique
+from one anchor's neighbors and re-checks the remaining edges itself, so a
+collapsed scalar left the anchor edges gated by the species radii and the rest by
+the largest radius — two different rules, and which sites a cluster was reachable
+from then decided its fate. (Fe + 2 Te with `d(Fe,Te) = 2.5 Å`,
+`d(Te,Te) = 4.0 Å` and radii `[6 6; 6 3]`: the `{Fe,Te,Te}` triangle came out with
+2 of its 6 anchor-variants instead of the 0 its own Te–Te radius asks for, and an
+orbit short of its variants carries a design column scaled against its siblings.)
 
 `tol` travels *with* the list because it is not only a build-time detail: every
 consumer that re-decides "is this edge inside a radius" — `candidate_clusters`'s
@@ -32,18 +45,24 @@ other. Reading the field is the only way those stay in step when a caller passes
 a non-default `tol`.
 """
 struct NeighborList
-    cutoff::Float64
+    cutoff::Matrix{Float64}
     pairs::Vector{NeighborPair}
     tol::Float64
 
-    function NeighborList(cutoff::Real, pairs::Vector{NeighborPair}, tol::Real)
-        # `cutoff` is the largest radius the list was BUILT with, so 0 is legitimate
-        # (an all-zero per-species matrix admits nothing) — only NaN is not.
-        cutoff >= 0 || throw(ArgumentError("`cutoff` must be ≥ 0; got $cutoff"))
+    function NeighborList(cutoff::AbstractMatrix{<:Real}, pairs::Vector{NeighborPair},
+                          tol::Real)
+        # These are the radii the list was BUILT with, so `0` is legitimate (an
+        # excluded species pair admits nothing) and so is `Inf` (the whole WS cell,
+        # `MinimumImage` only) — only NaN and negatives are not.
+        all(v -> !isnan(v) && v >= 0, cutoff) ||
+            throw(ArgumentError("`cutoff` entries must be ≥ 0 Å or Inf"))
+        size(cutoff, 1) == size(cutoff, 2) && cutoff == cutoff' ||
+            throw(ArgumentError("`cutoff` must be a symmetric species-pair matrix; " *
+                                "got $(size(cutoff))"))
         0 <= tol < 1 ||
             throw(ArgumentError("`tol` is a *relative* band and must lie in [0, 1); " *
                                 "got $tol"))
-        return new(Float64(cutoff), pairs, Float64(tol))
+        return new(Matrix{Float64}(cutoff), pairs, Float64(tol))
     end
 end
 
@@ -129,8 +148,9 @@ and its boundary ties for non-pathological cells).
 `cutoff` is either one radius for every pair or a symmetric per-**species**-pair
 matrix (Å, indexed like `crystal.species`); a pair `(i, j)` is then admitted
 against `cutoff[species[i], species[j]]`, with `Inf` = no cutoff for that pair
-(`MinimumImage` only) and `0` excluding it. The stored `NeighborList.cutoff` is
-the largest radius the list was built with.
+(`MinimumImage` only) and `0` excluding it. The matrix is stored on the returned
+[`NeighborList`](@ref) (a scalar broadcast over every entry), so a consumer that
+re-decides an edge re-decides it under the same per-species rule.
 """
 # `search` is accepted for signature parity with the `MinimumImage` methods and REFUSED
 # when set: the AllImages image box is derived from the cutoff (`ceil(cutoff·‖b_d‖)`, exactly
@@ -252,7 +272,7 @@ function _build_nl_minimage(crystal::Crystal, cutmat::Matrix{Float64}, rtol::Flo
             end
         end
     end
-    return NeighborList(maximum(cutmat), pairs, rtol)
+    return NeighborList(cutmat, pairs, rtol)
 end
 
 """
@@ -315,5 +335,5 @@ function _build_nl_allimages(crystal::Crystal, cutmat::Matrix{Float64},
             end
         end
     end
-    return NeighborList(cmax, pairs, rtol)
+    return NeighborList(cutmat, pairs, rtol)
 end

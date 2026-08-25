@@ -36,6 +36,15 @@ end
 
 pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
 
+# Canonical identity of a cluster instance: sites sorted by (atom, shift), shifts
+# re-anchored to the first — the same class the orbit builder groups by, so two
+# enumerations of the same physical cluster compare equal whatever anchor found it.
+function _canon_cluster(atoms, shifts)
+    perm = sortperm(1:length(atoms); by = i -> (atoms[i], Tuple(shifts[i])))
+    s0 = shifts[perm[1]]
+    return (Int[atoms[k] for k in perm], [Tuple(shifts[k] - s0) for k in perm])
+end
+
 @testset "image selection (minimum image / Wigner–Seitz)" begin
     @testset "cutoff < L/2: MinimumImage ≡ AllImages (the resolvable regime)" begin
         # 4-atom chain (c = 10, NN = 2.5, L/2 = 4 in the short x/y dirs), cutoff 2.6
@@ -135,6 +144,78 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         @test isempty(mi[3])
         @test !isempty(al[3])                                  # repeated-atom clique
         @test any(m -> length(unique(m.atoms)) < 3, al[3])     # exactly the repeated-atom kind
+    end
+
+    @testset "AllImages: every clique edge obeys its own species-pair radius" begin
+        # An `N ≥ 3` clique is grown from one anchor's neighbor list and its remaining
+        # edges are re-checked by `candidate_clusters` itself. Both steps must decide an
+        # edge by the SAME rule: while the list kept only the largest of its per-species
+        # radii, the anchor's edges were gated by the species radii and the rest by that
+        # maximum, so which sites a cluster happened to be reachable from decided it.
+        a = 3.0
+        crystal = Crystal(Lattice([a 0 0; 0 a 0; 0 0 a]),
+                          [0.0 0.5; 0.0 0.0; 0.0 0.0], [1, 2], ["A", "B"])
+        # A–A 3.2 Å admits an atom's own 3.0 Å images, B–B 2.9 Å does not, A–B 1.6 Å
+        # admits only the 1.5 Å bond. No interatomic distance lies within 0.1 Å of any
+        # radius, so the same-distance band plays no part in the verdicts.
+        M = [3.2 1.6; 1.6 2.9]
+        nl = SLCE.build_neighbor_list(crystal, M, AllImages())
+        got = Set(_canon_cluster(m.atoms, m.shifts)
+                  for m in candidate_clusters(crystal, nl, 3; selection = AllImages())[3])
+
+        # Oracle: the declared rule written out directly — a triple of distinct
+        # (atom, image) sites is a cluster iff every one of its three edges is within
+        # its own species-pair radius — enumerated by brute force over an image box
+        # wide enough for the largest radius (ceil(3.2 / 3.0) = 2). Every canonical
+        # class has a representative with one site in the home cell, so fixing one
+        # site there loses nothing.
+        cart = SLCE.cartesian_positions(crystal)
+        pos(b, R) = SVector{3,Float64}(cart[:, b]) + a * SVector{3,Float64}(R)
+        sites = Tuple{Int,SVector{3,Int}}[]
+        for b = 1:2, n1 = -2:2, n2 = -2:2, n3 = -2:2
+            push!(sites, (b, SVector{3,Int}(n1, n2, n3)))
+        end
+        z3 = SVector{3,Int}(0, 0, 0)
+        want = Set{Any}()
+        for b0 = 1:2, x = 1:length(sites), y = (x + 1):length(sites)
+            tri = ((b0, z3), sites[x], sites[y])
+            length(unique(tri)) == 3 || continue
+            ok = true
+            for q = 1:3, r = (q + 1):3
+                d = norm(pos(tri[r]...) - pos(tri[q]...))
+                d <= M[crystal.species[tri[q][1]], crystal.species[tri[r][1]]] ||
+                    (ok = false; break)
+            end
+            ok && push!(want, _canon_cluster([t[1] for t in tri],
+                                             [t[2] for t in tri]))
+        end
+        @test !isempty(want)
+        @test got == want
+
+        # Hand-checked instance of the same rule. Fe and two Te in a cell far larger
+        # than every radius, so only the home-cell triangle exists: d(Fe,Te) = 2.5 Å,
+        # d(Te,Te) = 4.0 Å. A Te–Te radius of 3.0 Å forbids the triangle outright; a
+        # Te–Te radius of 6.0 Å admits it, and the enumeration reaches it once per
+        # (anchor, ordering) = 3! = 6 times, the same count every 3-body orbit gets.
+        big = Lattice(Matrix(20.0 * I(3)))
+        fete = Crystal(big, [10.0 8.0 12.0; 10.0 11.5 11.5; 10.0 10.0 10.0] ./ 20.0,
+                       [1, 2, 2], ["Fe", "Te"])
+        tri3(M) = candidate_clusters(fete, SLCE.build_neighbor_list(fete, M, AllImages()),
+                                     3; selection = AllImages())[3]
+        @test isempty(tri3([6.0 6.0; 6.0 3.0]))
+        @test length(tri3([6.0 6.0; 6.0 6.0])) == 6
+
+        # Per-order radii may only trim the list: one above the list's own for that
+        # species pair reaches the re-checked edges and not the anchor's, so it is
+        # refused rather than silently under-generating.
+        narrow = SLCE.build_neighbor_list(fete, [3.0 3.0; 3.0 3.0], AllImages())
+        wide = [6.0 6.0; 6.0 6.0]
+        @test_throws ArgumentError candidate_clusters(fete, narrow, 3;
+                                                      selection = AllImages(),
+                                                      cutoff = [wide, wide])
+        @test_throws ArgumentError candidate_clusters(fete, narrow, 3;
+                                                      selection = MinimumImage(),
+                                                      cutoff = [wide, wide])
     end
 
     @testset "no self-pairs under MinimumImage (same spin ⇒ not an independent pair)" begin

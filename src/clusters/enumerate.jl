@@ -65,6 +65,34 @@ function _dmin2_matrix(neighbors::NeighborList, nat::Int)::Matrix{Float64}
     return dmin2
 end
 
+# Per-order radii may only TRIM the list. An `N`-body clique is grown from one
+# anchor's neighbors, so an edge the list never enumerated cannot be recovered here:
+# a per-order radius above the list's would be honored on the re-checked edges and
+# silently ignored on the anchor's — the same two-rules-in-one-predicate failure the
+# list's own radii matrix exists to avoid. Refuse it rather than under-generate;
+# rebuilding the list at the element-wise maximum over the orders is what `SCEBasis`
+# already does.
+function _check_cutoff_within_list(neighbors::NeighborList,
+                                   cutoff::AbstractVector{<:AbstractMatrix{<:Real}},
+                                   nbody::Int)
+    nkd = size(neighbors.cutoff, 1)
+    for N = 2:nbody
+        M = cutoff[N - 1]
+        size(M) == (nkd, nkd) ||
+            throw(ArgumentError("cutoff[$(N - 1)] is $(size(M)) for $nkd species"))
+        for b = 1:nkd, a = 1:nkd
+            M[a, b] <= neighbors.cutoff[a, b] || throw(ArgumentError(
+                "cutoff[$(N - 1)][$a, $b] = $(M[a, b]) Å exceeds the radius the " *
+                "neighbor list was built with for that species pair " *
+                "($(neighbors.cutoff[a, b]) Å). Per-order radii may only trim the " *
+                "list: an edge it never enumerated cannot be recovered here, so the " *
+                "wider radius would reach some edges of a cluster and not others. " *
+                "Rebuild the list at the element-wise maximum over the orders"))
+        end
+    end
+    return nothing
+end
+
 """
     candidate_clusters(crystal, neighbors, nbody; selection = MinimumImage(),
                        cutoff = nothing) -> Dict{Int,Vector{ClusterMember}}
@@ -90,9 +118,11 @@ of symmetric matrices, `cutoff[N - 1][a, b]` for body order `N ≥ 2` — the
 the pair's minimum-image distance is gated (exactly the neighbor-list admission, so
 a WS-boundary tie shell is never split), under [`AllImages`](@ref) each image's own
 distance — so `neighbors` may be built at a superset radius (the element-wise
-max over orders) and trimmed here. `nothing` keeps the single-radius behavior
-(`MinimumImage`: the neighbor list already trimmed; `AllImages`:
-`neighbors.cutoff`).
+max over orders) and trimmed here — only trimmed, though: a per-order radius above
+the list's own for that species pair is an error, since an edge the list never
+enumerated cannot be recovered here. `nothing` re-uses the radii the list was built
+with (`MinimumImage`: the neighbor list already trimmed; `AllImages`:
+`neighbors.cutoff[a, b]` per edge).
 """
 function candidate_clusters(
         crystal::Crystal, neighbors::NeighborList, nbody::Integer;
@@ -103,6 +133,7 @@ function candidate_clusters(
     cutoff === nothing || length(cutoff) >= nbody - 1 ||
         throw(ArgumentError("cutoff has $(length(cutoff)) matrices for body " *
                             "orders 2:$nbody"))
+    cutoff === nothing || _check_cutoff_within_list(neighbors, cutoff, Int(nbody))
     nat = n_atoms(crystal)
     z = SVector{3,Int}(0, 0, 0)
     out = Dict{Int,Vector{ClusterMember}}()
@@ -127,9 +158,12 @@ function candidate_clusters(
     fac = (1 + neighbors.tol)^2          # the band the list itself was built with
     use_minimage = selection isa MinimumImage
     dmin2 = use_minimage ? _dmin2_matrix(neighbors, nat) : Matrix{Float64}(undef, 0, 0)
-    # AllImages edge cutoff with the same relative tolerance as the tie band (so a
-    # degenerate shell at the cutoff is admitted whole, not split by round-off).
-    cut2 = neighbors.cutoff^2 * fac
+    # AllImages edge radii, carrying the same relative tolerance as the tie band (so
+    # a degenerate shell at a radius is admitted whole, not split by round-off). Per
+    # species pair, exactly as the list itself admitted its pairs: collapsing them to
+    # their maximum here gated a clique's re-checked edges by a different rule from
+    # its anchor's, so which sites a cluster was reachable from decided its fate.
+    listcut2 = neighbors.cutoff .^ 2 .* fac
     # Per-body species-pair edge radii, squared and carrying the same relative
     # band (per pair, so a degenerate shell at a pair-specific radius stays whole).
     sp = crystal.species
@@ -167,14 +201,14 @@ function candidate_clusters(
                         # cut²·fac` ⇔ the neighbor-list admission `best ≤ cut·(1+rtol)`,
                         # so a WS-boundary tie shell is kept or dropped whole and the
                         # superset-list + per-order trim is exactly a per-order build);
-                        # under AllImages each image is its own edge, banded like the
-                        # single-radius `cut2` (the neighbor-list side is unbanded —
-                        # a pre-existing ~1e-8 asymmetry on the spin-spiral path).
+                        # under AllImages each image is its own edge, gated by its own
+                        # species-pair radius and banded (the neighbor-list side is
+                        # unbanded — a pre-existing ~1e-8 asymmetry on that path).
                         admit = use_minimage ?
                             (isfinite(dmin2[ax, ay]) && d2 <= dmin2[ax, ay] * fac &&
                              (percut2 === nothing ||
                               dmin2[ax, ay] <= percut2[N - 1][sp[ax], sp[ay]])) :
-                            (percut2 === nothing ? d2 <= cut2 :
+                            (percut2 === nothing ? d2 <= listcut2[sp[ax], sp[ay]] :
                              d2 <= percut2[N - 1][sp[ax], sp[ay]])
                         if !admit
                             ok = false
