@@ -41,7 +41,9 @@ Space-group data for a `Crystal`, produced by [`analyze_symmetry`](@ref).
   under operation `op` (a permutation of atoms for each op). Derived in-tree, so
   every backend shares the same convention.
 - `translation_ops::Vector{Int}`: indices of the pure-translation operations.
-- `tol::Float64`: tolerance used for symmetry matching.
+- `tol::Float64`: tolerance used for symmetry matching — the backend's
+  symprec, a **Cartesian distance in Å**. Positions and translations are
+  compared against it in Å, never in fractional coordinates.
 """
 struct SpaceGroup
     symbol::String

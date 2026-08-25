@@ -50,6 +50,13 @@ short. A fully periodic crystal is untouched.
 This happens in the shared assembler (`_assemble_spacegroup`), which every in-tree
 backend routes through — a custom backend that builds a [`SpaceGroup`](@ref) itself
 gets none of it and is responsible for its own `pbc` handling.
+
+`tol` is the backend's symprec: a **Cartesian distance in Å**, not a fractional one.
+Every in-tree comparison against it — matching an atom to its image, deciding whether
+two translations name the same operation — is made in Å, so the same `tol` means the
+same physical slack in a primitive cell and in a supercell of it, and in a skewed cell
+along every direction. Tests that ask whether a *matrix* is integral, orthogonal, or
+the identity are dimensionless and do not use `tol` at all.
 """
 function analyze_symmetry(backend::AbstractSymmetryBackend, crystal::Crystal;
                           tol::Real = 1e-5)::SpaceGroup
@@ -60,6 +67,62 @@ end
 function analyze_symmetry(::NoSymmetry, crystal::Crystal; tol::Real = 1e-5)::SpaceGroup
     return _assemble_spacegroup(crystal, [SMatrix{3,3,Float64}(I)],
                                 [SVector{3,Float64}(0, 0, 0)], "P1", 1; tol = tol)
+end
+
+# ── tolerances ───────────────────────────────────────────────────────────────────
+#
+# `tol` is the backend's symprec: a CARTESIAN distance in Å. That is Spglib's
+# own definition of the number, and it is already how `_sunny_primitive` reads
+# `SpaceGroup.tol` back out. Every comparison of `tol` against a POSITION or a
+# TRANSLATION therefore has to be made in Å. Comparing it against a difference
+# of FRACTIONAL coordinates instead makes the effective tolerance scale with the cell
+# — an 8×8×8 supercell of a 3 Å cell would be 24× looser than the value the backend
+# accepted its operations at, so the in-tree check would rubber-stamp whatever it was
+# handed — and direction-dependent in a non-orthogonal one (a ~3× spread across
+# directions in a 120° hexagonal cell).
+#
+# Asking whether a MATRIX is integral, orthogonal, or the identity is a different
+# question with a different unit: those quantities are dimensionless and symprec says
+# nothing about them. `_mat_atol` is that second tolerance. It only has to clear the
+# round-off of `R = A W A⁻¹`, which grows with the cell's condition number — scale
+# free, so unlike a fractional threshold it does not drift with the cell size.
+const _MAT_ATOL = 1e-8
+_mat_atol(lattice::Lattice)::Float64 =
+    _MAT_ATOL * norm(lattice.vectors) * norm(lattice.reciprocal)
+
+# Fold a fractional difference into (-1/2, 1/2] — the minimum image along a periodic
+# axis, and the residual after the operation's own integer shift along an aperiodic
+# one (callers require that shift to be `round(d)` before they get here).
+@inline _wrap(d::Real)::Float64 = d - round(d)
+
+# Squared Cartesian length (Å²) of a fractional offset.
+@inline _dcart2(A::SMatrix{3,3,Float64,9}, df::SVector{3,Float64})::Float64 =
+    sum(abs2, A * df)
+
+# Per-axis fractional bound implied by `tol`: ‖A df‖ ≤ tol forces
+# |df[k]| ≤ tol/d_k with `d_k` the interplanar spacing, because df = B r with
+# B = A⁻¹ whose rows are the reciprocal vectors. Necessary, not sufficient — it
+# rejects almost every candidate pair before the matrix-vector product is paid for.
+_frac_bound(lattice::Lattice, tol::Real)::SVector{3,Float64} =
+    SVector{3,Float64}(ntuple(k -> tol / interplanar_spacing(lattice, k), 3))
+
+# The same-species atom nearest to the fractional point `xn` modulo a lattice vector,
+# and that distance in Å. Diagnostic only: it runs on the failure path of the
+# strict match, which is reached only for a fully periodic crystal, so there is no
+# aperiodic shift for it to respect.
+function _nearest_same_species(crystal::Crystal, xn::SVector{3,Float64},
+                               iat::Integer)::Tuple{Int,Float64}
+    A = crystal.lattice.vectors
+    x = crystal.frac_positions
+    best = Inf
+    at = 0
+    @inbounds for jat = 1:n_atoms(crystal)
+        crystal.species[jat] == crystal.species[iat] || continue
+        df = SVector{3,Float64}(ntuple(k -> _wrap(xn[k] - x[k, jat]), 3))
+        d = _dcart2(A, df)
+        d < best && (best = d; at = jat)
+    end
+    return at, sqrt(best)
 end
 
 """
@@ -81,15 +144,19 @@ function _assemble_spacegroup(crystal::Crystal,
         throw(ArgumentError("rotations and translations must have equal length"))
     A = crystal.lattice.vectors
     Ainv = crystal.lattice.reciprocal
+    matol = _mat_atol(crystal.lattice)
     ops = Vector{SymOp}(undef, length(rotations))
     @inbounds for i in eachindex(rotations)
         W = SMatrix{3,3,Float64}(rotations[i])
         Rcart = A * W * Ainv
         t = translations[i]
-        tfrac = SVector{3,Float64}(ntuple(k -> abs(t[k]) >= tol ? Float64(t[k]) : 0.0, 3))
-        ops[i] = SymOp(W, Rcart, tfrac, det(Rcart) > 0, isapprox(W, I; atol = tol))
+        # Snap a component to zero by the DISTANCE it moves an atom, |t_k|·‖a_k‖ Å:
+        # `tol` is a length, so the bare fractional component is not comparable to it.
+        tfrac = SVector{3,Float64}(ntuple(
+            k -> abs(t[k]) * norm(A[:, k]) >= tol ? Float64(t[k]) : 0.0, 3))
+        ops[i] = SymOp(W, Rcart, tfrac, det(Rcart) > 0, isapprox(W, I; atol = matol))
     end
-    _validate_ops(ops, tol)
+    _validate_ops(ops, crystal.lattice, tol)
     # `_restrict_to_pbc` has to match every atom under every operation to decide what
     # to keep, so it hands the resulting permutations back rather than making
     # `_build_map_sym` repeat the same `n_ops × n_atoms²` pass. It returns `nothing`
@@ -155,7 +222,7 @@ function _restrict_to_pbc(crystal::Crystal, ops::Vector{SymOp}, symbol::String,
     # (`_tclose` folds mod 1 on all three axes, so `t_z = 0` and `t_z = 1` are the same
     # operation to it) — that is what `_check_zero_aperiodic_shift` above is for. What
     # it does check is that dropping operations left a group.
-    _validate_ops(kept, tol)
+    _validate_ops(kept, crystal.lattice, tol)
     # `kept` is returned even when nothing was dropped: the re-seated translations are
     # the point on their own, and leaving them at the backend's mod-1 representative
     # would keep handing `_site_image` a cell shift along an axis that has no cells.
@@ -179,18 +246,21 @@ end
 # supercell, whose extra operations are pure translations.
 const _MAX_CLOSURE_OPS = 192
 
-# Are two fractional translations equal modulo a lattice vector?
-_translations_equal(a::SVector{3,Float64}, b::SVector{3,Float64}, tol::Real) =
-    all(k -> (d = abs(a[k] - b[k]) % 1.0; min(d, 1.0 - d) <= tol), 1:3)
+# Are two fractional translations equal modulo a lattice vector? Folded on all three
+# axes and compared IN ÅNGSTRÖM — see the tolerance note above.
+_translations_equal(A::SMatrix{3,3,Float64,9}, a::SVector{3,Float64},
+                    b::SVector{3,Float64}, tol::Real) =
+    _dcart2(A, SVector{3,Float64}(ntuple(k -> _wrap(a[k] - b[k]), 3))) <= tol * tol
 
 # Index of the operation `(W|t)` in `ops` (0 if absent). `bykey` groups operation
 # indices by their integer rotation, so only the same-rotation coset is scanned.
 function _find_op(ops::Vector{SymOp}, bykey::Dict{SMatrix{3,3,Int,9},Vector{Int}},
-                  W::SMatrix{3,3,Int,9}, t::SVector{3,Float64}, tol::Real)::Int
+                  W::SMatrix{3,3,Int,9}, t::SVector{3,Float64},
+                  A::SMatrix{3,3,Float64,9}, tol::Real)::Int
     index = get(bykey, W, nothing)
     index === nothing && return 0
     for i in index
-        _translations_equal(ops[i].translation_frac, t, tol) && return i
+        _translations_equal(A, ops[i].translation_frac, t, tol) && return i
     end
     return 0
 end
@@ -218,15 +288,18 @@ operation's inverse present. The full pairwise `(W|t)` closure runs for up to
 `_MAX_CLOSURE_OPS` operations, which covers every conventional setting; beyond
 that (supercells) the preceding checks stand in for it.
 """
-function _validate_ops(ops::Vector{SymOp}, tol::Real)
+function _validate_ops(ops::Vector{SymOp}, lattice::Lattice, tol::Real)
     n = length(ops)
     n == 0 && throw(ArgumentError("the operation list is empty; a space group " *
                                   "contains at least the identity"))
-    otol = max(Float64(tol), 1e-8)
+    A = lattice.vectors
+    # Integrality and orthogonality are questions about a DIMENSIONLESS matrix, so they
+    # get the dimensionless tolerance; symprec is a length and says nothing about them.
+    otol = _mat_atol(lattice)
     Wint = Vector{SMatrix{3,3,Int,9}}(undef, n)
     for i = 1:n
         W = ops[i].rotation_frac
-        isapprox(W, round.(W); atol = tol) || throw(ArgumentError(
+        isapprox(W, round.(W); atol = otol) || throw(ArgumentError(
             "symmetry op $i: the fractional rotation is not an integer matrix " *
             "($(W)) — a space-group operation maps the lattice onto itself"))
         Wi = SMatrix{3,3,Int,9}(round.(Int, W))
@@ -247,14 +320,15 @@ function _validate_ops(ops::Vector{SymOp}, tol::Real)
         push!(get!(Vector{Int}, bykey, Wint[i]), i)
     end
     for (_, index) in bykey, a in eachindex(index), b in (a + 1):length(index)
-        _translations_equal(ops[index[a]].translation_frac, ops[index[b]].translation_frac, tol) &&
+        _translations_equal(A, ops[index[a]].translation_frac,
+                            ops[index[b]].translation_frac, tol) &&
             throw(ArgumentError(
                 "symmetry ops $(index[a]) and $(index[b]) are the same operation modulo " *
                 "a lattice translation — duplicates inflate every orbit multiplicity"))
     end
 
     id = SMatrix{3,3,Int,9}(I)
-    _find_op(ops, bykey, id, zero(SVector{3,Float64}), tol) == 0 &&
+    _find_op(ops, bykey, id, zero(SVector{3,Float64}), A, tol) == 0 &&
         throw(ArgumentError("the identity (I|0) is missing from the operation list"))
 
     rots = Set(Wint)
@@ -267,7 +341,7 @@ function _validate_ops(ops::Vector{SymOp}, tol::Real)
     for i = 1:n
         Wi = SMatrix{3,3,Int,9}(round.(Int, inv(ops[i].rotation_frac)))
         ti = -(SMatrix{3,3,Float64}(Wi) * ops[i].translation_frac)
-        _find_op(ops, bykey, Wi, ti, tol) == 0 && throw(ArgumentError(
+        _find_op(ops, bykey, Wi, ti, A, tol) == 0 && throw(ArgumentError(
             "symmetry op $i has no inverse in the operation list — the list is not " *
             "a group"))
     end
@@ -276,7 +350,7 @@ function _validate_ops(ops::Vector{SymOp}, tol::Real)
     for i = 1:n, j = 1:n
         W = Wint[i] * Wint[j]
         t = ops[i].rotation_frac * ops[j].translation_frac + ops[i].translation_frac
-        _find_op(ops, bykey, W, t, tol) == 0 && throw(ArgumentError(
+        _find_op(ops, bykey, W, t, A, tol) == 0 && throw(ArgumentError(
             "the composition of symmetry ops $i ∘ $j is not in the operation list — " *
             "the list is not closed, so orbit multiplicities and the SALC projector " *
             "are both wrong"))
@@ -289,11 +363,13 @@ end
 # does not map the *declared* translation lattice onto itself — there are no lattice
 # vectors along an aperiodic axis to receive it — so it cannot be a symmetry however
 # well it happens to permute the atoms.
+# `atol` is the dimensionless matrix tolerance (`_mat_atol`), not symprec: `W` is a
+# fractional rotation, and a length has nothing to say about its entries.
 @inline function _axis_blocks_ok(W::SMatrix{3,3,Float64,9}, pbc::SVector{3,Bool},
-                                 tol::Real)::Bool
+                                 atol::Real)::Bool
     @inbounds for k = 1:3, m = 1:3
         pbc[k] == pbc[m] && continue
-        abs(W[k, m]) <= tol || return false
+        abs(W[k, m]) <= atol || return false
     end
     return true
 end
@@ -318,7 +394,9 @@ function _perm_with_shift(crystal::Crystal, op::SymOp, tol::Real, o::Integer,
     x = crystal.frac_positions
     species = crystal.species
     pbc = crystal.lattice.pbc
+    A = crystal.lattice.vectors
     tol2 = tol * tol
+    fb = _frac_bound(crystal.lattice, tol)
     col = zeros(Int, nat)
     hit = falses(nat)                      # each column must be a *permutation*
     W = op.rotation_frac
@@ -329,25 +407,30 @@ function _perm_with_shift(crystal::Crystal, op::SymOp, tol::Real, o::Integer,
         found = 0
         for jat = 1:nat
             species[jat] == species[iat] || continue
-            d2 = 0.0
-            ok = true
-            for k = 1:3
-                d = xn[k] - x[k, jat]
-                if !pbc[k] && round(d) != dt[k]
-                    ok = false
-                    break
-                end
-                v = abs(d) % 1.0
-                d2 += min(v, 1.0 - v)^2
-            end
-            if ok && d2 < tol2
+            d1 = xn[1] - x[1, jat]
+            d2 = xn[2] - x[2, jat]
+            d3 = xn[3] - x[3, jat]
+            r1 = round(d1)
+            r2 = round(d2)
+            r3 = round(d3)
+            # An aperiodic axis is never wrapped, so the offset there must be exactly
+            # this operation's own integer shift, not merely an integer.
+            (pbc[1] || r1 == dt[1]) && (pbc[2] || r2 == dt[2]) &&
+                (pbc[3] || r3 == dt[3]) || continue
+            df = SVector{3,Float64}(d1 - r1, d2 - r2, d3 - r3)
+            abs(df[1]) <= fb[1] && abs(df[2]) <= fb[2] && abs(df[3]) <= fb[3] || continue
+            if _dcart2(A, df) < tol2
                 found = jat
                 break
             end
         end
         if found == 0
             strict || return nothing
-            error("map_sym: atom $iat has no image under operation $o (tol=$tol)")
+            near, dist = _nearest_same_species(crystal, xn, iat)
+            error("map_sym: atom $iat has no image under operation $o: the nearest " *
+                  "same-species atom ($near) is $dist Å away modulo a lattice " *
+                  "vector, and `tol` = $tol Å (the backend's symprec, a Cartesian " *
+                  "distance)")
         end
         # Two atoms sharing an image means the operation does not map the crystal onto
         # itself at this tolerance. `SpaceGroup` documents these columns as permutations
@@ -356,7 +439,8 @@ function _perm_with_shift(crystal::Crystal, op::SymOp, tol::Real, o::Integer,
             strict || return nothing
             prev = findfirst(==(found), view(col, 1:(iat - 1)))
             error("map_sym: atoms $prev and $iat share the image $found under " *
-                  "operation $o (tol=$tol) — the column is not a permutation")
+                  "operation $o at `tol` = $tol Å — the column is not a permutation, " *
+                  "so `tol` is too loose for this structure")
         end
         hit[found] = true
         col[iat] = found
@@ -408,19 +492,19 @@ function _shift_seeds(crystal::Crystal, op::SymOp,
     x = crystal.frac_positions
     species = crystal.species
     pbc = crystal.lattice.pbc
+    A = crystal.lattice.vectors
     tol2 = tol * tol
+    fb = _frac_bound(crystal.lattice, tol)
     xi = SVector{3,Float64}(x[1, 1], x[2, 1], x[3, 1])
     xn = op.rotation_frac * xi + op.translation_frac
     seeds = SVector{3,Float64}[]
     @inbounds for jat = 1:nat
         species[jat] == species[1] || continue
-        d2 = 0.0
-        for k = 1:3
-            v = abs(xn[k] - x[k, jat]) % 1.0
-            d2 += min(v, 1.0 - v)^2
-        end
-        d2 < tol2 || continue
-        dt = SVector{3,Float64}(ntuple(k -> pbc[k] ? 0.0 : round(xn[k] - x[k, jat]), 3))
+        r = SVector{3,Float64}(ntuple(k -> round(xn[k] - x[k, jat]), 3))
+        df = SVector{3,Float64}(ntuple(k -> xn[k] - x[k, jat] - r[k], 3))
+        all(k -> abs(df[k]) <= fb[k], 1:3) || continue
+        _dcart2(A, df) < tol2 || continue
+        dt = SVector{3,Float64}(ntuple(k -> pbc[k] ? 0.0 : r[k], 3))
         dt in seeds || push!(seeds, dt)
     end
     sort!(seeds; by = norm)
@@ -444,7 +528,8 @@ function _op_permutation(crystal::Crystal, op::SymOp, tol::Real, o::Integer,
                          strict::Bool)
     z = zero(SVector{3,Float64})
     strict && return _perm_with_shift(crystal, op, tol, o, z, true), z
-    _axis_blocks_ok(op.rotation_frac, crystal.lattice.pbc, tol) || return nothing
+    _axis_blocks_ok(op.rotation_frac, crystal.lattice.pbc,
+                    _mat_atol(crystal.lattice)) || return nothing
     for dt in _shift_seeds(crystal, op, tol)
         col = _perm_with_shift(crystal, op, tol, o, dt, false)
         col === nothing || return col, dt

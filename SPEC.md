@@ -50,6 +50,8 @@ capability consumed by both the introspection and the Sunny interop.
   do not re-weight; `row_groups` labels rows from the same sample for grouped resampling).
   Types live in core; solver methods needing GLMNet live in `ext/`.
 - **Symmetry**: `analyze_symmetry(backend::AbstractSymmetryBackend, crystal; tol) -> SpaceGroup`.
+  `tol` is the backend's symprec: a **Cartesian distance in Å**, compared against
+  positions and translations in Å, never in fractional coordinates.
 
 ## Realized so far
 

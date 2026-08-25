@@ -6,6 +6,45 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — `tol` is a Cartesian distance everywhere it is used as one (2026-08-25)
+
+- **`analyze_symmetry(...; tol)` is the backend's symprec — a distance in Å — and the
+  in-tree checks now compare against it in Å.** `_perm_with_shift`, `_shift_seeds` and
+  `_translations_equal` folded the FRACTIONAL difference and compared its Euclidean length to `tol`
+  directly, so the effective tolerance scaled with the cell and depended on direction.
+  Measured, with two Fe 5e-3 Å apart at `tol = 1e-3` Å: resolved in a 3 Å cubic cell,
+  collided in a 24 Å one; and in a γ = 120° cell with a = 3 Å, c = 12 Å, resolved along
+  `a`, collided along `c`. Nothing downstream could see it, because the error runs in the
+  permissive direction — the check was *looser* than the value the backend had already
+  accepted its operations at, so it rubber-stamped whatever it was handed. The comparison
+  now runs through `A·Δx` (with a per-axis `tol/dᵢ` pre-rejection, so the matrix–vector
+  product is paid only for real candidates), which also settles an inconsistency inside
+  the package: `_sunny_primitive` already read `SpaceGroup.tol` as Å.
+- **The dimensionless matrix tests no longer borrow `tol`.** Whether a fractional
+  rotation is integral, whether its Cartesian image is orthogonal, whether it is the
+  identity, and whether it mixes periodic with aperiodic axes are questions about a
+  dimensionless matrix; handing them a length is the same category error in reverse, and
+  at a large `tol` it was load-bearing — at `tol = 0.5` a rotation 0.3 away from an
+  integer matrix was rounded to the identity and admitted. Those four sites now use
+  `_mat_atol = 1e-8·‖A‖·‖A⁻¹‖`, which is scale free and so, unlike a fractional
+  threshold, does not drift with the cell.
+- A translation component is snapped to zero by the DISTANCE it moves an atom
+  (`|t_k|·‖a_k‖`), not by the bare fractional component.
+- `map_sym`'s two refusals now speak in Å: "no image" names the nearest same-species
+  atom and how far away it is, "shares an image" names the tolerance as a length.
+- Gates (`test/unit/test_symmetry.jl`): a new testset asserts the two properties the
+  number's MEANING implies — the collision verdict is independent of cell **size** (3 Å
+  vs 24 Å) and of cell **shape** (the two axes of a hexagonal cell) — and that the
+  tolerance still fires when the separation really is below it. Both halves fail on the
+  fractional form. The existing `tol = 1e-2` collision test is unchanged: its 1e-3
+  fractional separation in a 3 Å cell is 3e-3 Å, which lands on the same side of both
+  readings.
+- What this does NOT cover: real Spglib output on relaxed coordinates, which no suite
+  here exercises (Spglib is not a test dependency). The in-tree check is now exactly as
+  tight as the symprec the backend was called with rather than looser, so a structure
+  whose positions carry more error than that fails loudly — with the measured deviation
+  and `tol` both in the message — instead of passing on a tolerance nobody asked for.
+
 ### Fixed — mechanical audit items: interchange round-off, TOML kinds, IRLS reporting (2026-08-25)
 
 - **Every geometry comparison a reader makes now holds to a band, not exactly.**

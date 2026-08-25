@@ -63,6 +63,14 @@ SLCE.analyze_symmetry(::_MirrorZBackend, c::Crystal; tol::Real = 1e-5) =
         # which integrality alone never implies
         sh = SMatrix{3,3,Float64}([1 1 0; 0 1 0; 0 0 1])
         @test_throws ArgumentError asm([E, sh], fill(z0, 2))
+        # ... and no value of `tol` buys a pass: whether a matrix is integral is a
+        # question about a DIMENSIONLESS quantity, while `tol` is the backend's
+        # symprec, a distance in Å. A rotation 0.3 away from an integer matrix is not
+        # an operation of any lattice at any tolerance. (Feeding `tol` in as the matrix
+        # tolerance used to round this one to the identity and let it through at
+        # `tol = 0.5`.)
+        bogus = SMatrix{3,3,Float64}([1 0.3 0; 0 1 0; 0 0 1])
+        @test_throws ArgumentError asm([E, bogus], fill(z0, 2); tol = 0.5)
         # not a bijection of the lattice
         @test_throws ArgumentError asm([E, SMatrix{3,3,Float64}(2I)], fill(z0, 2))
         # the identity is what every projector and every orbit is anchored on
@@ -88,11 +96,59 @@ SLCE.analyze_symmetry(::_MirrorZBackend, c::Crystal; tol::Real = 1e-5) =
 
         # `map_sym` columns are documented as permutations; two atoms sharing an image
         # means `tol` is too loose for this structure, which the orbit code would then
-        # miscount rather than reject
+        # miscount rather than reject. The separation here is 1e-3 × 3 Å = 3e-3 Å, so
+        # `tol = 1e-2` Å resolves nothing and `tol = 1e-6` Å resolves both.
         near = Crystal(lat, [0.0 1e-3; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         @test _assemble_spacegroup(near, [E], [z0], "P1", 1; tol = 1e-6) isa SpaceGroup
         @test_throws ErrorException _assemble_spacegroup(near, [E], [z0], "P1", 1;
                                                          tol = 1e-2)
+    end
+
+    @testset "`tol` is a Cartesian distance, not a fractional one" begin
+        # `tol` is the backend's symprec: a distance in Å. Whether two atoms are close
+        # enough to collide under an operation is therefore a statement about Å, and
+        # its verdict cannot depend on the SIZE or the SHAPE of the cell those Å happen
+        # to be expressed in. Both properties below follow from what the number means,
+        # not from what this code computes — and each one is violated by a fractional
+        # comparison (measured on the fractional form: the cubic case collides at
+        # L = 24 Å and not at L = 3 Å; the hexagonal case collides along `c` and not
+        # along `a`, a 4× spread in effective tolerance across directions of one cell).
+        E = SMatrix{3,3,Float64}(I)
+        z0 = SVector{3,Float64}(0, 0, 0)
+        collides(lat, dfrac, tol) =
+            try
+                _assemble_spacegroup(Crystal(lat, hcat([0.0, 0.0, 0.0], dfrac),
+                                             [1, 1], ["Fe"]),
+                                     [E], [z0], "P1", 1; tol = tol)
+                false
+            catch
+                true
+            end
+
+        sep = 5e-3                    # Å between the two Fe
+        tol = 1e-3                    # Å, five times smaller: they are resolved
+        a, c = 3.0, 12.0
+        hex = Lattice([a -a / 2 0.0; 0.0 a * sqrt(3) / 2 0.0; 0.0 0.0 c])
+
+        # (i) cell size: the same two atoms, the same Å apart, in a 3 Å cell and a 24 Å
+        # one — the second is a plausible 8× supercell of the first.
+        for L in (3.0, 24.0)
+            @test !collides(Lattice(Matrix(L * I(3))), [sep / L, 0.0, 0.0], tol)
+        end
+        # (ii) cell shape: `sep` along `a` and `sep` along `c` of a γ = 120° cell with
+        # a ≠ c are the same distance, so they get the same answer.
+        @test !collides(hex, [sep / a, 0.0, 0.0], tol)
+        @test !collides(hex, [0.0, 0.0, sep / c], tol)
+
+        # ... and the tolerance still bites, everywhere, when the separation really is
+        # below it. Without this half the gate above would also pass a `tol` that had
+        # been quietly disabled.
+        small = tol / 2
+        for L in (3.0, 24.0)
+            @test collides(Lattice(Matrix(L * I(3))), [small / L, 0.0, 0.0], tol)
+        end
+        @test collides(hex, [small / a, 0.0, 0.0], tol)
+        @test collides(hex, [0.0, 0.0, small / c], tol)
     end
 
     @testset "unloaded backend → friendly error" begin
