@@ -115,6 +115,16 @@ using Random
         near = Crystal(xt.lattice, frac, xt.species, xt.species_labels)
         @test cartesian_positions(near) != cartesian_positions(xt)   # a real last bit
         @test all(d.displacements === nothing for d in read_extxyz(fb; reference = near))
+        # Pinned at the band's OWN scale, keyed to the constant: a tenth of the band
+        # is still no displacement. (The other side, ten times the band, is asserted
+        # below on the joint file — a spin-only file read against a reference far
+        # enough to measure joint is caught one gate later by its config_type claim.)
+        atol = SLCE._REF_GEOM_ATOL
+        frac[1, 2] = xt.frac_positions[1, 2] + 0.1 * atol / 3.0
+        just_in = Crystal(xt.lattice, frac, xt.species, xt.species_labels)
+        @test all(d.displacements === nothing
+                  for d in read_extxyz(fb; reference = just_in))
+
         # The other end of the band: a 1e-3 A shift of the reference must move the
         # measured u by exactly that, not be swallowed. Measured on a JOINT file, since
         # a spin-only file read against a displaced reference is caught one gate later
@@ -132,6 +142,12 @@ using Random
         # and the one-ulp reference moves the same joint file's u only by round-off
         @test maximum(abs, read_extxyz(fj; reference = near)[1].displacements - u_ref) <
               1e-14
+        # ten times the band IS a displacement, measured at its own scale — the
+        # assertion that fails if the band is ever quietly widened
+        frac[1, 2] = xt.frac_positions[1, 2] + 10 * atol / 3.0
+        just_out = Crystal(xt.lattice, frac, xt.species, xt.species_labels)
+        u_out = read_extxyz(fj; reference = just_out)[1].displacements
+        @test (u_out - u_ref)[1, 2] ≈ -10 * atol rtol = 1e-9
     end
 
     @testset "loud checks: claims never override measurements" begin

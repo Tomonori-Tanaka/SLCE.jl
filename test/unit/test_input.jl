@@ -121,6 +121,22 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
             replace(_INPUT_FULL, "soc = true" => "soc = true\nlsum = true")))
         @test_throws ArgumentError read_setup(_writetoml(
             _INPUT_FULL * "\n[interaction.lsum]\n2 = true\n"))
+        # The same class outside [interaction]: the symmetry tolerance is a cartesian
+        # distance whose size decides which space group is reported, and `[structure]`
+        # carries the geometry itself. `pbc = [1, 1, 1]` is the converse conversion —
+        # an integer standing in for a boolean — refused from the other side.
+        @test_throws ArgumentError read_setup(_writetoml(
+            replace(_INPUT_FULL, "tol = 1.0e-5" => "tol = true")))
+        @test_throws ArgumentError read_setup(_writetoml(
+            replace(_INPUT_FULL, "tol = 1.0e-5" => "tol = 1.0")))     # symprec of 1 Å
+        @test_throws ArgumentError read_setup(_writetoml(
+            replace(_INPUT_FULL, "tol = 1.0e-5" => "tol = 0.0")))
+        @test_throws ArgumentError read_setup(_writetoml(
+            replace(_INPUT_FULL, "pbc = [true, true, true]" => "pbc = [1, 1, 1]")))
+        @test_throws ArgumentError read_setup(_writetoml(
+            replace(_INPUT_FULL, "species = [1, 1]" => "species = [true, true]")))
+        @test_throws ArgumentError read_setup(_writetoml(
+            replace(_INPUT_FULL, "soc = true" => "soc = true\ntie_tol = true")))
     end
 
     @testset "error paths" begin

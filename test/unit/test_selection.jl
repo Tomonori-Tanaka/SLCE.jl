@@ -107,8 +107,9 @@ end
         gstopped = GroupAdaptiveRidge([1, 1, 2], [1.0, 1.0]; lambda = 0.3,
                                       max_iter = 1, tol = 1e-300)
         @test_logs (:warn,) solve_coefficients(gstopped, X, y)
-        # the warning is not unconditional: a converging run is silent, and it must
-        # stay silent on a REPEATED call (no `maxlog` hiding a later non-convergence)
+        # the warning is not unconditional: a converging run is silent (next line), and
+        # a repeated non-convergent run warns AGAIN — the no-`maxlog` contract, which
+        # exists so a later non-convergence is never hidden by an earlier one
         ok = AdaptiveRidge(; lambda = 0.3, max_iter = 200, tol = 1e-8)
         @test_logs solve_coefficients(ok, X, y)
         @test_logs (:warn,) solve_coefficients(stopped, X, y)

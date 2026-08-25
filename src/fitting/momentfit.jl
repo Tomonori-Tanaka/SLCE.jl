@@ -183,13 +183,21 @@ function MomentDataset(basis::MomentBasis, data::AbstractVector{TrainingDatum};
             "config $ci carries no `constraint_mode` — the axis of y = ê·M is " *
             "resolved by the mode rule (4 → directions, 1 → constraint_axes), so " *
             "a datum without a declared mode has no defined target"))
-        if d.displacements !== nothing && !all(iszero, d.displacements)
+        # Banded with the same constant the reader classifies a file by
+        # (`_REF_GEOM_ATOL`), so a file-read datum and an adapter-built one — where
+        # `u = pos .- cartesian_positions(ref)` carries ~1e-13 Å from its own
+        # subtraction — are judged the same way. An exact test refused the adapter's
+        # round-off with a message claiming it "mixes two structures", which at that
+        # amplitude is as false here as it was at the reader's door.
+        if d.displacements !== nothing &&
+           maximum(abs, d.displacements) > _REF_GEOM_ATOL
             throw(ArgumentError(
-                "config $ci carries nonzero displacements — the v1 moment channel " *
-                "expands m_i(e) at the clamped-ion reference geometry only, and " *
-                "fitting a displaced configuration as if it sat at the reference " *
-                "silently mixes two structures (the joint m_i(e, u) expansion is a " *
-                "recorded follow-up). Drop the displaced configurations"))
+                "config $ci carries nonzero displacements (max |u| = " *
+                "$(maximum(abs, d.displacements)) Å > $_REF_GEOM_ATOL) — the v1 " *
+                "moment channel expands m_i(e) at the clamped-ion reference geometry " *
+                "only, and fitting a displaced configuration as if it sat at the " *
+                "reference silently mixes two structures (the joint m_i(e, u) " *
+                "expansion is a recorded follow-up). Drop the displaced configurations"))
         end
         M = d.moments_bare::Matrix{Float64}
         mode = d.constraint_mode::Int

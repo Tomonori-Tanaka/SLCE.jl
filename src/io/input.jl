@@ -49,6 +49,9 @@ Schema:
     [symmetry]                                            # optional section
     backend = "spglib"                                    # "none" (default) or "spglib"
     tol     = 1.0e-5                                       # optional, default 1e-5
+                                                          #   spglib's symprec, a
+                                                          #   CARTESIAN distance (Å);
+                                                          #   must lie in (0, 0.1]
 """
 
 _input_require(d, key, ctx) =
@@ -65,13 +68,14 @@ function _crystal_from_input(d)::Crystal
         length(v) == 3 ||
             throw(ArgumentError("[structure].lattice vector $k must have 3 components"))
         for i = 1:3
-            A[i, k] = Float64(v[i])   # entry k = k-th lattice vector = column k of the matrix
+            # entry k = k-th lattice vector = column k of the matrix
+            A[i, k] = _toml_number(v[i], "[structure].lattice[$k][$i]")
         end
     end
     pbc = if haskey(d, "pbc")
         p = d["pbc"]
         length(p) == 3 || throw(ArgumentError("[structure].pbc must have 3 entries"))
-        (Bool(p[1]), Bool(p[2]), Bool(p[3]))
+        ntuple(k -> _toml_bool(p[k], "[structure].pbc[$k]"), 3)
     else
         (true, true, true)
     end
@@ -86,11 +90,12 @@ function _crystal_from_input(d)::Crystal
         length(p) == 3 ||
             throw(ArgumentError("[structure].positions[$a] must have 3 components"))
         for i = 1:3
-            fr[i, a] = Float64(p[i])
+            fr[i, a] = _toml_number(p[i], "[structure].positions[$a][$i]")
         end
     end
 
-    species = Int[Int(s) for s in _input_require(d, "species", "structure")]
+    species = Int[_toml_int(s, "[structure].species") for
+                  s in _input_require(d, "species", "structure")]
     length(species) == nat ||
         throw(ArgumentError("[structure].species has $(length(species)) entries for $nat atoms"))
     labels = String[String(s) for s in _input_require(d, "species_labels", "structure")]
@@ -103,9 +108,28 @@ _is_bodykey(k::AbstractString) = !isnothing(match(r"^\d+$", k))
 
 # TOML integers arrive as `Int` and `Bool <: Integer`, so `isa Integer` would let
 # `true` through as 1; likewise `Bool <: Real`, so a radius written `cutoff = true`
-# would become 1.0 Å. Every numeric door below goes through these two kind tests.
+# would become 1.0 Å. Every numeric door in this file goes through these two kind
+# tests, and every boolean door tests `isa Bool` rather than converting — `pbc = [1,1,1]`
+# and `isotropy = 1` are refused for the same reason, from the other side.
+# Upper bound on `[symmetry].tol`. It is spglib's symprec, a CARTESIAN distance in Å;
+# a value near a bond length merges inequivalent sites, so the reported group is not
+# the crystal's. 0.1 Å is already far past any coordinate noise worth symmetrizing.
+const _SYMPREC_MAX = 1e-1
+
 _is_toml_int(v) = v isa Int
 _is_toml_number(v) = v isa Real && !(v isa Bool)
+
+# A number / integer / boolean read from a named key, refusing the wrong TOML kind.
+_toml_number(v, what::String)::Float64 =
+    _is_toml_number(v) ? Float64(v) :
+    throw(ArgumentError("$what must be a number; got $(repr(v))"))
+_toml_int(v, what::String)::Int =
+    _is_toml_int(v) ? Int(v) :
+    throw(ArgumentError("$what must be an integer; got $(repr(v))"))
+_toml_bool(v, what::String)::Bool =
+    v isa Bool ? v :
+    throw(ArgumentError("$what must be a boolean (`true` / `false`, not 0/1); " *
+                        "got $(repr(v))"))
 
 function _lmax_from_input(x)
     all(_is_toml_int, x isa AbstractDict ? values(x) : x) ||
@@ -114,18 +138,25 @@ function _lmax_from_input(x)
     return Int[Int(v) for v in x]
 end
 
+# The body-keyed `lsum` table. Range and duplicate checks belong to `_resolve_lsum`,
+# not here — this reads the key syntax and the value kind only.
+function _lsum_table_from_input(x::AbstractDict)::Vector{Pair{Int,Int}}
+    out = Pair{Int,Int}[]
+    for (k, v) in x
+        ks = String(k)
+        _is_bodykey(ks) || throw(ArgumentError(
+            "[interaction].lsum: key $(repr(k)) is not a body order (keys are bare " *
+            "integers: 1, 2, …)"))
+        push!(out, parse(Int, ks) => _toml_int(v, "[interaction].lsum.$ks"))
+    end
+    return out
+end
+
 function _lsum_from_input(x)
     _is_toml_int(x) && return Int(x)
-    x isa Real && throw(ArgumentError(
-        "[interaction].lsum must be an integer or a body-order table; got $(repr(x))"))
     x isa AbstractDict || throw(ArgumentError(
-        "[interaction].lsum must be an integer or a body-order table"))
-    return [(_is_bodykey(k) ? parse(Int, k) :
-             throw(ArgumentError("[interaction].lsum: key $(repr(k)) is not a " *
-                                 "body order"))) =>
-            (_is_toml_int(v) ? Int(v) :
-             throw(ArgumentError("[interaction].lsum.$k must be an integer; got " *
-                                 "$(repr(v))"))) for (k, v) in x]
+        "[interaction].lsum must be an integer or a body-order table; got $(repr(x))"))
+    return _lsum_table_from_input(x)
 end
 
 _pairtable_from_input(x::AbstractDict, ctx::String) =
@@ -140,11 +171,11 @@ function _cutoff_from_input(x)
     ks = collect(keys(x))
     if all(_is_bodykey, ks)          # body-keyed: scalar or pair table per order
         return [parse(Int, k) => (_is_toml_number(v) ? Float64(v) :
-                                  v isa Real ?
+                                  v isa AbstractDict ?
+                                  _pairtable_from_input(v, "[interaction].cutoff.$k") :
                                   throw(ArgumentError("[interaction].cutoff.$k must " *
                                                       "be a number or a species-pair " *
-                                                      "table; got $(repr(v))")) :
-                                  _pairtable_from_input(v, "[interaction].cutoff.$k"))
+                                                      "table; got $(repr(v))")))
                 for (k, v) in x]
     elseif !any(_is_bodykey, ks)     # one species-pair table for every order
         return _pairtable_from_input(x, "[interaction].cutoff")
@@ -161,21 +192,11 @@ function _interaction_from_input(d, labels::Vector{String})::BasisSpec
         throw(ArgumentError("[interaction].isotropy was replaced by `soc` (note " *
                             "the inversion: isotropy = true ⇔ soc = false — the " *
                             "scalar channel is the SOC-free selection)"))
-    nbody_in = _input_require(d, "nbody", "interaction")
-    _is_toml_int(nbody_in) || throw(ArgumentError(
-        "[interaction].nbody must be an integer; got $(repr(nbody_in))"))
-    nbody = Int(nbody_in)
+    nbody = _toml_int(_input_require(d, "nbody", "interaction"), "[interaction].nbody")
     lmax = _lmax_from_input(_input_require(d, "lmax", "interaction"))
     cutoff = _cutoff_from_input(_input_require(d, "cutoff", "interaction"))
     lsum = haskey(d, "lsum") ? _lsum_from_input(d["lsum"]) : nothing
-    soc = if haskey(d, "soc")
-        d["soc"] isa Bool ||
-            throw(ArgumentError("[interaction].soc must be a boolean; got " *
-                                "$(repr(d["soc"]))"))
-        d["soc"]
-    else
-        true
-    end
+    soc = haskey(d, "soc") ? _toml_bool(d["soc"], "[interaction].soc") : true
     return BasisSpec(labels; nbody = nbody, lmax = lmax, cutoff = cutoff, lsum = lsum,
                      soc = soc)
 end
@@ -206,6 +227,12 @@ file's `[interaction]` section), symmetry `backend::AbstractSymmetryBackend`,
 the same-distance band `tie_tol::Float64` (`[interaction].tie_tol`, defaulting to
 the `SLCEBasis` default). Training data and the estimator are **not** part of the
 file (see [`SLCEDataset`](@ref) / [`fit`](@ref)). See also `SLCEBasis(path)`.
+Every value is **kind-checked**, and the TOML kind is the contract: `nbody`, `lmax` and
+`lsum` take TOML integers (`nbody = 2.0` is refused, not rounded), `cutoff`, `tol` and
+`tie_tol` take TOML numbers, and `soc` (and `[structure].pbc`) takes a TOML boolean — `1` is not a boolean
+and `true` is not a number, in either direction. `Bool <: Real` in Julia, so without
+this a radius written `cutoff = true` would silently become 1.0 Å.
+
 """
 function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
                                                        spec::BasisSpec,
@@ -229,10 +256,19 @@ function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
     # needed a widened band must be reproducible from its own file — it rides in
     # `[interaction]` next to `images` (validated by the `SLCEBasis` constructor).
     tie_tol = haskey(doc["interaction"], "tie_tol") ?
-        Float64(doc["interaction"]["tie_tol"]) : _SAME_DIST_RTOL
+        _toml_number(doc["interaction"]["tie_tol"], "[interaction].tie_tol") :
+        _SAME_DIST_RTOL
     sym = get(doc, "symmetry", Dict{String,Any}())
     backend = haskey(sym, "backend") ? _backend_from_name(sym["backend"]) : NoSymmetry()
-    tol = haskey(sym, "tol") ? Float64(sym["tol"]) : 1e-5
+    # `tol` is spglib's symprec (Å). Nothing downstream bounds it — at 1 Å spglib
+    # merges inequivalent sites and reports a larger group, so the basis is silently a
+    # different one. `tol = true` used to spell exactly that.
+    tol = haskey(sym, "tol") ? _toml_number(sym["tol"], "[symmetry].tol") : 1e-5
+    (tol > 0 && tol <= _SYMPREC_MAX) || throw(ArgumentError(
+        "[symmetry].tol is a cartesian distance (Å) and must lie in " *
+        "(0, $_SYMPREC_MAX]; got $tol. A symprec of that size merges inequivalent " *
+        "sites, so the reported space group — and every orbit built from it — is " *
+        "not the crystal's"))
     return (; crystal, spec, backend, tol, images, tie_tol)
 end
 

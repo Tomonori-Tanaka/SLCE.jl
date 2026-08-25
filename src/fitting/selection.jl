@@ -1136,6 +1136,12 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
 
     # Warm-started descending path: each IRLS is seeded with the previous (more
     # regularized, already group-sparse) λ's solution.
+    # Non-convergent IRLS solves are counted, not warned about one by one: this driver
+    # runs one solve per λ and another per (fold, λ), and a warning repeated over that
+    # grid buries the one thing the user can act on — how much of the path is affected.
+    nonconv_path = Ref(0)
+    nonconv_fold = Ref(0)
+    nf_total = Ref(0)
     betas = Vector{Vector{Float64}}(undef, nl)
     prev = nothing
     for i = 1:nl
@@ -1143,7 +1149,7 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
             _solve_gar(XtX, Xty, lams[i], estimator.column_groups, estimator.group_weights,
                        estimator.group_sizes, metric, estimator.epsilon,
                        estimator.max_iter, estimator.tol;
-                       beta0 = prev)
+                       beta0 = prev, nonconvergent = nonconv_path)
         isempty(frozen_cols) || (b[frozen_cols] .= 0.0)
         betas[i] = b
         prev = b
@@ -1252,6 +1258,7 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
                                 strata = strata, nstrata = 4,
                                 class_order = _channel_class_order(strata))
         folds = [ufolds[u] for u in units]
+        nf_total[] = nf * nl
         sse = zeros(Float64, nl)
         for k = 1:nf
             ho = findall(==(k), folds)
@@ -1269,7 +1276,8 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
                     _solve_gar(XtX_tr, Xty_tr, lams[i], estimator.column_groups,
                                estimator.group_weights, estimator.group_sizes, metric,
                                estimator.epsilon,
-                               estimator.max_iter, estimator.tol; beta0 = prevf)
+                               estimator.max_iter, estimator.tol; beta0 = prevf,
+                               nonconvergent = nonconv_fold)
                 end
                 # Same frozen-column zeroing as the full-data path: the two paths
                 # must state the same thing about identically-zero design columns
@@ -1292,6 +1300,21 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
         # wrong; the selection was not.
         # [Backported from SCEFitting.jl d065f10; supersedes review 2026-08-11.]
         score .= sse
+    end
+
+    # One report for the whole grid. A score at a non-convergent point describes a
+    # smoother that was never solved (`gcv` / `effective_dof` rebuild the penalty
+    # diagonal from the returned coefficients), so the selection itself is suspect
+    # there — which is why the count, not the first offender, is what gets reported.
+    if nonconv_path[] + nonconv_fold[] > 0
+        @warn "select_fit: $(nonconv_path[]) of $nl λ points" *
+              (nf_total[] > 0 ?
+               " and $(nonconv_fold[]) of $(nf_total[]) fold solves" : "") *
+              " ended on max_iter = $(estimator.max_iter) rather than on the " *
+              "reweighting's stopping rule. Their coefficients are not fixed points " *
+              "of the reweighting, so the score attached to them — and therefore " *
+              "the selected λ, if it is one of them — describes a smoother " *
+              "that was never solved. Raise `max_iter`, loosen `tol`, or raise `epsilon`."
     end
 
     sel = _select_pareto(score, cost, Float64(score_rtol))

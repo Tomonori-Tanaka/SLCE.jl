@@ -6,7 +6,7 @@
 #   * The structure (lattice + positions) is ALWAYS stored, even for spin-only data —
 #     self-containment structurally removes the "which POSCAR pairs with which
 #     EMBSET" provenance-bug class. The redundancy costs a few MB.
-#   * spin-only vs joint is decided FROM THE DATA (positions bitwise identical across
+#   * spin-only vs joint is decided FROM THE DATA (positions agreeing across
 #     frames → spin-only), never from a flag; a `config_type` claim is allowed but a
 #     mismatch with the measured answer is a loud error.
 #   * Per-atom columns exist only when observed: `species:S:1:pos:R:3:mw:R:3`
@@ -144,13 +144,6 @@ function _xyz_properties(spec::AbstractString, path::AbstractString,
     return props
 end
 
-# Absolute band (Å) for comparing a file's geometry against a reference `Crystal`.
-# Interchange format: the writer is routinely a different build, and the reference
-# cartesian positions are a recomputed `vectors * frac`, so the comparison must
-# tolerate round-off. It stays far below the ≳ 1e-3 Å displacement the spin-only /
-# joint distinction is about.
-const _REF_GEOM_ATOL = 1e-8
-
 _xyz_number(s::AbstractString, what::String, path::AbstractString)::Float64 = begin
     v = tryparse(Float64, s)
     (v === nothing || !isfinite(v)) &&
@@ -240,6 +233,21 @@ end
 
 # ── reader ─────────────────────────────────────────────────────────────────────────
 
+# Absolute band (Å) for every geometry comparison a reader makes: frame against frame,
+# and file against a reference `Crystal`. This is an INTERCHANGE format, so none of the
+# three quantities involved is exact — the writer is routinely a different build, the
+# reference cartesians are a recomputed `vectors * frac`, and the file carries only as
+# many decimals as its writer printed. That last one sets the scale: ASE's extxyz writer
+# defaults to `%16.8f`, a text grid of 1e-8 Å whose rounding error reaches 5e-9 Å, so a
+# band at 1e-8 Å would leave a factor of two and a producer printing six decimals would
+# reproduce exactly the false verdict the band exists to prevent. 1e-6 Å clears an
+# eight-decimal grid by ~200x and still sits three orders below the ≳ 1e-3 Å displacement
+# the spin-only / joint distinction is about — at 1e-6 Å a Φ ~ 10 eV/Å² force is
+# ~1e-5 eV/Å, far under DFT noise. It is therefore also a FLOOR: a displacement smaller
+# than this is not representable through a file, and reads as sitting at the reference.
+const _REF_GEOM_ATOL = 1e-6
+
+
 """
     read_extxyz(path; reference = nothing, zero_moment_atol = 1e-10,
                 sign_gate_min = 5e-3, axis_angle_p99_max = 5.0)
@@ -255,12 +263,22 @@ present), `setup_id` / `soc` (stamped into the provenance), `config_type`
 (`spin-only`/`joint`, an optional claim), `pbc` (must be fully periodic).
 
 **spin-only vs joint is measured, not read**: with `reference = nothing`, every
-frame's positions must be bitwise identical (spin-only; `displacements = nothing`
-exactly) — differing positions are an error asking for the reference. With a
-`reference::Crystal`, displacements `u = pos − ref` are computed per frame; if every
-`u` is exactly zero the data are spin-only, else joint (each datum stamped with the
-reference id + [`crystal_fingerprint`](@ref)). A `config_type` claim that contradicts
-the measured answer is a loud error.
+frame's positions must agree (spin-only; `displacements = nothing`) — differing
+positions are an error asking for the reference. With a `reference::Crystal`,
+displacements `u = pos − ref` are computed per frame; if every `|u|` stays within the
+band the data are spin-only, else joint (each datum stamped with the reference id +
+[`crystal_fingerprint`](@ref)). A `config_type` claim that contradicts the measured
+answer is a loud error.
+
+Every one of those geometry comparisons holds to an absolute **1e-6 Å** band, not
+exactly. This is an interchange format: the writer is routinely a different build
+printing a finite number of decimals, and the reference cartesians are a recomputed
+`vectors * frac`, so an exact test would answer a question about the physics with a
+question about arithmetic. The band sits three orders below the ≳ 1e-3 Å
+displacement the distinction is about, and is therefore also a **floor**: a
+displacement smaller than 1e-6 Å is not representable through a file — the frame
+reads as sitting at the reference, and in a set measured joint it is materialized as
+exactly zero.
 
 Every load re-runs the axis-consistency gates ([`check_moment_gates`](@ref)) — the
 archived constraint axes are re-verified against the converged moment directions,
@@ -332,12 +350,20 @@ function read_extxyz(path::AbstractString;
 
     # spin-only vs joint: measured from positions
     ref_pos = frames[1].cols["pos"]
-    identical = all(fr.cols["pos"] == ref_pos for fr in frames)
+    # Banded like every other geometry comparison here (`_REF_GEOM_ATOL`). "One writer,
+    # one file" does not make this one exact: a producer that recomputes or re-wraps
+    # positions per frame prints a different last decimal for the same structure, and an
+    # exact test then answers a question about the physics with a question about
+    # formatting. Banding it also keeps the two verdicts consistent — the same file must
+    # not read as spin-only with a `reference` and be refused as displaced without one.
+    frame_dev = maximum(fr -> maximum(abs, fr.cols["pos"] - ref_pos), frames)
+    identical = frame_dev <= _REF_GEOM_ATOL
     joint = false
     disps = Vector{Union{Matrix{Float64},Nothing}}(undef, length(frames))
     if reference === nothing
         identical ||
-            throw(ArgumentError("extxyz $path: positions differ across frames — " *
+            throw(ArgumentError("extxyz $path: positions differ across frames " *
+                                "(max |Δ| = $frame_dev Å > $_REF_GEOM_ATOL) — " *
                                 "displaced (joint) data need the clamped-ion " *
                                 "reference: pass `reference::Crystal`"))
         fill!(disps, nothing)
@@ -351,18 +377,17 @@ function read_extxyz(path::AbstractString;
                                 "crystal ($(frames[1].species[1]) … vs " *
                                 "$(reflab[1]) …)"))
         refc = Matrix(cartesian_positions(reference))
-        maximum(abs, Matrix(reference.lattice.vectors) - A1) <= _REF_GEOM_ATOL ||
+        lat_dev = maximum(abs, Matrix(reference.lattice.vectors) - A1)
+        lat_dev <= _REF_GEOM_ATOL ||
             throw(ArgumentError("extxyz $path: Lattice differs from the reference " *
-                                "crystal's lattice"))
+                                "crystal's lattice (max |Δ| = $lat_dev Å > " *
+                                "$_REF_GEOM_ATOL)"))
         for (f, fr) in enumerate(frames)
             u = fr.cols["pos"] - refc
-            # Banded, not exact. This is an INTERCHANGE format, so the file's writer is
-            # routinely a different build, while `refc` is a freshly recomputed
-            # `vectors * frac` whose last bits depend on the StaticArrays/Julia version
-            # and the dispatch path taken. An exact test turned a 1-ulp (~2e-15 Å)
-            # mismatch into a JOINT dataset carrying a displacement field of round-off —
-            # a claim about the physics, and a false one: a displacement worth
-            # separating is ≳ 1e-3 Å, orders above either scale.
+            # Banded, not exact: an exact test made a JOINT dataset out of round-off,
+            # carrying a displacement field no producer put there — see
+            # `_REF_GEOM_ATOL`, which is therefore also the smallest displacement a
+            # file can express.
             disps[f] = maximum(abs, u) <= _REF_GEOM_ATOL ? nothing : u
         end
         joint = any(u -> u !== nothing, disps)
