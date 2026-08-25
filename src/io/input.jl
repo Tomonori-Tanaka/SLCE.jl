@@ -101,31 +101,49 @@ end
 # ("2"), species/pair keys anything else. Convert to the BasisSpec sugar forms.
 _is_bodykey(k::AbstractString) = !isnothing(match(r"^\d+$", k))
 
+# TOML integers arrive as `Int` and `Bool <: Integer`, so `isa Integer` would let
+# `true` through as 1; likewise `Bool <: Real`, so a radius written `cutoff = true`
+# would become 1.0 Å. Every numeric door below goes through these two kind tests.
+_is_toml_int(v) = v isa Int
+_is_toml_number(v) = v isa Real && !(v isa Bool)
+
 function _lmax_from_input(x)
+    all(_is_toml_int, x isa AbstractDict ? values(x) : x) ||
+        throw(ArgumentError("[interaction].lmax entries must be integers; got $(repr(x))"))
     x isa AbstractDict && return [String(k) => Int(v) for (k, v) in x]
     return Int[Int(v) for v in x]
 end
 
 function _lsum_from_input(x)
-    x isa Real && return Int(x)
+    _is_toml_int(x) && return Int(x)
+    x isa Real && throw(ArgumentError(
+        "[interaction].lsum must be an integer or a body-order table; got $(repr(x))"))
     x isa AbstractDict || throw(ArgumentError(
         "[interaction].lsum must be an integer or a body-order table"))
     return [(_is_bodykey(k) ? parse(Int, k) :
              throw(ArgumentError("[interaction].lsum: key $(repr(k)) is not a " *
-                                 "body order"))) => Int(v) for (k, v) in x]
+                                 "body order"))) =>
+            (_is_toml_int(v) ? Int(v) :
+             throw(ArgumentError("[interaction].lsum.$k must be an integer; got " *
+                                 "$(repr(v))"))) for (k, v) in x]
 end
 
 _pairtable_from_input(x::AbstractDict, ctx::String) =
-    [String(k) => (v isa Real ? Float64(v) :
-                   throw(ArgumentError("$ctx: $(repr(k)) must be a number"))) for (k, v) in x]
+    [String(k) => (_is_toml_number(v) ? Float64(v) :
+                   throw(ArgumentError("$ctx: $(repr(k)) must be a number; got " *
+                                       "$(repr(v))"))) for (k, v) in x]
 
 function _cutoff_from_input(x)
-    x isa Real && return Float64(x)
-    x isa AbstractDict ||
-        throw(ArgumentError("[interaction].cutoff must be a number or a table"))
+    _is_toml_number(x) && return Float64(x)
+    x isa AbstractDict || throw(ArgumentError(
+        "[interaction].cutoff must be a number or a table; got $(repr(x))"))
     ks = collect(keys(x))
     if all(_is_bodykey, ks)          # body-keyed: scalar or pair table per order
-        return [parse(Int, k) => (v isa Real ? Float64(v) :
+        return [parse(Int, k) => (_is_toml_number(v) ? Float64(v) :
+                                  v isa Real ?
+                                  throw(ArgumentError("[interaction].cutoff.$k must " *
+                                                      "be a number or a species-pair " *
+                                                      "table; got $(repr(v))")) :
                                   _pairtable_from_input(v, "[interaction].cutoff.$k"))
                 for (k, v) in x]
     elseif !any(_is_bodykey, ks)     # one species-pair table for every order
@@ -143,11 +161,21 @@ function _interaction_from_input(d, labels::Vector{String})::BasisSpec
         throw(ArgumentError("[interaction].isotropy was replaced by `soc` (note " *
                             "the inversion: isotropy = true ⇔ soc = false — the " *
                             "scalar channel is the SOC-free selection)"))
-    nbody = Int(_input_require(d, "nbody", "interaction"))
+    nbody_in = _input_require(d, "nbody", "interaction")
+    _is_toml_int(nbody_in) || throw(ArgumentError(
+        "[interaction].nbody must be an integer; got $(repr(nbody_in))"))
+    nbody = Int(nbody_in)
     lmax = _lmax_from_input(_input_require(d, "lmax", "interaction"))
     cutoff = _cutoff_from_input(_input_require(d, "cutoff", "interaction"))
     lsum = haskey(d, "lsum") ? _lsum_from_input(d["lsum"]) : nothing
-    soc = haskey(d, "soc") ? Bool(d["soc"]) : true
+    soc = if haskey(d, "soc")
+        d["soc"] isa Bool ||
+            throw(ArgumentError("[interaction].soc must be a boolean; got " *
+                                "$(repr(d["soc"]))"))
+        d["soc"]
+    else
+        true
+    end
     return BasisSpec(labels; nbody = nbody, lmax = lmax, cutoff = cutoff, lsum = lsum,
                      soc = soc)
 end

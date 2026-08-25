@@ -65,6 +65,55 @@ end
         @test occursin("lambda=0.5", s)
     end
 
+    @testset "with_lambda moves lambda and nothing else" begin
+        # The property the package itself calls unobservable: a dropped metric is
+        # indistinguishable from a deliberate uniform one, and no fitting door sees the
+        # difference (fitting/metric.jl). So the contract is asserted structurally --
+        # every field except `lambda` is carried through -- rather than through a fit,
+        # and by sweeping `fieldnames` it keeps holding when a field is added.
+        m = [1.0, 4.0, 9.0]
+        prov = SLCE.MetricProvenance(:energy, 0.25, false, 7, 11, UInt64(0xABCD))
+        estimators = (Ridge(; lambda = 0.5, metric = m, metric_provenance = prov),
+                      AdaptiveRidge(; lambda = 0.5, epsilon = 1e-7, max_iter = 13,
+                                    tol = 1e-5, metric = m, metric_provenance = prov),
+                      GroupAdaptiveRidge([1, 1, 2], [1.0, 2.0]; lambda = 0.5,
+                                         epsilon = 1e-7, max_iter = 13, tol = 1e-5,
+                                         metric = m, metric_provenance = prov))
+        for est in estimators
+            moved = SLCE.with_lambda(est, 2.5)
+            @test typeof(moved) === typeof(est)
+            for f in fieldnames(typeof(est))
+                if f === :lambda
+                    @test getfield(moved, f) === 2.5
+                else
+                    @test getfield(moved, f) == getfield(est, f)
+                end
+            end
+            # named explicitly, since these two are what a hand-rebuilt estimator drops
+            @test moved.metric == m
+            @test moved.metric_provenance === prov
+        end
+    end
+
+    @testset "a reweighted ridge that exits on max_iter says so" begin
+        # `islinear` is true for these estimators, so `gcv` / `effective_dof` rebuild
+        # the penalty diagonal FROM the returned coefficients and score the smoother it
+        # implies. If the iteration never reached its fixed point, that smoother was
+        # never solved -- and before this the exit reason was not recorded anywhere.
+        rng = MersenneTwister(7)
+        X, y = _centered_problem(rng, 30, [1.0, -0.5, 0.25])
+        stopped = AdaptiveRidge(; lambda = 0.3, max_iter = 1, tol = 1e-300)
+        @test_logs (:warn,) solve_coefficients(stopped, X, y)
+        gstopped = GroupAdaptiveRidge([1, 1, 2], [1.0, 1.0]; lambda = 0.3,
+                                      max_iter = 1, tol = 1e-300)
+        @test_logs (:warn,) solve_coefficients(gstopped, X, y)
+        # the warning is not unconditional: a converging run is silent, and it must
+        # stay silent on a REPEATED call (no `maxlog` hiding a later non-convergence)
+        ok = AdaptiveRidge(; lambda = 0.3, max_iter = 200, tol = 1e-8)
+        @test_logs solve_coefficients(ok, X, y)
+        @test_logs (:warn,) solve_coefficients(stopped, X, y)
+    end
+
     @testset "singleton groups + unit weights reproduce AdaptiveRidge" begin
         rng = MersenneTwister(42)
         btrue = zeros(10)

@@ -6,6 +6,43 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — mechanical audit items: interchange round-off, TOML kinds, IRLS reporting (2026-08-25)
+
+- **The displacement field is measured with a band, not exactly.**
+  `read_extxyz(...; reference)` set `u = pos - refc` and called a frame spin-only only
+  when `all(iszero, u)`, where `refc` is a freshly recomputed `vectors * frac`. This is
+  an interchange format (the same dialect as SCEFitting.jl), so the file's writer is
+  routinely a different build and the last bits differ; a 1-ulp (~2e-15 Å) mismatch
+  turned a spin-only file into a JOINT dataset carrying a displacement field of
+  round-off — and, one gate later, into a `config_type` claim conflict. Both geometry
+  comparisons now use the lattice check's absolute band (`_REF_GEOM_ATOL = 1e-8`),
+  orders below the ≳ 1e-3 Å displacement the distinction is about.
+- **`[interaction]` refuses a boolean where a number belongs.** `Bool <: Real` and
+  `Bool <: Integer`, so `cutoff = true` was read as 1.0 Å, `lsum = true` and
+  `nbody = true` as 1 — a silently different model — and `soc = 1` passed through
+  `Bool(...)`. The numeric doors now share `_is_toml_int` / `_is_toml_number`, and
+  `soc` requires a real boolean.
+- **A reweighted ridge that exits on `max_iter` says so.** Both IRLS loops discarded
+  the last relative change and reported nothing on hitting the iteration cap. That
+  matters beyond the coefficients: `islinear` is `true` for `AdaptiveRidge` /
+  `GroupAdaptiveRidge`, so `gcv` and `effective_dof` rebuild the penalty diagonal FROM
+  the returned coefficients and score the smoother it implies — a smoother that was
+  never solved. Deliberately without `maxlog`, so a λ path reports every non-convergent
+  point.
+- The pointed moment basis's self-image comment claimed the `allunique` guard was a
+  second lock, "since a minimum-image neighbor list has no self-pairs". That is a
+  statement about the *centre's* neighbours, and the `N!` re-anchoring walks the mark
+  around the star, so an environment of the original centre becomes the mark and
+  another environment can sit on an image of it — the guard is the only lock. The
+  spoke test in `admit` is not a second one either: `_dmin2_matrix` leaves its diagonal
+  at `Inf`, so that comparison is identically true for exactly this case. Comments only;
+  no behaviour change.
+- `with_lambda` gained the tests it had none of — a `fieldnames` sweep asserting that
+  λ moves and every other field, the penalty metric and its provenance included, is
+  carried through. The package documents this as unobservable through a fit (a dropped
+  metric is indistinguishable from a deliberate uniform one), so the contract is
+  asserted structurally.
+
 ### Fixed — a neighbour list keeps its species-pair radii, not their maximum (2026-08-25)
 
 - **`NeighborList.cutoff` is now the symmetric per-species-pair radius matrix the list

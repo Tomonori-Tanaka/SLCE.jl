@@ -100,6 +100,40 @@ using Random
         @test all(d.displacements === nothing for d in bs)
     end
 
+    @testset "u is measured with a band: round-off is not a displacement field" begin
+        # This is an INTERCHANGE format, so a file's writer is routinely a different
+        # build, and the reference side is a freshly recomputed `vectors * frac` whose
+        # last bits depend on the arithmetic path. Measuring u exactly turned a 1-ulp
+        # mismatch into a JOINT dataset carrying a displacement field of round-off.
+        # The distinction is about >~ 1e-3 A; both scales are asserted so the band
+        # cannot drift into either.
+        ds = [mkdat(i) for i = 1:2]
+        fb = joinpath(tmp, "band.extxyz")
+        write_extxyz(fb, ds, xt)
+        frac = Matrix(xt.frac_positions)
+        frac[1, 2] += eps(1.5) / 3.0            # one ulp of a 1.5 A coordinate
+        near = Crystal(xt.lattice, frac, xt.species, xt.species_labels)
+        @test cartesian_positions(near) != cartesian_positions(xt)   # a real last bit
+        @test all(d.displacements === nothing for d in read_extxyz(fb; reference = near))
+        # The other end of the band: a 1e-3 A shift of the reference must move the
+        # measured u by exactly that, not be swallowed. Measured on a JOINT file, since
+        # a spin-only file read against a displaced reference is caught one gate later
+        # by its own config_type claim.
+        frac[1, 2] = xt.frac_positions[1, 2] + 1e-3 / 3.0            # 1e-3 A
+        far = Crystal(xt.lattice, frac, xt.species, xt.species_labels)
+        dj2 = [mkdat(1; joint = true)]
+        fj = joinpath(tmp, "band_joint.extxyz")
+        write_extxyz(fj, dj2, xt)
+        u_ref = read_extxyz(fj; reference = xt)[1].displacements
+        u_far = read_extxyz(fj; reference = far)[1].displacements
+        delta = u_far - u_ref
+        @test delta[1, 2] ≈ -1e-3 rtol = 1e-9
+        @test maximum(abs, delta[:, 1]) == 0.0
+        # and the one-ulp reference moves the same joint file's u only by round-off
+        @test maximum(abs, read_extxyz(fj; reference = near)[1].displacements - u_ref) <
+              1e-14
+    end
+
     @testset "loud checks: claims never override measurements" begin
         data = [mkdat(i) for i = 1:2]
         f = joinpath(tmp, "claims.extxyz")
