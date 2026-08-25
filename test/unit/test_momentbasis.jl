@@ -388,6 +388,48 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
             @test _design_moment(mb4, [-e4], [-e4]) == X4
         end
 
+        # -- `lsum` PER BODY ORDER. Oracle: a hand enumeration of the label rules
+        #    (one mark of rank 0…lmax_mark, environment ranks 1…lem, total even and
+        #    ≤ the cap of THAT order). With `lmax_env = [2]`, `lmax_mark = 2` the
+        #    environment multisets of order N are the non-decreasing length-(N−1)
+        #    tuples over 1:2, so by hand
+        #      N = 1: Σl ∈ {0, 2}                                          → 2 labels
+        #      N = 2: Σl ∈ {2, 2, 4}                                       → 3
+        #      N = 3: Σl ∈ {2, 4, 4, 4, 6}                                 → 5, one at 6
+        #      N = 4: Σl ∈ {4, 4, 6, 6, 6, 8}   (two at 4, three at 6)    → 6
+        #    so a cap of 4 keeps 2/3/4/2, a cap of 6 keeps 2/3/5/5, and the mixed cap
+        #    is what a single global number cannot say: the value that opens the 4-body
+        #    sector at its floor is the value that cuts the 3-body sector's Σl = 6 away.
+        let nlab(spec) = [length(SLCE._moment_labels(spec, N)) for N = 1:spec.nbody],
+            sp4(ls) = MomentSpec(; lmax_env = [2], sampled = [true], lmax_mark = 2,
+                                 nbody = 4, cutoff_pair = 3.0, cutoff_star = 3.0,
+                                 lsum = ls)
+            @test nlab(sp4(nothing)) == [2, 3, 5, 6]
+            @test nlab(sp4(4)) == [2, 3, 4, 2]
+            @test nlab(sp4(6)) == [2, 3, 5, 5]
+            @test nlab(sp4([3 => 6, 4 => 4])) == [2, 3, 5, 2]
+            @test nlab(sp4(Dict(3 => 6, 4 => 4))) == [2, 3, 5, 2]
+            # composition: per-order must carry, order by order, exactly what the
+            # matching single-value spec carries — both directions, and the two orders
+            # really differ, so the equality is not vacuous
+            labset(spec, N) = Set(sort([d.spin_l + (has_disp(d) ? 100 : 0) for d in l])
+                                  for l in SLCE._moment_labels(spec, N))
+            @test labset(sp4([3 => 6, 4 => 4]), 3) == labset(sp4(6), 3)
+            @test labset(sp4([3 => 6, 4 => 4]), 4) == labset(sp4(4), 4)
+            @test labset(sp4(6), 4) != labset(sp4(4), 4)
+            @test !isempty(labset(sp4([3 => 6, 4 => 4]), 4))
+            # a scalar broadcasts to every order — the pre-per-order behavior
+            @test sp4(4).lsum == fill(4, 4)
+            @test sp4(nothing).lsum == fill(SLCE.LSUM_UNCAPPED, 4)
+            @test labset(sp4(4), 3) == labset(sp4([1 => 4, 2 => 4, 3 => 4, 4 => 4]), 3)
+            # validation is the energy side's resolver, so the refusals are shared
+            @test_throws ArgumentError sp4([5 => 4])          # order out of range
+            @test_throws ArgumentError sp4([3 => 4, 3 => 4])  # duplicate order
+            @test_throws ArgumentError sp4([3 => -1])         # negative cap
+            @test_throws ArgumentError sp4([0, 4, 4, 4])   # positional: refused
+            @test_throws ArgumentError SLCE._moment_labels(sp4(4), 5)
+        end
+
         # -- a requested body order that cannot be reached is LOUD, and `show`
         #    reports what was built rather than what was asked for. The sector's
         #    `Σl` floor is 4, so an `lsum` below it drops the whole 4-body sector

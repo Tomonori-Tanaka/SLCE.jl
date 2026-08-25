@@ -530,14 +530,16 @@ Easy to break silently — confirm before touching the algorithm.
   field became `sector_rules`: a rename that buys clarity in the API buys nothing in
   a format nobody reads by hand, and costs a compatibility branch forever.
 - **BasisSpec sugar resolution ↔ canonical consumers** (`slce/truncation.jl`,
-  `slce/model.jl`, `io/input.jl`): the ergonomic forms (label keys, `"*"` wildcards,
+  `slce/model.jl`, `io/input.jl`, **`basis/momentbasis.jl`**): the ergonomic forms (label keys, `"*"` wildcards,
   body-keyed tables, unordered `"A-B"` pair keys, specificity resolution) are expanded
   ONCE, in the `BasisSpec` keyword constructor; everything downstream —
   `SLCEBasis`'s fan-out (`_superset_cutoff` → `build_neighbor_list`,
   `cutoff` → `candidate_clusters` per-edge admission, `lsum` → `_enumerate_ls`),
   persistence, `show` — reads only the dense fields. Add a sugar form or change the
   specificity rule → update the TOML reader (`_cutoff_from_input` etc.), the BasisSpec
-  docstring, and `test/unit/test_truncation.jl` together. The sector table follows the
+  docstring, and `test/unit/test_truncation.jl` together. **`_resolve_lsum` has two
+  callers**: `BasisSpec` and `MomentSpec` (the two `lsum` keywords are the same
+  spelling on purpose), so touching its accepted forms or error text moves both. The sector table follows the
   same discipline: `Sector` is unresolved sugar, `_resolve_sector(s)` (truncation.jl)
   produces the dense `SectorRule` rows stored on `BasisSpec.sector_rules`, and `nbody` /
   the per-body `cutoff` envelope

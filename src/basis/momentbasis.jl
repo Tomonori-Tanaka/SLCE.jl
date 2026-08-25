@@ -80,7 +80,17 @@ indexed like `Crystal.species`; `lmax_env` fixes the species count.
   what fails: the tie-induced member multiplicity grows as `(tie)^(N−1)`, two orbits
   can then carry the same monomial, and `moment_resolvability` is what catches the
   degeneracy.
-- `lsum` — optional cap on the total spin rank of a label (`nothing` = uncapped).
+- `lsum` — optional cap on the total spin rank `Σl` of a label (`nothing` = uncapped).
+  A scalar caps every body order; **body-keyed pairs or a `Dict` cap one order each**
+  (`lsum = [3 => 6, 4 => 4]`), unnamed orders staying uncapped — the spelling
+  [`BasisSpec`](@ref)'s `lsum` uses. Per-order caps are not a convenience: a body
+  order starts at `Σl = 2⌈(N−1)/2⌉`, so one global cap starves the high orders. At
+  `lsum = 4` the 2- and 3-body sectors get two even levels (`Σl = 2, 4`) while the
+  4-body sector gets one, and the same number that opens the 4-body sector is what
+  cuts the 3-body sector's `Σl = 6` content away. Unlike `cutoff_star`, the entries
+  are indexed by the body order itself (`lsum[N]`, `N` from 1), and a positional
+  vector is refused: this table is **partial** — an order it does not name stays
+  uncapped — which a positional list cannot express.
 - `soc` — keep `L_S ≠ 0` blocks (default `false`: the adiabatic map is treated as
   spin-rotation covariant, exactly like a `soc = false` energy basis).
 """
@@ -94,8 +104,27 @@ struct MomentSpec
     # One entry per STAR order: `cutoff_star[N - 2]` is body order `N`, so the vector
     # is empty for `nbody < 3`. Use `_star_cutoff(spec, N)` rather than indexing here.
     cutoff_star::Vector{Matrix{Float64}}
-    lsum::Int
+    # One entry per body order, indexed by the order ITSELF: `lsum[N]`, `N` from 1, so
+    # the vector has length `nbody`. `LSUM_UNCAPPED` means no cap. The offset differs
+    # from `cutoff_star[N - 2]` on purpose — that one exists only for `N ≥ 3`, this one
+    # bites from `N = 1`. Same layout as `BasisSpec.lsum`. Read it through
+    # `_label_lsum`, never by raw index.
+    lsum::Vector{Int}
     soc::Bool
+
+    # The two per-order vectors carry lengths nothing else can restore, and the
+    # exactly-field-typed positional call cannot be routed through the keyword
+    # constructor — so the invariant is asserted HERE, where every path arrives.
+    function MomentSpec(nbody, lmax_mark, lmax_env, sampled, marked, cutoff_pair,
+                        cutoff_star, lsum, soc)
+        length(lsum) == nbody || throw(ArgumentError(
+            "lsum has $(length(lsum)) entries for nbody = $nbody (one per body order)"))
+        length(cutoff_star) == max(nbody - 2, 0) || throw(ArgumentError(
+            "cutoff_star has $(length(cutoff_star)) entries for nbody = $nbody " *
+            "(one per STAR order, so $(max(nbody - 2, 0)))"))
+        return new(nbody, lmax_mark, lmax_env, sampled, marked, cutoff_pair,
+                   cutoff_star, lsum, soc)
+    end
 end
 
 function MomentSpec(; lmax_env::AbstractVector{<:Integer},
@@ -106,7 +135,7 @@ function MomentSpec(; lmax_env::AbstractVector{<:Integer},
                     cutoff_pair::Union{Real,AbstractMatrix{<:Real}},
                     cutoff_star::Union{Nothing,Real,AbstractMatrix{<:Real},
                                        AbstractVector,AbstractDict} = nothing,
-                    lsum::Union{Nothing,Integer} = nothing,
+                    lsum::Union{Nothing,Integer,AbstractVector,AbstractDict} = nothing,
                     soc::Bool = false)::MomentSpec
     nkd = length(lmax_env)
     nkd >= 1 || throw(ArgumentError("lmax_env must name at least one species"))
@@ -194,15 +223,41 @@ function MomentSpec(; lmax_env::AbstractVector{<:Integer},
         all(v -> !isnan(v) && v >= 0, m) ||
             throw(ArgumentError("$name entries must be ≥ 0 Å"))
     end
-    ls = lsum === nothing ? typemax(Int) : Int(lsum)
-    ls >= 0 || throw(ArgumentError("lsum must be ≥ 0; got $lsum"))
+    # `cutoff_star` accepts a POSITIONAL vector and `lsum` does not, in the same
+    # constructor call — so say why here rather than let the shared resolver answer
+    # with a generic "unsupported form".
+    lsum isa AbstractVector && !isempty(lsum) && !all(x -> x isa Pair, lsum) &&
+        throw(ArgumentError(
+            "lsum: a positional vector is not accepted (unlike cutoff_star, whose " *
+            "entries are offset by 2). This table is indexed by the body order " *
+            "itself AND is partial — an order it does not name stays uncapped, " *
+            "which a positional list cannot express. Write body-keyed pairs: " *
+            "lsum = [3 => 6, 4 => 4]"))
+    # Same resolver as the energy side, so the two `lsum` keywords accept exactly the
+    # same spellings and report the same errors. A scalar broadcasts to every order.
+    ls = _resolve_lsum(lsum, Int(nbody))
     return MomentSpec(Int(nbody), Int(lmax_mark), collect(Int, lmax_env),
                       collect(Bool, sampled), mk, cp, cs, ls, soc)
 end
 
+# The `Σl` cap of body order `N`. One accessor so the per-order layout of `spec.lsum`
+# is named in exactly one place — and so nobody writes `spec.lsum[N - 2]` by analogy
+# with `cutoff_star`, which would silently read a DIFFERENT order's cap rather than
+# fail. The two vectors in this struct genuinely use different offsets; only these two
+# accessors know that.
+function _label_lsum(spec::MomentSpec, N::Int)::Int
+    1 <= N <= length(spec.lsum) || throw(ArgumentError(
+        "body order $N is outside the spec's 1:$(spec.nbody)"))
+    return spec.lsum[N]
+end
+
 # The star radius of body order `N` (`N ≥ 3`). One accessor so the per-order layout of
 # `spec.cutoff_star` is named in exactly one place.
-_star_cutoff(spec::MomentSpec, N::Int)::Matrix{Float64} = spec.cutoff_star[N - 2]
+function _star_cutoff(spec::MomentSpec, N::Int)::Matrix{Float64}
+    1 <= N - 2 <= length(spec.cutoff_star) || throw(ArgumentError(
+        "body order $N is outside the spec's star orders 3:$(spec.nbody)"))
+    return spec.cutoff_star[N - 2]
+end
 
 # The elementwise envelope of every star radius — the radius the ONE shared neighbor
 # list must reach. Sharing it changes nothing, and the reason is not "each order
@@ -231,10 +286,11 @@ is_marked(d::SiteDecor)::Bool = has_disp(d)     # in a pointed label the disp fa
 
 # All sorted decor multisets for body order N: exactly one marked slot (spin rank
 # 0…lmax_mark), every environment slot a pure spin factor (rank ≥ 1), total spin
-# rank even (TR) and ≤ lsum. Which SITE may carry which decor is the per-assignment
+# rank even (TR) and ≤ THIS body order's `lsum` entry. Which SITE may carry which decor is the per-assignment
 # `admit` closure's business, not the label's.
 function _moment_labels(spec::MomentSpec, N::Int)::Vector{Vector{SiteDecor}}
     N >= 1 || return Vector{SiteDecor}[]
+    lsum_N = _label_lsum(spec, N)   # also the range check: `spec.lsum` is indexed by N
     lem = maximum(spec.lmax_env; init = 0)
     # Non-decreasing environment multisets, so each multiset is enumerated once; which
     # SITE carries which decor is the per-assignment `admit` closure's business.
@@ -254,7 +310,7 @@ function _moment_labels(spec::MomentSpec, N::Int)::Vector{Vector{SiteDecor}}
     labs = Vector{Vector{SiteDecor}}()
     for lm = 0:spec.lmax_mark, e in envs
         t = lm + sum(e; init = 0)
-        (iseven(t) && t <= spec.lsum) || continue
+        (iseven(t) && t <= lsum_N) || continue
         push!(labs, sort(vcat([_mark_decor(lm)],
                               [SiteDecor(spin = l) for l in e])))
     end
@@ -524,11 +580,14 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
                   (isempty(labels_by_body[body]) ?
                    ". No label survives the screens: this sector starts at " *
                    "Σl = $floor_l (every environment slot needs l ≥ 1 and time " *
-                   "reversal keeps only even Σl), so raise lsum / lmax_mark / " *
-                   "lmax_env to reach it" :
+                   "reversal keeps only even Σl), so raise " *
+                   (_label_lsum(spec, body) == LSUM_UNCAPPED ? "" :
+                    "lsum[$body] (the cap of THIS body order, " *
+                    "$(_label_lsum(spec, body))) / ") *
+                   "lmax_mark / lmax_env to reach it" :
                    ". Labels exist, so no cluster orbit admits them: check " *
                    (body >= 3 ?
-                    "cutoff_star[$(body - 2)] (the radius of THIS star order, " *
+                    "cutoff_star for body order $body (currently " *
                     "$(_star_cutoff(spec, body)) Å)" : "cutoff_pair") *
                    " and the marked and sampled species")
         end
