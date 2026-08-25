@@ -788,6 +788,60 @@ end
                                               criterion = :cv)
     end
 
+    @testset "select_fit(:cv) reports the objective, not the objective / n" begin
+        # The `:cv` score claims to be the fit's own objective
+        # `(1−wT−wF)·MSE_E + wT·MSE_T + wF·MSE_F` on the pooled out-of-fold residuals
+        # — the scale `cross_validate`'s `pooled_score` and `select_support`'s `score`
+        # report. It used to be divided by the informative row count on top of a design
+        # whose rows `_assemble_problem` had ALREADY scaled by `√((1−wT−wF)/n_E)` and
+        # friends, so the reported number came out `neff` times too small (measured
+        # upstream 61.9× on 60 energy configurations). `_select_pareto` is invariant
+        # under a positive uniform factor, so the bug moved no selection — only the
+        # number the caller reads.
+        #
+        # Two gates of deliberately different kinds:
+        #  (1) an EXACT identity pinning the premise — a sum of squared residuals over
+        #      the assembled rows already IS the objective, with no division left to
+        #      do. Written from the definition of the objective in physical units; it
+        #      touches no part of the selection driver.
+        #  (2) a cross-implementation scale check against `cross_validate`, which
+        #      recomputes the same pooled out-of-fold quantity by an unrelated route
+        #      (per-fold `fit`, explicit physical residuals, per-fold centering).
+        # [Backported from SCEFitting.jl d065f10.]
+        biso = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
+                                            soc = false))
+        rngc2 = MersenneTwister(7)
+        nc_c2 = 48
+        cfg_c2 = [Matrix(randcfg(rngc2, 2)) for _ = 1:nc_c2]
+        ds0_c2 = SLCEDataset(biso, cfg_c2, zeros(nc_c2))
+        bt_c2 = randn(rngc2, n_salcs(biso))
+        E_c2 = 0.3 .+ ds0_c2.X_E * bt_c2 .+ 0.02 .* randn(rngc2, nc_c2)
+        model_c2 = SLCEModel(biso, 0.3, bt_c2, biso.salc_basis.keys)
+        T_c2 = [predict_torque(model_c2, c) .+ 0.02 .* randn(rngc2, 3, 2) for c in cfg_c2]
+        ds_c2 = SLCEDataset(biso, cfg_c2, E_c2, T_c2)
+
+        # (1) the assembled squared-residual sum IS `(1 − w)·MSE_E + w·MSE_T`
+        for w in (0.0, 0.5, 1.0)
+            fw = fit(SLCEFit, ds_c2, OLS(); torque_weight = w)
+            Xw, yw, _, _, _ = SLCE._assemble_problem(ds_c2, w)
+            objective = (1 - w) * mean(abs2, residuals_energy(fw)) +
+                        w * mean(abs2, residuals_torque(fw))
+            @test sum(abs2, yw .- Xw * coef(fw)) ≈ objective rtol = 1e-12
+        end
+
+        # (2) the same scale as `cross_validate`'s pooled out-of-fold score. The band
+        # is wide on purpose: the two differ by global vs per-fold centering (measured
+        # 0.970 at w = 0 and 0.985 at w = 0.5), while the removed `1/neff` would put
+        # the ratio at 1/48 and 1/336 — resolved with ≥ 25× of headroom either way.
+        for w in (0.0, 0.5)
+            est_c2 = GroupAdaptiveRidge(biso; lambda = 1.0, torque_weight = w)
+            pth = select_fit(ds_c2, est_c2; lambdas = [0.0], criterion = :cv,
+                             nfolds = 6, torque_weight = w)
+            cvr = cross_validate(ds_c2, OLS(); nfolds = 6, torque_weight = w)
+            @test 0.5 < pth.score[1] / cvr.pooled_score < 2.0
+        end
+    end
+
     @testset "select_support: threshold-swept refit front" begin
         ds_tr2 = ds_p[1:30]
         ds_ev = ds_p[31:40]                       # held-out evaluation slice

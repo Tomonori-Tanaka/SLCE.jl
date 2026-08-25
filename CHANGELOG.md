@@ -6,6 +6,31 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — `select_fit(:cv)` reported the objective divided by the row count (2026-08-25)
+
+- **`select_fit(...; criterion = :cv)` no longer divides the pooled out-of-fold sum by
+  the informative row count.** `_assemble_problem` already row-scales the design by
+  `√((1−wT−wF)/n_E)`, `√(wT/n_T)` and `√(wF/n_F)`, so a fold's squared holdout residual
+  is already per-row; summed over folds (every row held out exactly once) the total IS
+  `(1−wT−wF)·MSE_E + wT·MSE_T + wF·MSE_F` — the objective the docstring promises, and
+  the scale `cross_validate`'s `pooled_score` and `select_support`'s `score` report.
+  The extra `./ neff` put the reported number a further factor of `neff` below all
+  three (measured upstream: 61.9 ≈ `n_E` on 60 energy configurations). This supersedes
+  the review-2026-08-11 change that introduced the division.
+- **No selection changes.** `_select_pareto` is invariant under a positive uniform
+  factor, and the factor is constant along the λ path, so every path this ever selected
+  it still selects. Only the number a caller reads (and any `score_rtol` calibrated
+  against a hand-computed error) was wrong.
+- The docstring now also says plainly that `:cv` and `:gcv` are **not** on a common
+  scale: `:gcv` reports `n·RSS/(n−df)²` over the same already-row-scaled rows, so it
+  runs roughly `n_eff` below the objective.
+- Gated two ways in `test_selection.jl`: an exact identity that the assembled
+  squared-residual sum IS the objective (hand-written from the definition in physical
+  units, touching no part of the selection driver), and a scale check against
+  `cross_validate`, which recomputes the same pooled quantity by an unrelated route
+  (measured ratio 0.970 at `w = 0`, 0.985 at `w = 0.5`, against 1/48 and 1/336 for the
+  removed factor). [Backported from SCEFitting.jl `d065f10`.]
+
 ### Changed (breaking) — `MomentSpec.lsum` is per body order (2026-08-25)
 
 - **`MomentSpec.lsum` is now a `Vector{Int}`, one entry per body order**, indexed by

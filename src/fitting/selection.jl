@@ -1003,9 +1003,18 @@ is ignored** (the path is `lambdas`). Scoring:
 - `criterion = :cv` — `nfolds`-fold configuration-grouped cross-validation (folds
   never split a configuration's energy/torque rows; deterministic seeded fold
   assignment). The centering/whitening constants stay global — the score ranks λ, it
-  is not an unbiased error estimate. The reported score is the held-out SSE per
-  informative row (the same objective scale [`cross_validate`](@ref)'s
-  `pooled_score` and [`select_support`](@ref)'s `score` report).
+  is not an unbiased error estimate. The reported score is the fit's own objective
+  `(1 − wT − wF)·MSE_E + wT·MSE_T + wF·MSE_F` on the pooled out-of-fold residuals —
+  the scale [`cross_validate`](@ref)'s `pooled_score` and [`select_support`](@ref)'s
+  `score` report, so the three are directly comparable.
+
+!!! warning "The two criteria are not on a common scale"
+    `:cv` reports the objective itself, while `:gcv` reports `n·RSS/(n − df)²` over
+    the assembled rows — and those rows are already row-scaled by
+    `√((1−wT−wF)/n_E)` and friends, so the `:gcv` number is smaller by roughly the
+    informative row count. Each score ranks its own path (both are invariant under a
+    positive uniform factor); a `:gcv` score and a `:cv` score must never be compared
+    to each other, or to a `score_rtol` calibrated on the other.
 
 A group is **alive** at a given λ when any of its columns clears the
 scaled-magnitude rule `|jϕⱼ|·‖X[:, j]‖ > threshold` on the assembled design (the same
@@ -1270,11 +1279,19 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
                 sse[i] += sum(abs2, yho .- Xho * bf)
             end
         end
-        # Per INFORMATIVE row (`neff`), matching `cross_validate.pooled_score` and
-        # `select_support.score` — `n` counts zero-weight energy rows at
-        # `w + wF == 1`, and dividing by it put this score on a scale the other
-        # two selectors' users cannot compare against (review 2026-08-11).
-        score .= sse ./ neff
+        # NO further division. `_assemble_problem` already row-scaled the design by
+        # `√((1−wT−wF)/n_E)`, `√(wT/n_T)` and `√(wF/n_F)`, so a fold's squared
+        # holdout residual is ALREADY per-row; summed over folds (each row held out
+        # exactly once) `sse` is exactly
+        # `(1−wT−wF)·SSE_E/n_E + wT·SSE_T/n_T + wF·SSE_F/n_F`, which is the objective
+        # `cross_validate.pooled_score` and `select_support.score` report. Dividing by
+        # `neff` on top of that scaled the score by a further `1/neff` — measured
+        # upstream on 60 energy configurations, `select_fit(:cv).score` came out 61.9×
+        # below the `cross_validate` pooled score it claims to match. `_select_pareto`
+        # is invariant under a positive uniform factor, so only the REPORTED number was
+        # wrong; the selection was not.
+        # [Backported from SCEFitting.jl d065f10; supersedes review 2026-08-11.]
+        score .= sse
     end
 
     sel = _select_pareto(score, cost, Float64(score_rtol))
