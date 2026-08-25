@@ -498,11 +498,19 @@ Easy to break silently — confirm before touching the algorithm.
   carries exactly one mark (a member not marked at the row's atom dies on its
   |u|² = 0 factor before reading the substituted column) — a future label with
   two marks breaks the argument, not just the numbers.
-  `moment_resolvability` follows the energy side's refusal discipline: a member
-  with two ENVIRONMENT spin factors on one reference-cell atom (two periodic
-  images of one neighbor) is `UnclassifiableBasis` — the monomial signature would
-  overcount the rank (harmonic products on one sphere reduce by Clebsch–Gordan;
-  measured 108 symbolic vs 98 actual on the FeGe primitive cell). The gates in
+  (4) **a star never repeats a reference-cell atom**: two minimum images of one
+  neighbor, or an environment on an image of the mark, put two spin factors on ONE
+  sphere — under plain PBC both read the same `e_a`, the product is Clebsch–Gordan
+  reducible, and the member is a lower-body function wearing an N-body label (the
+  monomial signature would overcount the rank; measured 108 symbolic vs 98 actual on
+  the FeGe primitive cell). `_pointed_star_candidates` refuses that shape at the
+  enumeration, the same rule `candidate_clusters` applies under `MinimumImage`, so
+  the cell keeps the stars it can resolve and says so through the empty-sector
+  warning instead of losing every sound column to a whole-basis refusal.
+  `moment_resolvability`'s `UnclassifiableBasis` stays as the BACKSTOP for a
+  candidate source that skips the rule (`fold_members_onto_one_atom` in
+  `test/unit/testutils.jl` is how the tests play that source). An `AllImages` /
+  generalized-Bloch star WOULD resolve those members; there is no such path here. The gates in
   `test_momentbasis.jl` are INDEPENDENT references (a geometric triangle
   enumeration, the 2√3 shell sum, symbolic ≡ random-design rank) — keep them
   that way; a reference through the SALC machinery gates nothing.

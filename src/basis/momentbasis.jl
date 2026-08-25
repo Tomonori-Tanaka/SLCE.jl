@@ -362,23 +362,38 @@ function _pointed_star_candidates(crystal::Crystal, nl::NeighborList,
             for (k, c) in enumerate(combo)
                 sites[k] = ns[c]
             end
-            # Only an exact (atom, shift) repeat is skipped. Two DIFFERENT minimum
-            # images of one neighbor (same atom, different shift — a small cell's
-            # tie) are kept: under plain PBC every environment factor then reads the
-            # one spin and the member reduces to a lower-body function;
-            # `moment_resolvability` refuses such a basis as `UnclassifiableBasis`,
-            # and `MomentDataset` runs that gate at its door — a hard refusal, never
-            # a silent overcount. (The energy side's `candidate_clusters` drops these
-            # members instead; the pointed enumeration does not, deliberately.)
+            # Distinct reference-cell ATOMS, not merely distinct (atom, shift)
+            # SITES. Two different minimum images of one neighbor — same atom, two
+            # shifts, a small cell's Wigner–Seitz tie — put two spin factors on ONE
+            # sphere: under plain PBC both read the same `e_a`, so their product is
+            # Clebsch–Gordan reducible and the member is a lower-body function
+            # wearing an N-body label, not an independent star. The same collision
+            # reappears through the `N!` re-anchoring below, which promotes one of
+            # the two to the mark and leaves the other sitting on an image of the
+            # mark's own atom. `candidate_clusters` drops reused-atom clusters under
+            # `MinimumImage` for exactly this reason; the pointed enumeration now
+            # agrees with it instead of deferring to a downstream refusal.
             #
-            # The check is defensive: a minimum-image neighbor list emits each
-            # `(i, j, R)` once, so `ns` holds no duplicate and no subset of distinct
-            # INDICES can repeat a site. Ascending indices do not imply that on their
-            # own — with `ns = [A, B, A]` the repeat would be non-adjacent — so the
-            # test is over all pairs rather than adjacent ones.
-            allunique(sites) || continue
-            m = ClusterMember(vcat([i], [site[1] for site in sites]),
-                              vcat([z], [site[2] for site in sites]))
+            # Three properties this rule has to have, and does:
+            #   * MULTIPLICITY — a translation class is dropped whole, so all `N!`
+            #     of its orderings go together and the convention above is untouched.
+            #   * CLOSURE — the predicate reads only reference-cell atom identities,
+            #     which the space group permutes bijectively, so the candidate set
+            #     stays closed under it (`_orbits_from_members` re-checks).
+            #   * The anchor is tested too. It cannot collide today (a minimum-image
+            #     list drops `i == j`, so `i ∉ ns`), but the previous version of this
+            #     comment argued from what the enumeration "cannot produce" and was
+            #     wrong about it; the cost of checking is nil at `N ≤ 4`.
+            #
+            # `moment_resolvability` keeps its refusal as the backstop — it is what
+            # a future candidate source that skips this rule would hit.
+            #
+            # An `AllImages` / generalized-Bloch star WOULD resolve these members,
+            # since `e^{iq·R}` distinguishes the images. There is no such path here:
+            # this basis builds its neighbor lists with `MinimumImage` only.
+            atoms = vcat([i], [site[1] for site in sites])
+            allunique(atoms) || continue
+            m = ClusterMember(atoms, vcat([z], [site[2] for site in sites]))
             get!(classes, _member_sig(m), m)
         end
     end
@@ -545,13 +560,14 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
                             u == s && continue
                             r = star_cut[O.species[s], O.species[u]]
                             edges[s, u] <= r * fac || return false
-                            # Minimum-image spoke test. Note it is VACUOUS on the
-                            # diagonal: `_dmin2_matrix` starts at `Inf` and the list
-                            # drops `i == j`, so a spoke whose environment sits on an
-                            # image of the mark's own reference-cell atom passes here
-                            # on the raw radius alone. The refusal for that case is the
-                            # `allunique` guard in the classifier, and it is the only
-                            # one — see the comment there before changing either.
+                            # Minimum-image spoke test. The DIAGONAL of `dmin2_star`
+                            # is `Inf` (`_dmin2_matrix` starts there and the list drops
+                            # `i == j`), so this test would be vacuous on it — but
+                            # `_pointed_star_candidates` refuses a star with a repeated
+                            # reference-cell atom, so `rep.atoms[s] != rep.atoms[u]`
+                            # here and the entry read is always off-diagonal. Relax
+                            # that enumeration rule and this test silently stops
+                            # covering the spokes it appears to cover.
                             edges[s, u]^2 <=
                                 dmin2_star[rep.atoms[s], rep.atoms[u]] * fac^2 ||
                                 return false
@@ -837,8 +853,8 @@ function _moment_resolvability(mb::MomentBasis, rtol::Float64)
         # The mark is excluded by SITE index above, so include its ATOM here: a star
         # whose environment landed on a periodic image of the mark itself would read
         # the substituted evaluation axis as if it were a spin, and the site-index
-        # exclusion cannot see that. This is the ONLY lock on that door. The minimum-image
-        # neighbor list having no self-pairs does not close it: that is a statement about
+        # exclusion cannot see that. The minimum-image neighbor list having no
+        # self-pairs does not close it either: that is a statement about
         # the CENTRE's own neighbors, and the `N!` re-anchoring in
         # `_pointed_star_candidates` walks the mark around the star, so an environment
         # of the original centre becomes the mark and another environment can sit on an

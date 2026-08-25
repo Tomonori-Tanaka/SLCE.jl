@@ -70,11 +70,14 @@ end
 # a pointed star is pinned by its spokes, and it has a distinguished centre, so the
 # compact-cluster rule the energy side needs does not apply.
 #
-# Two rules are deliberately NOT inherited from `_wsnb_brute`: the "distinct atoms"
-# filter (a pointed star keeps two different minimum IMAGES of one neighbour and only
-# drops an exact `(atom, shift)` repeat), and the anchor loop over every atom (only a
-# marked species can carry the mark). Written as the definition, so the N! multiplicity
-# falls out of "ordered tuple" rather than being asserted.
+# The "distinct reference-cell atoms" rule IS shared with `_wsnb_brute`, and for the
+# same reason: two different minimum images of one neighbour carry the SAME spin under
+# plain PBC, so their two harmonic factors sit on ONE sphere, reduce by Clebsch–Gordan,
+# and the member is a lower-body function wearing an N-body label. What is NOT
+# inherited is the anchor loop over every atom (only a marked species can carry the
+# mark) and the compact-cluster rule on environment–environment edges. Written as the
+# definition, so the N! multiplicity falls out of "ordered tuple" rather than being
+# asserted.
 # `box = 2` is a cost as well as a coverage choice: the walk is
 # `n_marked · (1 + z + … + z^(N-2)) · nat · (2box+1)^3` spoke tests, so a denser cell,
 # a wider cutoff or an `N = 5` row would grow it sharply. The fixtures below are 3–4
@@ -134,9 +137,10 @@ function _ptstar_brute(cr, spec, N; rtol = SLCE._SAME_DIST_RTOL, box = 2)
             # `e`, so such an environment factor would silently read the evaluation
             # axis instead of a spin.
             b == a && continue
-            # only an EXACT (atom, shift) repeat is excluded among the environment
-            # sites — two different minimum images of one neighbour are distinct
-            any(s -> s == (b, R), env) && continue
+            # distinct reference-cell ATOMS, not merely distinct (atom, shift)
+            # sites: a second minimum image of a neighbour already present is the
+            # same sphere again, not a new environment
+            any(s -> s[1] == b, env) && continue
             spoke_ok(a, b, R) && extend!(a, vcat(env, [(b, R)]))
         end
     end

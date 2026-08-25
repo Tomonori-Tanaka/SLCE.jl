@@ -101,3 +101,27 @@ function split_roundtrip_exact(salc, perms_by_body::Dict{Int,NTuple{2,Vector{Int
     end
     @test same_members(SLCE._canonicalize_members(red), salc.members)
 end
+
+# A pointed basis whose every member sits on ONE reference-cell atom.
+#
+# `_pointed_star_candidates` refuses a star whose sites repeat a reference-cell atom —
+# two minimum images of one neighbour, or an environment on an image of the mark —
+# because under plain PBC those factors read the SAME spin, so their product is
+# Clebsch–Gordan reducible and the member is a lower-body function wearing an N-body
+# label. No supported path therefore builds one. Three guards nevertheless exist for
+# that shape: the classifier's `UnclassifiableBasis`, the dataset door that propagates
+# it, and `salc_groups` keying on marked SITES as well as marked atoms. Each is for a
+# candidate source that skips the enumeration's rule, and this is how a test plays that
+# source. Terms, slots, shifts and keys are left exactly as the engine produced them;
+# only the site→atom map is folded.
+function fold_members_onto_one_atom(mb)
+    M = parentmodule(typeof(mb))
+    folded = [M.SALC(s.key, s.body, s.decors, s.L_S, s.Lf,
+                     [M.SALCMember(fill(m.atoms[1], length(m.atoms)), m.shifts, m.terms)
+                      for m in s.members])
+              for s in M.salcs(mb)]
+    return M.MomentBasis(mb.crystal, mb.spacegroup, mb.spec,
+                         M.SALCBasis(folded, copy(mb.salc_basis.keys)),
+                         mb.records, mb.marked_atoms, mb.tie_tol,
+                         Ref{Union{Nothing,NamedTuple}}(nothing))
+end

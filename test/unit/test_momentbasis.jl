@@ -272,31 +272,76 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         res2 = moment_resolvability(pmb2)
         @test res2 !== res && res2.rank == res.rank &&
               res2.vanishing == res.vanishing
-        # the star basis on the PRIMITIVE cell folds two images of one neighbor
-        # into a single environment sphere — the gate must refuse loudly, exactly
-        # like the energy side's UnclassifiableBasis, never overcount
-        @test_throws UnclassifiableBasis moment_resolvability(mb)
-        # a fourth spoke cannot help: with three environment sites drawn from the same
-        # tied neighbour shell, two of them landing on one reference-cell atom is only
-        # more likely, so the primitive cell refuses at N = 4 as well
+        # The star basis on the PRIMITIVE cell used to fold two images of one
+        # neighbour into a single environment sphere, and the gate refused the WHOLE
+        # basis for it. `_pointed_star_candidates` now refuses that shape at the
+        # enumeration, so the cell keeps exactly the stars it can resolve and the gate
+        # classifies. Not a weakening: what left were Clebsch–Gordan-reducible products
+        # on one sphere — never independent N-body functions — and their presence used
+        # to cost every sound column alongside them.
+        @test all(allunique(m.atoms) for s in salcs(mb) for m in s.members)
+        @test moment_resolvability(mb) isa NamedTuple
+        # a fourth spoke: same rule, same outcome at N = 4
         mb4f = MomentBasis(xt, MomentSpec(; lmax_env = [2, 2], sampled = [true, true],
                                           lmax_mark = 2, nbody = 4, cutoff_pair = 3.3,
                                           cutoff_star = 3.3, lsum = 4); backend = bk)
-        @test any(k -> k.body == 4, mb4f.salc_basis.keys)
-        @test_throws UnclassifiableBasis moment_resolvability(mb4f)
+        @test all(allunique(m.atoms) for s in salcs(mb4f) for m in s.members)
+        @test moment_resolvability(mb4f) isa NamedTuple
         @test occursin("UnclassifiableBasis", sprint(showerror,
                                                      UnclassifiableBasis("x")))
-        # ... and the star basis really carries the repeated-image member shape
-        # that triggers it (two environment slots on one reference-cell atom)
-        function _repeated_env(t, m)
-            ms = findfirst(sl -> sl.factor.channel == SLCE.DISP, t.slots)
-            envs = [m.atoms[sl.site] for sl in t.slots
-                    if sl.factor.channel == SLCE.SPIN &&
-                       sl.site != t.slots[ms].site]
-            return !allunique(envs)
+        # ... and the classifier's guard is still there, for a candidate source that
+        # does not apply the enumeration's rule
+        @test_throws UnclassifiableBasis moment_resolvability(
+            fold_members_onto_one_atom(mb))
+    end
+
+    @testset "a star never repeats a reference-cell atom" begin
+        # Two cells of ONE geometry — a chain of atoms 1.5 Å apart along x — differing
+        # only in how much of it the reference cell holds. The counts are hand-derived
+        # from that geometry, not read off the code.
+        #
+        # L = 3 Å, 2 atoms: atom 1's only neighbours within 2 Å are atom 2 at shift
+        #   (0,0,0) and at (-1,0,0) — one atom reached two ways. The single 2-of-2
+        #   choice therefore repeats it, and there is NO resolvable 3-body star: both
+        #   environment factors would read the one spin `e₂`.
+        # L = 6 Å, 4 atoms: the same two spokes now land on DIFFERENT atoms (2 and 4).
+        #   Each of the four atoms anchors one triple, the four triples are distinct
+        #   atom sets, and each is emitted once per site ordering: 4 × 3! = 24.
+        #
+        # (Before the enumeration refused repeats: 12 and 24. The small cell emitted
+        # 2 translation classes × 3! of members that the dataset door then refused
+        # wholesale, taking the sound 1- and 2-body columns with them.)
+        chain(L, xs) = (n = length(xs); f = zeros(3, n); f[1, :] = xs ./ L;
+                        Crystal(Lattice(Matrix(L * I(3))), f, fill(1, n), ["Fe"]))
+        csp = MomentSpec(; lmax_env = [2], sampled = [true], lmax_mark = 2, nbody = 3,
+                         cutoff_pair = 2.0, cutoff_star = 2.0, marked = [true])
+        function stars(cr)
+            nl = SLCE.build_neighbor_list(
+                                     cr, SLCE._star_cutoff_envelope(csp),
+                                     SLCE.MinimumImage();
+                                     tol = SLCE._SAME_DIST_RTOL)
+            return nl, SLCE._pointed_star_candidates(cr, nl, csp, 3)
         end
-        @test any(_repeated_env(t, m) for s in salcs(mb) for m in s.members
-                  for t in m.terms)
+        small = chain(3.0, [0.0, 1.5])
+        big = chain(6.0, [0.0, 1.5, 3.0, 4.5])
+        nls, ss = stars(small)
+        nlb, sb = stars(big)
+        # the fixtures really are the two cases claimed: one atom reached twice, vs
+        # two different atoms
+        @test sort([p.j for p in nls.pairs if p.i == 1]) == [2, 2]
+        @test sort([p.j for p in nlb.pairs if p.i == 1]) == [2, 4]
+        @test isempty(ss)
+        @test length(sb) == 24
+        @test all(m -> allunique(m.atoms), sb)
+        # end to end: the small cell keeps the sectors it can resolve and says so,
+        # rather than building a 3-body sector its dataset door would refuse
+        mbs = @test_logs((:warn, r"body order 3 contributes no SALC"),
+                         match_mode = :any, MomentBasis(small, csp))
+        @test sort(unique(k.body for k in mbs.salc_basis.keys)) == [1, 2]
+        @test moment_resolvability(mbs) isa NamedTuple
+        mbb = MomentBasis(big, csp)
+        @test sort(unique(k.body for k in mbb.salc_basis.keys)) == [1, 2, 3]
+        @test moment_resolvability(mbb) isa NamedTuple
     end
 
     @testset "N = 4 pointed stars" begin

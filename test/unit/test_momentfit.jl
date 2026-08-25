@@ -715,19 +715,25 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
 
     @testset "salc_groups: same mark atoms, different mark sites split" begin
         # Review-found merge case: a canonical member carrying two periodic
-        # images of one atom projects two distinct mark placements onto the
-        # SAME reference-cell atom set — an atom-set-only key folds them. On
-        # this cell the two columns also alias on periodic data (|cos| = 1;
-        # the resolvability layer discloses that dependency separately), but
-        # the group key is STRUCTURAL: mark class, never column values.
-        crm = Crystal(Lattice(Matrix(Diagonal([3.0, 4.0, 5.0]))),
-                      [0.0 0.5; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        # images of one atom projects two distinct mark placements onto the SAME
+        # reference-cell atom set — an atom-set-only key folds them. The key stays
+        # structural (mark class, never column values), and its SITE component stays
+        # too, because a candidate source that does not apply
+        # `_pointed_star_candidates`' distinct-atoms rule can still hand this shape
+        # in. That is now the only way to reach it — with distinct atoms a member's
+        # site↔atom map is a bijection, so different mark sites imply different mark
+        # atoms — so the fixture is a real 3-body basis folded onto one atom rather
+        # than a cell that produces the shape by itself.
+        crm = Crystal(Lattice(Matrix(Diagonal([6.0, 4.0, 5.0]))),
+                      [0.0 0.25 0.5 0.75; 0.0 0.0 0.0 0.0; 0.0 0.0 0.0 0.0],
+                      [1, 1, 1, 1], ["Fe"])
         sgm = _assemble_spacegroup(crm, [SMatrix{3,3,Float64}(Matrix(1.0 * I(3)))],
                                    [SVector{3,Float64}(0, 0, 0)], "P1-img", 1;
                                    tol = 1e-5)
         spm = MomentSpec(; lmax_env = [1], sampled = [true], lmax_mark = 1,
                          nbody = 3, cutoff_pair = 3.3, cutoff_star = 3.3)
-        mbm = MomentBasis(crm, spm; backend = _MBFixedSG(sgm))
+        mbm = fold_members_onto_one_atom(
+            MomentBasis(crm, spm; backend = _MBFixedSG(sgm)))
         salm = SLCE.salcs(mbm)
         glm = SLCE.salc_groups(mbm)
         function _marksets(s)

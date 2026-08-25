@@ -1126,8 +1126,10 @@ energy/torque/force pipeline is untouched (bit-identity gated).
   (exact — one mark per label), `Threads.@threads` per column.
 - **`moment_resolvability`**: the pointed periodic-resolvability gate — symbolic
   signature rank in the independent variables, null combinations naming dependent
-  columns, mark-class census; refuses repeated-image environment members
-  (`UnclassifiableBasis`) rather than overcounting. The null report is complete
+  columns, mark-class census. A repeated-atom star (two images of one neighbor, or
+  an environment on an image of the mark) is refused by `_pointed_star_candidates`
+  at the enumeration; this gate's `UnclassifiableBasis` is the backstop for a
+  candidate source that skips that rule. The null report is complete
   on wide signature blocks (QR completion of the economy SVD's `V` — its `V`
   alone lists only `min(r, c)` flat directions); the default-`rtol` result is
   cached on the basis (`===` contract; refusals never cached).

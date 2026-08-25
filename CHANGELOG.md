@@ -6,6 +6,46 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — a pointed star never repeats a reference-cell atom (2026-08-25)
+
+- **`_pointed_star_candidates` now requires the star's sites to be distinct
+  reference-cell ATOMS, not merely distinct `(atom, shift)` sites.** Two different
+  minimum images of one neighbor — a small cell's Wigner–Seitz tie — put two spin
+  factors on ONE sphere: under plain PBC both read the same `e_a`, so the product is
+  Clebsch–Gordan reducible and the member is a lower-body function wearing an N-body
+  label, never an independent star. The same collision reappeared through the `N!`
+  re-anchoring, which promotes one of the two to the mark and leaves the other on an
+  image of the mark's own atom. `candidate_clusters` has always dropped reused-atom
+  clusters under `MinimumImage`; the pointed enumeration deferred to a downstream
+  refusal instead, which is the inconsistency this closes.
+- **What changes for a user is that a cell too small for a star now loses that star,
+  not the whole basis.** The old path built the member, and `moment_resolvability`
+  threw `UnclassifiableBasis` at the `MomentDataset` door — killing every sound column
+  alongside it, with `cutoff_star` as the only remedy (which also removes legitimate
+  distant columns). Measured on a two-atom chain cell (atoms 1.5 Å apart, `L = 3` Å,
+  `cutoff_star = 2`): 12 three-body members and a basis no dataset would accept,
+  against 0 three-body members and a 1- and 2-body basis that fits — with the
+  empty-sector warning naming the order and the radius. **The reduction is not
+  silent.** The same geometry in a cell that holds four atoms (`L = 6` Å) is
+  unaffected: 24 members before and after.
+- `moment_resolvability`'s `UnclassifiableBasis` is unchanged and stays as the
+  BACKSTOP for a candidate source that does not apply the rule. `admit`'s spoke test
+  keeps its minimum-image check, which is no longer vacuous: it read the `Inf`
+  diagonal of `_dmin2_matrix` exactly when the sites repeated an atom, and those are
+  the members that no longer exist.
+- Gates: the brute-force pointed-star oracle in `test/unit/test_ws_nbody.jl` — an
+  independent enumeration over an explicit image box — carries the rule as part of the
+  specification it encodes. `test/unit/test_momentbasis.jl` adds the two-cell fixture
+  above, hand-derived from the geometry (0 vs 24 members, the neighbor lists asserted
+  to be the two cases claimed, and the end-to-end body content of each basis). The
+  three guards that existed for the removed shape are still exercised, through
+  `fold_members_onto_one_atom` (`test/unit/testutils.jl`), which fabricates what a
+  candidate source skipping the rule would hand in.
+- Cross-package parity is untouched: no member of the FeGe B20 2×2×2 or FeRh B2 4×4×4
+  fixtures repeats an atom (measured: 0 of 12864 / 1152 / 3072 / 30336 / 10752 / 86016),
+  so every column in `test/parity/` is bit-identical (`0.00e+00`) and the acceptance
+  numbers are unchanged.
+
 ### Fixed — `tol` is a Cartesian distance everywhere it is used as one (2026-08-25)
 
 - **`analyze_symmetry(...; tol)` is the backend's symprec — a distance in Å — and the
