@@ -15,6 +15,10 @@ Supporting literature for this package — papers and useful web resources.
 - [`drautz-2020-tesseral.md`](drautz-2020-tesseral.md) — Drautz 2020, "Atomic
   cluster expansion of scalar, vector and tensor properties…" — the real
   (tesseral) spherical-harmonic `Zₗₘ` normalization/sign convention used here.
+- [`weissenhofer-2023-rotational-slc.md`](weissenhofer-2023-rotational-slc.md) — Weißenhofer
+  et al. 2023, PRB 108, L060404 — rotationally invariant spin–lattice coupling
+  (local-frame construction; `B^as ω` rotation-tensor term; SM `B₁/B₂` sums =
+  our affine path). Resolves the paper's `todoRotationalME` together with Melcher.
 - Drautz & Fähnle 2004, *Phys. Rev. B* **69**, 104404 — the spin-cluster
   expansion energy model `E = j0 + Σ Jφ Φφ`.
 - Tanaka & Gohda 2026, *Phys. Rev. Research* **8**, 023300 — SCE from
