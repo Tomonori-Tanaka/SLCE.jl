@@ -663,20 +663,60 @@ _gcv_neff(f::SLCEFit)::Int =
 _penalty_beta(f::SLCEFit, rep::Union{Nothing,ASRReparam})::Vector{Float64} =
     rep === nothing ? f.jphi : f.jphi .- rep.beta_p
 
-# `effective_dof`/`gcv` reconstruct the FULL design from `dataset` + `reparam`; a
-# `refit` solved on a column support (under a re-derived sub-stage that is not
-# stored), so the reconstruction describes a model the refit did not return —
-# measured: df 40.0 where ≈ 5 was honest, and `gcv` a silent `Inf` through the
-# `n − df` guard (review 2026-08-11 M3). Refuse by name rather than answer wrong.
-function _refuse_refit_diagnostic(f::SLCEFit, what::AbstractString)
-    f.support === nothing || throw(ArgumentError(
-        "$what on a `refit` result: the diagnostic reconstructs the full " *
-        "$(length(f.jphi))-column design, not the $(length(f.support))-column " *
-        "support the refit solved on, so its value would describe a model that " *
-        "was not returned. Score the REGULARIZED fit before de-biasing (that is " *
-        "what selects λ), and validate the refit by holdout or `cross_validate`."))
-    return nothing
+# The problem a fit's coefficients were actually solved on, in the coordinates the
+# diagnostics need: `(X, y, beta, lambda, w, Z)` with `X` the assembled design the
+# estimator saw (γ-space under a reparameterization), `y` its target (the known
+# affine offset already moved to the target side), `beta` the solved coefficients in
+# `X`'s coordinates, `(lambda, w)` the converged penalty diagonal (`w === nothing` ⇔
+# unpenalized), and `Z` the β-space null-space basis (`nothing` ⇔ none).
+#
+# A `refit` result is not the full-design problem: it solved on its support, under a
+# sub-stage RE-DERIVED from the original reparameterization (review 2026-08-11 M3 —
+# reading the full design gave df 40 where ≈ 5 was honest, and `gcv` a silent
+# `Inf`). That sub-stage is a pure function of the stored `reparam` and `support`,
+# rebuilt here by the same `_refit_substage` the solve called. A refit that fitted
+# nothing (empty support, or a constraint that annihilates it) is returned as a
+# zero-column problem: df 0, and the fixed model's residual still enters the RSS.
+function _solved_problem(f::SLCEFit)
+    rep = f.reparam                       # the STAGE's Z on a staged fit
+    if f.support === nothing
+        X, y, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight, rep)
+        # The weight map must be evaluated where the SOLVER evaluated it: at β = Z·γ,
+        # i.e. `jphi − beta_p`. On an affine stage the offset is nonzero, and for a
+        # GROUP penalty a frozen column's value would otherwise leak into a group norm
+        # the solve never saw.
+        bpen = _penalty_beta(f, rep)
+        lambda, w = _penalty_diagonal(f.estimator, bpen)
+        # under ASR the assembled design is γ-space: compress β (orthonormal Z ⇒ γ = Z'β)
+        beta = rep === nothing ? f.jphi : rep.Z' * bpen
+        return (X, y, beta, lambda, w, rep === nothing ? nothing : rep.Z)
+    end
+    # β-space assembly, exactly as `refit` assembled it
+    X, y, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight)
+    S = f.support
+    nothing_fitted() = (zeros(Float64, size(X, 1), 0), y .- X * f.jphi, Float64[],
+                        0.0, nothing, nothing)
+    isempty(S) && return nothing_fitted()
+    if rep === nothing
+        # the solve ran on `X[:, S]` with the estimator cut down to the support
+        active = falses(length(f.jphi))
+        active[S] .= true
+        lambda, w = _penalty_diagonal(_reduce_to_active(f.estimator, active), f.jphi[S])
+        return (X[:, S], y, f.jphi[S], lambda, w, nothing)
+    end
+    stage = _refit_substage(f.dataset.basis, rep, S)
+    size(stage.Z, 2) == 0 && return nothing_fitted()
+    bpen = f.jphi .- stage.beta_p          # = Z·γ, where the solver's weights live
+    lambda, w = _penalty_diagonal(f.estimator, bpen)
+    yg = any(!iszero, stage.beta_p) ? y .- X * stage.beta_p : y
+    return (X * stage.Z, yg, stage.Z' * bpen, lambda, w, stage.Z)
 end
+
+# Effective dof (without the intercept) of a solved problem from `_solved_problem`.
+_solved_dof(X, lambda, w, Z)::Float64 =
+    w === nothing ? _rank_df(X) :
+    (Z === nothing ? _effective_dof_gram(X, lambda, w) :
+     _effective_dof_nullspace(X, lambda, w, Z))
 
 """
     effective_dof(f::SLCEFit) -> Float64
@@ -702,24 +742,18 @@ ASR-constrained fit the hat matrix lives in the reparameterized (γ) space — t
     cross-validation ([`select_fit`](@ref)`(...; criterion = :cv)`) is the
     honest criterion.
 
-A [`refit`](@ref) result is **refused**: the diagnostics reconstruct the full
-design, not the support the refit solved on, so the value would describe a model
-that was not returned. Score the regularized fit before de-biasing.
+On a [`refit`](@ref) result the value describes the problem the refit solved: its
+support columns, under the sub-stage reparameterization re-derived for that
+support (the constraint restricted to the support on an ASR fit), with the refit's
+own estimator. An OLS de-bias therefore reports its support's rank `+1`. A refit
+that fitted nothing (empty support) reports `1` (the intercept alone).
 """
 function effective_dof(f::SLCEFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "effective_dof requires a linear estimator (`islinear`); " *
         "got $(typeof(f.estimator))"))
-    _refuse_refit_diagnostic(f, "effective_dof")
-    rep = f.reparam                       # the STAGE's Z on a staged fit
-    X, _, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight, rep)
-    # The weight map must be evaluated where the SOLVER evaluated it: at β = Z·γ,
-    # i.e. `jphi − beta_p`. On an affine stage the offset is nonzero, and for a
-    # GROUP penalty a frozen column's value would otherwise leak into a group norm
-    # the solve never saw.
-    lambda, w = _penalty_diagonal(f.estimator, _penalty_beta(f, rep))
-    df = w === nothing ? _rank_df(X) :
-         (rep === nothing ? _effective_dof_gram(X, lambda, w) : _effective_dof_nullspace(X, lambda, w, rep.Z))
+    X, _, _, lambda, w, Z = _solved_problem(f)
+    df = _solved_dof(X, lambda, w, Z)
     # The intercept is charged only when the energy block carries weight — at
     # `w + wF == 1` j0 is estimated from rows GCV's n_eff does not count (same
     # zero test as `_gcv_neff` / the assembly's scale expression).
@@ -780,19 +814,14 @@ Linear estimators only ([`islinear`](@ref)).
     `select_fit(...; criterion = :cv)` is the honest criterion; use this GCV as
     a fast reference.
 
-A [`refit`](@ref) result is **refused** — see [`effective_dof`](@ref).
+On a [`refit`](@ref) result the score is that of the problem the refit solved —
+see [`effective_dof`](@ref).
 """
 function gcv(f::SLCEFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "gcv requires a linear estimator (`islinear`); got $(typeof(f.estimator))"))
-    _refuse_refit_diagnostic(f, "gcv")
-    rep = f.reparam                       # the STAGE's Z on a staged fit
-    X, y, _, _, _ = _assemble_problem(f.dataset, f.torque_weight, f.force_weight, rep)
-    lambda, w = _penalty_diagonal(f.estimator, _penalty_beta(f, rep))
-    # under ASR the assembled design is γ-space: compress β (orthonormal Z ⇒ γ = Z'β)
-    beta = rep === nothing ? f.jphi : rep.Z' * _penalty_beta(f, rep)
-    return first(_gcv_score(X, y, beta, lambda, w;
-                            Z = rep === nothing ? nothing : rep.Z,
+    X, y, beta, lambda, w, Z = _solved_problem(f)
+    return first(_gcv_score(X, y, beta, lambda, w; Z = Z,
                             n_eff = _gcv_neff(f),
                             intercept = max(0.0, 1 - f.torque_weight -
                                                  f.force_weight) == 0.0 ? 0.0 : 1.0))

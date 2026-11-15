@@ -6,6 +6,25 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — `effective_dof` / `gcv` answer for a `refit` result (2026-11-15)
+
+Both diagnostics refused a `refit` result (review 2026-08-11 M3): they rebuilt the full
+design from `dataset` + `reparam`, which is not the problem the refit solved — measured
+df 40.0 where ≈ 5 was honest, and `gcv` a silent `Inf`. They now rebuild the problem the
+refit did solve: its support columns, with the refit's own estimator (a penalty metric
+cut down to the support), and on a constrained or staged fit the sub-stage
+reparameterization re-derived for that support (the constraint restricted to the
+support). That sub-stage was never stored; it is a pure function of the stored
+`reparam` and `support`, and `refit` and the diagnostics now build it with the same
+function (`_refit_substage`), so the two cannot drift. An OLS de-bias reports its
+support's rank `+ 1`; a refit that fitted nothing reports `1`. Gates: the hat-matrix
+trace of the support design built by hand (pure spin, OLS and Ridge) and of the
+support's null space from `LinearAlgebra.nullspace` (constrained, OLS and Ridge), and
+GCV from the refit's own residuals; a mutant that reads the full design again fails 6
+of them in `test_selection.jl` and 5 in `test_asr.jl`. Results on direct fits and the
+fitted coefficients of `refit` are unchanged. `identifiability` still reports the full
+design on a refit result, as documented. (OPEN-WORK S-7.)
+
 ### Changed — `SLCE.Harmonics` / `SLCE.SolidHarmonics` declare their downstream surface `public` (2026-11-15)
 
 The two kernels' stable names (`Zlm`, `Zlm_unsafe`, `grad_Zlm`, `grad_Zlm_unsafe`,

@@ -1296,10 +1296,12 @@ Easy to break silently — confirm before touching the algorithm.
 - **GCV ↔ `_assemble_problem` ↔ `islinear` ↔ the GAR weight map** (`fitting/selection.jl`,
   `fitting/estimators.jl`): `gcv`/`effective_dof` reassemble the design through
   `_assemble_problem` (change the centering/whitening and the score moves with `fit`),
-  are gated by `islinear`, **refuse a `refit` result by name** (`SLCEFit.support`,
-  recorded at refit since the 2026-08-11 review — the reconstruction is the FULL
-  design, not the support the refit solved on, and the sub-stage is not stored),
-  charge the `+1` intercept only when the energy block carries weight, and
+  are gated by `islinear`, **describe a `refit` result by the problem it solved**
+  (`_solved_problem`: the recorded `SLCEFit.support` columns, the estimator cut to the
+  support, and on a constrained / staged fit the sub-stage rebuilt by
+  `_refit_substage` — the SAME function `refit` solves under, so the diagnostic cannot
+  drift from the solve; reading the full design gave df 40 where ≈ 5 was honest,
+  review 2026-08-11 M3, S-7), charge the `+1` intercept only when the energy block carries weight, and
   recompute the converged penalty diagonal through the
   **same** functions the solvers iterate — `_group_adaptive_weights!` (the single
   definition of `Dⱼ = mⱼ·v_g/(Σ_{k∈g} m_kβ_k² + p_g·ε)`, and what it returns is the

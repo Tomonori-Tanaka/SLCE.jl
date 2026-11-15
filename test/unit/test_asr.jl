@@ -373,6 +373,29 @@ end
                   predict_energy(mr2, e0, u0)) / max(abs(fr2.j0), 1.0) < 1e-10
     end
 
+    @testset "effective_dof / gcv of a constrained refit (S-7)" begin
+        # A constrained refit solves on its support under the constraint RESTRICTED
+        # to the support, A[:, S]·β_S = 0. Oracle: that null space built here with
+        # LinearAlgebra.nullspace (not `_asr_nullspace`; the hat-matrix trace does not
+        # depend on which orthonormal basis spans it), the support's β-space design
+        # columns, and the dense hat matrix. The intercept counts (w + wF < 1).
+        Xb, yb, _, _, _ = _assemble_problem(ds, 0.3, 0.4)
+        thr = 0.5 * maximum(abs.(f.jphi) .* [norm(Xb[:, j]) for j in axes(Xb, 2)])
+        for (est, λ) in ((OLS(), 0.0), (Ridge(1e-3), 1e-3))
+            r = refit(f, est; threshold = thr)
+            S = r.support
+            @test 0 < length(S) < length(f.jphi)
+            Zs = nullspace(ds.asr.A[:, S]; rtol = 1e-10)
+            Xg = Xb[:, S] * Zs
+            df = (λ == 0.0 ? Float64(rank(Xg)) :
+                  tr(Xg * ((Xg' * Xg + λ * I) \ Xg'))) + 1
+            @test effective_dof(r) ≈ df rtol = 1e-8
+            @test effective_dof(r) < effective_dof(f)   # the support, not the basis
+            rss = sum(abs2, yb .- Xb * r.jphi)
+            @test gcv(r) ≈ size(Xb, 1) * rss / (size(Xb, 1) - df)^2 rtol = 1e-8
+        end
+    end
+
     @testset "constrained estimators (β-space penalties through Z)" begin
         # Ridge at tiny λ recovers; the adaptive members shrink near-zero
         # components harder (w → 1/ε), so they are held to feasibility +

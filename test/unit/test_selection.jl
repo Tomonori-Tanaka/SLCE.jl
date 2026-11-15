@@ -1080,10 +1080,14 @@ end
     end
 end
 
-@testset "diagnostics refuse a refit result (review 2026-08-11 M3)" begin
-    # `effective_dof`/`gcv` reconstruct the FULL design from dataset + reparam; on a
-    # refit that is not the problem that was solved — measured before the guard:
-    # effective_dof(refit) = 40.0 where ≈ 5 was honest, gcv a silent Inf.
+@testset "diagnostics follow a refit's support (review 2026-08-11 M3, S-7)" begin
+    # `effective_dof`/`gcv` used to rebuild the FULL design on a refit result —
+    # measured df 40.0 where ≈ 5 was honest, gcv a silent Inf — and were then made
+    # to refuse it. They now describe the problem the refit solved. Oracle: the hat
+    # matrix of the support's columns built here by hand from the dataset — the
+    # energy-only assembly is the centered design scaled by 1/√n (documented on
+    # `effective_dof`) — and GCV from the refit's own stored residuals:
+    # n·(Σr²/n)/(n − df)² = Σr²/(n − df)².
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     basis = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
@@ -1092,21 +1096,35 @@ end
     configs = [randcfg(rng, 2) for _ = 1:30]
     y = randn(rng, 30)
     ds = SLCEDataset(basis, configs, y)
+    n = length(y)
     f = fit(SLCEFit, ds, Ridge(0.1))
     @test f.support === nothing
     @test isfinite(gcv(f)) && effective_dof(f) > 1.0     # the direct fit is served
-    r = refit(f)
-    @test r.support isa Vector{Int}
-    for diag in (effective_dof, gcv)
-        err = try
-            diag(r)
-            nothing
-        catch e
-            e
+    Xw(S) = (ds.X_E[:, S] .- mean(ds.X_E[:, S]; dims = 1)) ./ sqrt(n)
+    hat_df(S, λ) = isempty(S) ? 0.0 :
+        tr(Xw(S) * ((Xw(S)' * Xw(S) + λ * I) \ Xw(S)'))
+    gcv_oracle(r, df) = sum(abs2, r.residuals) / (n - df)^2
+    # a support well inside the basis: keep the larger half of the scaled magnitudes
+    mags = abs.(f.jphi) .* [norm(Xw([j])) for j in eachindex(f.jphi)]
+    thr = sort(mags)[end ÷ 2]
+    for (label, r, λ) in (("OLS, full support", refit(f), 0.0),
+                          ("OLS, half support", refit(f; threshold = thr), 0.0),
+                          ("Ridge, half support",
+                           refit(f, Ridge(0.5); threshold = thr), 0.5))
+        @testset "$label" begin
+            S = r.support
+            @test !isempty(S)
+            df = λ == 0.0 ? Float64(rank(Xw(S))) + 1 : hat_df(S, λ) + 1
+            @test effective_dof(r) ≈ df rtol = 1e-10
+            @test gcv(r) ≈ gcv_oracle(r, df) rtol = 1e-10
         end
-        @test err isa ArgumentError
-        @test occursin("refit", err.msg)
     end
+    @test length(refit(f; threshold = thr).support) < length(f.jphi)
+    # nothing fitted: the intercept alone, and the score of the mean model
+    r0 = @test_logs (:warn, r"empty support") refit(f; threshold = 1e12)
+    @test isempty(r0.support)
+    @test effective_dof(r0) == 1.0
+    @test gcv(r0) ≈ sum(abs2, y .- mean(y)) / (n - 1)^2 rtol = 1e-12
     # a group estimator is refused up front with the actual cause named — it used
     # to die deeper with a DimensionMismatch blaming a "different SLCEBasis"
     gar = GroupAdaptiveRidge(basis; lambda = 1e-3)

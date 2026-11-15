@@ -1320,12 +1320,10 @@ struct SLCEFit
     # ordinary ablation fit with a message about staging that is simply false.
     staged::Bool
     # The support a `refit` solved on (design-column indices), or `nothing` for a
-    # direct `fit`. Recorded so `effective_dof`/`gcv` can REFUSE a refit result by
-    # name (review 2026-08-11 M3): they reconstruct the FULL design from `dataset` +
-    # `reparam`, which is not the problem the refit solved — the df came back as the
-    # full-design rank (40 where ≈ 5 was honest) and `gcv` as a silent `Inf`. A
-    # constrained refit solves under a RE-DERIVED sub-stage that is deliberately not
-    # stored (only the original `reparam` is), so restricting the diagnostics is not
-    # a matter of slicing columns; refusal is the honest option.
+    # direct `fit`. `effective_dof`/`gcv` read it to rebuild the problem the refit
+    # actually solved (review 2026-08-11 M3: the full design gave df 40 where ≈ 5
+    # was honest, and `gcv` a silent `Inf`). A constrained refit solves under a
+    # sub-stage that is not stored; it is a pure function of the original `reparam`
+    # (which is) and this support, and `_refit_substage` rebuilds it for both.
     support::Union{Nothing,Vector{Int}}
 end

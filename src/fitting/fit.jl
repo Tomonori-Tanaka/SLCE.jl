@@ -532,10 +532,9 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
     jphi = zeros(Float64, length(jphi_in))
     movable = Int[]
     if rep !== nothing
-        movable = [j for j in axes(rep.Z, 1) if norm(@view rep.Z[j, :]) >= _ASR_DEAD_ROW]
+        movable = _movable_columns(rep)
         support = intersect(support, movable)
-        jphi = copy(rep.beta_p)
-        jphi[rep.free] .= 0.0
+        jphi = _frozen_part(rep)
     end
     if rep !== nothing && isempty(support)
         # Short-circuit before `solve_coefficients` (a GLMNet-backed estimator would
@@ -566,14 +565,8 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
         # Constrained / staged refit: the surviving columns form a new stage over
         # the SAME frozen part, so the constraint is re-derived as
         # `A[:, S]·β_S = −A·β_frozen` (zero on the right whenever the frozen part is
-        # itself ASR-feasible). Free columns the constraint structurally zeroes are
-        # kept in the sub-stage's free set — they carry no γ but may carry a
-        # particular-solution value, which must be re-derived rather than inherited.
-        sub_free = sort(union(support, setdiff(rep.free, movable)))
-        stage = _stage_reparam(dataset.basis, sub_free, jphi,
-                               size(rep.A, 1) == 0 ? nothing : rep.A;
-                               remedy = "lower the `refit` threshold so the support " *
-                                        "keeps the balancing columns")
+        # itself ASR-feasible). `_refit_substage` is shared with the diagnostics.
+        stage = _refit_substage(dataset.basis, rep, support)
         if size(stage.Z, 2) == 0
             @warn "refit: the ASR constraint annihilates the selected support — " *
                   "every surviving column needs a dropped partner to stay " *
@@ -607,6 +600,39 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
     return SLCEFit(dataset, j0, jphi, estimator, residuals, w, wF,
                    rep !== nothing && size(rep.A, 1) > 0, resid, rep, _is_staged(f),
                    sort(support))
+end
+
+# Columns a staged / constrained fit could actually move: the rows of its `Z` that
+# are not structurally dead. A frozen or constraint-killed column is not a fitted
+# coefficient, so `refit` never thresholds it into or out of a support.
+_movable_columns(rep::ASRReparam)::Vector{Int} =
+    [j for j in axes(rep.Z, 1) if norm(@view rep.Z[j, :]) >= _ASR_DEAD_ROW]
+
+# The FROZEN part of a reparameterization alone: `beta_p` with every free column
+# cleared (see the note in `refit` on why clearing only the movable ones is wrong).
+function _frozen_part(rep::ASRReparam)::Vector{Float64}
+    jphi = copy(rep.beta_p)
+    jphi[rep.free] .= 0.0
+    return jphi
+end
+
+# The sub-stage a constrained / staged `refit` solves under, for a support already
+# intersected with `_movable_columns(rep)`. It is a pure function of the ORIGINAL
+# reparameterization (stored on the refit result as `reparam`) and the support
+# (stored as `support`), which is what lets `effective_dof` / `gcv` rebuild the
+# problem a refit solved instead of the full-design one: ONE definition, called by
+# both, so the diagnostic cannot drift from the solve.
+#
+# Free columns the constraint structurally zeroes stay in the sub-stage's free set —
+# they carry no γ but may carry a particular-solution value, which must be
+# re-derived rather than inherited.
+function _refit_substage(basis::SLCEBasis, rep::ASRReparam,
+                         support::Vector{Int})::ASRReparam
+    sub_free = sort(union(support, setdiff(rep.free, _movable_columns(rep))))
+    return _stage_reparam(basis, sub_free, _frozen_part(rep),
+                          size(rep.A, 1) == 0 ? nothing : rep.A;
+                          remedy = "lower the `refit` threshold so the support " *
+                                   "keeps the balancing columns")
 end
 
 # A `FixedCoefficients` carries a fixed, full-design coefficient vector. `refit` and

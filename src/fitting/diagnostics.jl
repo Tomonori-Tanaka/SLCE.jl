@@ -225,9 +225,10 @@ report is weight-dependent by construction: a *small* nonzero `torque_weight` /
 fall under the `σ_max`-relative cut and read out as flat when they are merely
 downweighted.
 
-On a [`refit`](@ref) result the report still covers the **full** design: a refit's
-support is not recorded on `SLCEFit`, and the numbers then describe the space the
-de-biasing happened inside. That is a bound in the safe direction — dropping
+On a [`refit`](@ref) result the report still covers the **full** design (unlike
+[`effective_dof`](@ref) / [`gcv`](@ref), which follow the refit's support): the
+numbers describe the space the de-biasing happened inside. That is a bound in the
+safe direction — dropping
 columns never raises the nullity — so `nullity == 0` on a refit result still means
 its support sub-design is determined too.
 
