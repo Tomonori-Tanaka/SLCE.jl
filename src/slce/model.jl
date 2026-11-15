@@ -318,7 +318,8 @@ exceeds it (e.g. a DFT-relaxed slab symmetric to only ~1e-6 Å while spglib at
 distance ties differently, the candidate set loses group closure, and the build
 refuses ("cluster enumeration is not closed under the space group"). Widening
 `tie_tol` above the coordinate symmetry residual (relative to the bond length)
-merges those near-ties so the enumeration closes; the resolvability layer
+merges those near-ties so the enumeration closes (the other remedy is to build on
+[`symmetrize`](@ref)`(crystal; backend, tol)`, which removes the residual); the resolvability layer
 ([`unresolvable_columns`](@ref) / `build_asr`) then freezes whatever content the
 merged shell's aggregation cancels, exactly as it does for exact WS ties. Keep it
 well below the spacing of genuinely distinct shells (hard cap $(_TIE_TOL_MAX));
@@ -365,11 +366,12 @@ function SLCEBasis(crystal::Crystal, spec::BasisSpec;
                             "$(_TIE_TOL_MAX): a same-distance band that wide merges " *
                             "genuinely distinct neighbor shells instead of healing " *
                             "coordinate noise. If the coordinates are that far from " *
-                            "their space group, symmetrize them instead"))
+                            "their space group, build on `symmetrize(crystal; " *
+                            "backend, tol)` instead"))
     sg = analyze_symmetry(backend, crystal; tol = tol)
     # Said before the build, so it is on screen when a lattice that is symmetric only to
-    # the tolerance goes on to be refused by the cluster enumeration (S-5: ties split by
-    # the same asymmetry).
+    # the tolerance goes on to be refused by the cluster enumeration (ties split by the
+    # same asymmetry — whose refusal then names `symmetrize`).
     _report_symmetrized_lattice(crystal, sg)
     # The neighbor list is built at the per-pair superset radius (element-wise max
     # over body orders); each body order's own radii then trim edges per cluster in
@@ -457,7 +459,8 @@ function _report_symmetrized_lattice(crystal::Crystal, spacegroup::SpaceGroup)
           "rotations of the symmetry operations are taken from the symmetrized " *
           "lattice below; the crystal itself — lattice and positions — is used as given everywhere else " *
           "(distances, displacements, forces, readouts). `symmetrized_lattice(basis)` " *
-          "returns both.\n" *
+          "returns both; `symmetrize(crystal; backend, tol)` returns the crystal with " *
+          "this lattice and its positions symmetrized too, to build on instead.\n" *
           "given (columns a₁ a₂ a₃, Å):\n" * show_matrix(s.input_lattice) * "\n" *
           "symmetrized (used for the rotations, Å):\n" * show_matrix(s.symmetric_lattice)
     return nothing

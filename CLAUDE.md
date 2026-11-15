@@ -227,12 +227,23 @@ Easy to break silently — confirm before touching the algorithm.
   a deviation `δ` moves a point of the cell by up to `δ·max‖a_k‖`, so this is the
   GUARANTEE side and takes `max`); `_orthogonality_atol = 2·tol / min_k‖a_k‖` (band on
   `RᵀR − I`, a relative distortion of SQUARED lengths, worst on the SHORTEST vector —
-  the ACCEPTANCE side, hence `min`); and the translation zero-snap
-  `|t_k|·‖a_k‖ ≥ tol`. Both matrix bands sit above `_matrix_floor`, the round-off of
+  the ACCEPTANCE side, hence `min`); and the atom map's acceptance
+  `_IMAGE_ACCEPT_FACTOR·tol` (= 2·tol; a SECOND same-species atom in reach of one image
+  is refused as unresolved, never settled by picking the nearer — so the resolution is
+  ~2·tol and `_check_symprec` bounds 2·tol below half the spacing: the backend decides
+  WHICH operations exist at `tol`, the map only guards against one that does not belong
+  — Spglib's operations leave an atom up to 1.24·tol from its image on noisy cells).
+  **There is no translation zero-snap any more** (removed 2026-11-15, S-5): snapping
+  components below `tol` moved the images of an exactly symmetric crystal whose origin
+  is off a symmetry element, and zeroed some operations' translations but not their
+  products', so noisy cells failed `_validate_ops`' closure — 117 of 1260 noisy cells
+  Spglib accepted were refused before the change, 0 after (gate: the integration tier's
+  S-5 sweep and `test/unit/test_symmetrize.jl`). Both matrix bands sit above `_matrix_floor`, the round-off of
   `R = A W A⁻¹`, which is CAPPED (`_MATRIX_FLOOR_MAX`): uncapped, a pathological cell
   reaches a floor ≥ 1, `isapprox(W, I)` then marks every operation a pure translation,
   and `translation_ops` — with the primitive-cell recovery that reads it — is silently
-  wrong. `_check_symprec` bounds `tol` below half the smallest interplanar spacing,
+  wrong. `_check_symprec` bounds the atom map's reach `2·tol` below half the smallest
+  interplanar spacing,
   which is what makes the per-axis `round()` fold the minimum image. Gates: the two
   property testsets in `test/unit/test_symmetry.jl` (verdicts independent of cell SIZE
   and of cell SHAPE — both fail on the fractional form) and the finite-precision
@@ -272,7 +283,9 @@ Easy to break silently — confirm before touching the algorithm.
   crystal as given, and `SLCEBasis` says so in an `@info` (given vs symmetrized lattice)
   whenever the metric's asymmetry exceeds `_SYMMETRIZED_LATTICE_REPORT_RTOL` — printed
   before the cluster build, so it is on screen when a tie split by the same asymmetry
-  then refuses the build (OPEN-WORK S-5: no `symmetrize` yet). `_sign_canon!`'s `1e-8`
+  then refuses the build — a refusal that measures the residue (`_symmetry_residual`)
+  and names `symmetrize(crystal; backend, tol)`, which moves lattice AND positions onto
+  the group (`src/symmetry/symmetrize.jl`; the package never calls it itself). `_sign_canon!`'s `1e-8`
   stays absolute on purpose: at round-off a sign would be chosen by noise; the gauge
   choice inside a block is S-3's subject, not this entry's. SCEFitting.jl has the same
   raw `A * W * Ainv` and absolute cuts and has NOT received this change yet (OPEN-WORK

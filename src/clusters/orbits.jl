@@ -151,6 +151,33 @@ function build_clusters(crystal::Crystal, neighbors::NeighborList, spacegroup::S
     return ClusterSet(by_body)
 end
 
+# The text of the closure refusal in `_orbits_from_members`. Two causes are known, and how
+# far the crystal is from its space group (`_symmetry_residual`) tells them apart: a
+# crystal that has its operations to round-off cannot have met the first.
+function _not_closed_message(crystal::Crystal, spacegroup::SpaceGroup, image)::String
+    residual = _symmetry_residual(crystal, spacegroup)
+    longest = maximum(norm(crystal.lattice.vectors[:, i]) for i = 1:3)
+    is_exact = residual.position <= 1e-12 * longest && residual.lattice <= 1e-12
+    opening = "cluster enumeration is not closed under the space group: the image " *
+              "$image of a candidate cluster is not itself a candidate. The orbit " *
+              "would be built short, silently biasing its design column. "
+    selection = "the image selection: under `AllImages`, `build_neighbor_list` admits " *
+                "an image at `d <= cutoff` with no tie band, so a shell sitting on the " *
+                "cutoff is admitted for some images and not for their partners — move " *
+                "the cutoff off the shell (`tie_tol` cannot change which pairs exist " *
+                "there). Under `MinimumImage` no such cause is known, so report it"
+    is_exact && return opening * "The crystal has its symmetry exactly, so unequal " *
+                       "bond lengths are ruled out; the cause is " * selection * "."
+    return opening * "Two possible causes. (1) The crystal has its symmetry only " *
+           "approximately: the atoms are off their symmetric positions by up to " *
+           "$(residual.position) Å, and the lattice metric changes under the " *
+           "operations by up to $(residual.lattice) of its size. Pairs the group maps " *
+           "onto each other then differ in length, and lengths are tied only within " *
+           "the relative `tie_tol`. Build on `symmetrize(crystal; backend, tol)`, or " *
+           "widen `SLCEBasis(...; tie_tol)` above the residue relative to the bond " *
+           "length. (2) Or " * selection * "."
+end
+
 # The orbit-formation core of `build_clusters`, factored out so other candidate
 # enumerations (the pointed moment basis's mark–environment star clusters) can reuse
 # it verbatim: translation-class grouping, symmetry-orbit growth with the closure
@@ -197,19 +224,8 @@ function _orbits_from_members(crystal::Crystal, spacegroup::SpaceGroup,
                 # cluster instances — and `assigned` has already swallowed the signature, so
                 # it would never reappear as an orbit of its own. Either the invariant holds
                 # (no cost) or it is violated (must be loud).
-                haskey(sig2members, s) || error(
-                    "cluster enumeration is not closed under the space group: the image " *
-                    "$s of a candidate cluster is not itself a candidate. The orbit would " *
-                    "be built short, silently biasing its design column — check the image " *
-                    "selection and the tie tolerance rather than proceeding. If the " *
-                    "coordinates are relaxed/noisy (symmetric only to within the symprec " *
-                    "that recognized this space group), widen `SLCEBasis(...; tie_tol)` " *
-                    "above the coordinate symmetry residual relative to the bond length, " *
-                    "or symmetrize the coordinates. Under AllImages that first " *
-                    "remedy is INERT: build_neighbor_list admits an image at " *
-                    "`d <= cutoff` with no band there, so tie_tol cannot change " *
-                    "which pairs exist -- move the cutoff off the shell, or " *
-                    "symmetrize")
+                haskey(sig2members, s) ||
+                    error(_not_closed_message(crystal, spacegroup, s))
                 append!(idxs, sig2members[s])
             end
             sort!(idxs)

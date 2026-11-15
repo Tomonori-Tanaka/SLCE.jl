@@ -71,10 +71,12 @@ group only to within the symmetry tolerance, so distances that would tie exactly
 coordinates split by a small relative amount. When that split exceeds the same-distance
 band, symmetry-partner pairs keep *different* tie images, the candidate set loses group
 closure, and the build refuses ("cluster enumeration is not closed under the space
-group"). The remedy is `SLCEBasis(...; tie_tol)` — widen the band above the coordinate
-symmetry residual (relative to the bond length) so the near-ties re-merge; the frozen
-content of the merged shell is then classified here exactly as for an exact tie. Keep the
-band well below genuine shell spacings (hard cap `1e-2`).
+group"), quoting how far the atoms are from the group. Two remedies: build on
+[`symmetrize`](@ref)`(crystal; backend, tol)`, which moves the lattice and the atoms onto
+the group so the ties are exact again; or `SLCEBasis(...; tie_tol)` — widen the band above
+the coordinate symmetry residual (relative to the bond length) so the near-ties re-merge;
+the frozen content of the merged shell is then classified here exactly as for an exact
+tie. Keep the band well below genuine shell spacings (hard cap `1e-2`).
 
 Everything in this subsection assumes the tied images end up in **one orbit**, which needs
 the point group to permute them. When it does not — low symmetry — the same tie takes a

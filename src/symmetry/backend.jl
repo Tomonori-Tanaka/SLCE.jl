@@ -206,14 +206,12 @@ function _assemble_spacegroup(crystal::Crystal,
     @inbounds for i in eachindex(rotations)
         W = SMatrix{3,3,Float64}(rotations[i])
         Rcart = A * W * Ainv
-        t = translations[i]
-        # Snap a component to zero by the DISTANCE it moves an atom, which for a
-        # single component is exactly |t_k|·‖a_k‖ Å (`_frac_bound`'s `d_k` answers a
-        # different question — the largest fractional component a bounded Cartesian
-        # length can have — and is not the scale here). `tol` is a length, so the bare
-        # fractional component is not comparable to it.
-        tfrac = SVector{3,Float64}(ntuple(
-            k -> abs(t[k]) * norm(A[:, k]) >= tol ? Float64(t[k]) : 0.0, 3))
+        # The translation is kept as the backend gave it. Its components that move an
+        # atom by less than `tol` used to be set to zero: that moved the images of an
+        # exactly symmetric crystal whose origin is off a symmetry element by less
+        # than `tol`, and zeroed some operations' translations and not their
+        # products', so a noisy cell failed the closure test below (OPEN-WORK S-5).
+        tfrac = SVector{3,Float64}(translations[i])
         ops[i] = SymOp(W, Rcart, tfrac, det(Rcart) > 0, isapprox(W, I; atol = matol))
     end
     _validate_ops(ops, crystal.lattice, tol)
@@ -305,11 +303,13 @@ function _check_symprec(lattice::Lattice, tol::Real)
         "`tol` must be a finite positive distance in Å (the backend's symprec); " *
         "got $tol"))
     half = minimum(k -> interplanar_spacing(lattice, k), 1:3) / 2
-    tol < half || throw(ArgumentError(
-        "`tol` = $(Float64(tol)) Å is not below half the smallest interplanar " *
-        "spacing ($half Å). At that size the per-axis fold that matches an atom to " *
-        "its image is no longer the minimum image, so `tol` has stopped being a " *
-        "symmetry tolerance"))
+    # the atom map reaches `_IMAGE_ACCEPT_FACTOR·tol`, and that reach must stay inside
+    # the half spacing for the per-axis fold to be the minimum image
+    _IMAGE_ACCEPT_FACTOR * tol < half || throw(ArgumentError(
+        "`tol` = $(Float64(tol)) Å: the atom map's reach $(_IMAGE_ACCEPT_FACTOR)·`tol` " *
+        "is not below half the smallest interplanar spacing ($half Å). At that size " *
+        "the per-axis fold that matches an atom to its image is no longer the " *
+        "minimum image, so `tol` has stopped being a symmetry tolerance"))
     return nothing
 end
 
@@ -529,6 +529,20 @@ end
     return true
 end
 
+# How far from its image an atom may sit and still be matched to it, in units of `tol`.
+# Which operations a crystal has is the backend's decision, made at `tol`; the atom map
+# only guards against an operation that does not belong to the crystal at all, so it
+# accepts more than the search did. Measured 2026-11-15 on 1260 noisy cells (seven
+# crystals, 1e-6 to 1e-5 Å, three origins, 20 seeds; the integration tier runs a fifth
+# of that sweep) for which Spglib returned a group at `tol = 1e-5`: its operations left
+# an atom up to 1.24·tol from its image, and matched at exactly `tol` they were refused.
+# At noise 1.5–3·tol (another 1260 cells) nothing is refused either, so the `tol` band
+# of `_validate_ops`' translation comparisons needs no widening. The factor 2 is the one
+# SphericalTensorFC measured on its own 2100-cell sample (`4bb2929`) — a margin over
+# these samples, not a bound. Its cost is resolution: two same-species atoms both in
+# reach of one image are refused, so atoms closer than about 2·tol are unresolved.
+const _IMAGE_ACCEPT_FACTOR = 2
+
 # The permutation `op` induces when its APERIODIC axes are shifted by the integer
 # vector `dt`, or `nothing` when some atom has no image under that shift.
 #
@@ -550,8 +564,9 @@ function _perm_with_shift(crystal::Crystal, op::SymOp, tol::Real, o::Integer,
     species = crystal.species
     pbc = crystal.lattice.pbc
     A = crystal.lattice.vectors
-    tol2 = tol * tol
-    frac_bound = _frac_bound(crystal.lattice, tol)
+    accepted = _IMAGE_ACCEPT_FACTOR * tol
+    accepted2 = accepted * accepted
+    frac_bound = _frac_bound(crystal.lattice, accepted)
     col = zeros(Int, nat)
     hit = falses(nat)                      # each column must be a *permutation*
     W = op.rotation_frac
@@ -575,19 +590,36 @@ function _perm_with_shift(crystal::Crystal, op::SymOp, tol::Real, o::Integer,
             df = SVector{3,Float64}(d1 - r1, d2 - r2, d3 - r3)
             abs(df[1]) <= frac_bound[1] && abs(df[2]) <= frac_bound[2] &&
                 abs(df[3]) <= frac_bound[3] || continue
-            if _cartesian_distance2(A, df) <= tol2
-                found = jat
-                break
+            dist2 = _cartesian_distance2(A, df)
+            dist2 <= accepted2 || continue
+            if found != 0
+                # A SECOND same-species atom within reach of one image: the map is
+                # ambiguous at this tolerance — two atoms closer together than about
+                # 2·`tol` are not resolved by it, and the orbit code would miscount
+                # them rather than reject them. Refuse; never pick one — on the slab
+                # path too, where dropping the operation would be blamed on the
+                # periodicity in `_restrict_to_pbc`'s warning.
+                sep = _atom_separation(crystal, found, jat)
+                error("map_sym: atoms $found and $jat both lie within " *
+                      "$(Float64(accepted)) Å ($(_IMAGE_ACCEPT_FACTOR)·`tol`) of the " *
+                      "image of atom $iat under operation $o: they sit " *
+                      "$(round(sep; sigdigits = 3)) Å apart, which `tol` = " *
+                      "$(Float64(tol)) Å does not resolve — lower `tol` below " *
+                      "$(round(sep / (2 * _IMAGE_ACCEPT_FACTOR); sigdigits = 2)) Å")
             end
+            found = jat
         end
         if found == 0
             strict || return nothing
             near, dist = _nearest_same_species(crystal, xn, iat)
             error("map_sym: atom $iat has no image under operation $o: the nearest " *
                   "same-species atom ($near) is $(round(dist; sigdigits = 3)) Å away " *
-                  "(minimum image), while `tol` = $(Float64(tol)) Å — the backend's " *
-                  "symprec, a Cartesian distance. Symmetrize the coordinates, or " *
-                  "raise `tol` above $(round(dist; sigdigits = 2)) Å")
+                  "(minimum image), beyond the $(Float64(accepted)) Å accepted " *
+                  "($(_IMAGE_ACCEPT_FACTOR)·`tol`, `tol` = $(Float64(tol)) Å — the " *
+                  "backend's symprec, a Cartesian distance). The operation does not " *
+                  "belong to this crystal at this tolerance: `symmetrize(crystal; " *
+                  "backend, tol)` it at the tolerance that finds the group, or raise " *
+                  "`tol` above $(round(dist / _IMAGE_ACCEPT_FACTOR; sigdigits = 2)) Å")
         end
         # Two atoms sharing an image means the operation does not map the crystal onto
         # itself at this tolerance. `SpaceGroup` documents these columns as permutations
@@ -599,9 +631,11 @@ function _perm_with_shift(crystal::Crystal, op::SymOp, tol::Real, o::Integer,
             prev = something(findfirst(==(found), view(col, 1:(iat - 1))))
             sep = _atom_separation(crystal, iat, prev)
             error("map_sym: atoms $prev and $iat share the image $found under " *
-                  "operation $o: they sit $(round(sep; sigdigits = 3)) Å apart, " *
-                  "inside `tol` = $(Float64(tol)) Å, so the column is not a " *
-                  "permutation — lower `tol` below $(round(sep; sigdigits = 2)) Å")
+                  "operation $o: they sit $(round(sep; sigdigits = 3)) Å apart, and " *
+                  "each image is accepted up to $(_IMAGE_ACCEPT_FACTOR)·`tol` = " *
+                  "$(Float64(_IMAGE_ACCEPT_FACTOR * tol)) Å from its atom, so the " *
+                  "column is not a permutation — lower `tol` below " *
+                  "$(round(sep / (2 * _IMAGE_ACCEPT_FACTOR); sigdigits = 2)) Å")
         end
         hit[found] = true
         col[iat] = found
@@ -645,7 +679,8 @@ end
 # atom 1 could map to, NEAREST ZERO FIRST. Zero leads whenever it is a candidate, so the
 # identity is never re-seated away from `t` by an accident of atom ordering. More than
 # one seed exists only when two same-species atoms sit an exact number of cells apart
-# along an aperiodic axis with their remaining coordinates equal; every seed is then
+# along an aperiodic axis with their remaining coordinates equal to within the map's
+# reach (`_IMAGE_ACCEPT_FACTOR·tol`); every seed is then
 # tried, and if none yields a permutation the operation is dropped — the conservative
 # direction (a larger basis, never a short one).
 function _shift_seeds(crystal::Crystal, op::SymOp,
@@ -655,8 +690,9 @@ function _shift_seeds(crystal::Crystal, op::SymOp,
     species = crystal.species
     pbc = crystal.lattice.pbc
     A = crystal.lattice.vectors
-    tol2 = tol * tol
-    frac_bound = _frac_bound(crystal.lattice, tol)
+    accepted = _IMAGE_ACCEPT_FACTOR * tol
+    accepted2 = accepted * accepted
+    frac_bound = _frac_bound(crystal.lattice, accepted)
     xi = SVector{3,Float64}(x[1, 1], x[2, 1], x[3, 1])
     xn = op.rotation_frac * xi + op.translation_frac
     seeds = SVector{3,Float64}[]
@@ -665,7 +701,7 @@ function _shift_seeds(crystal::Crystal, op::SymOp,
         r = SVector{3,Float64}(ntuple(k -> round(xn[k] - x[k, jat]), 3))
         df = SVector{3,Float64}(ntuple(k -> xn[k] - x[k, jat] - r[k], 3))
         all(k -> abs(df[k]) <= frac_bound[k], 1:3) || continue
-        _cartesian_distance2(A, df) <= tol2 || continue
+        _cartesian_distance2(A, df) <= accepted2 || continue
         dt = SVector{3,Float64}(ntuple(k -> pbc[k] ? 0.0 : r[k], 3))
         dt in seeds || push!(seeds, dt)
     end

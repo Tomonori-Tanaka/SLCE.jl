@@ -222,6 +222,29 @@ For an exactly symmetric lattice the two are equal up to round-off, and nothing 
 printed. The same construction makes every decision of the basis and of the sum rule
 independent of how the crystal is turned against the Cartesian axes.
 
+### Atoms that are symmetric only to the tolerance: `symmetrize`
+
+The atoms of such a crystal are off their symmetric positions too, and that is not
+repaired automatically. Bonds the group maps onto each other then differ in length by
+the residue, while the cluster enumeration ties lengths only to the relative `tie_tol`
+(`1e-8` by default), so the build stops with "cluster enumeration is not closed under
+the space group" — and the message quotes how far the atoms and the metric are from the
+group. [`symmetrize`](@ref) removes the residue: it returns the crystal with the
+symmetrized lattice and every atom at the average of its images under the operations
+(the centroid stays put), so that it has the group exactly. Build on that:
+
+```julia
+symmetric = symmetrize(cr; backend = SpglibBackend())   # logs the group and the residue
+basis = SLCEBasis(symmetric, interaction; backend = SpglibBackend())
+```
+
+The group is the one the search finds at `tol`. A `tol` too small for the residue finds
+a smaller group without complaint, and the result is then symmetric under that smaller
+group only — the Spglib backend warns when a search ten times looser finds more
+operations, so pass the `tol` that finds the group you expect. Data computed on the
+original structure must still be read against the original crystal: `read_extxyz`
+takes any difference of the positions from its `reference` as a displacement.
+
 ## Body order beyond pairs
 
 `nbody = K` enumerates clusters of up to `K` atoms as *pairwise-within-cutoff cliques* of

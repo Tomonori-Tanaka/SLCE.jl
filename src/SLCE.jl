@@ -46,6 +46,7 @@ include("geometry/neighborlist.jl")
 # --- symmetry (backend-pluggable; Spglib lives in an extension) ---
 include("symmetry/types.jl")
 include("symmetry/backend.jl")
+include("symmetry/symmetrize.jl")
 
 # --- basis: numeric kernels (self-contained submodules) ---
 include("basis/Harmonics.jl")
@@ -151,7 +152,7 @@ export UnitVector3, SpinConfiguration, Trusted
 export Lattice, Crystal, n_atoms, cartesian_positions
 # how periodic images / symmetry are chosen (passed into `SLCEBasis`)
 export AbstractImageSelection, MinimumImage, AllImages
-export AbstractSymmetryBackend, NoSymmetry, SpglibBackend
+export AbstractSymmetryBackend, NoSymmetry, SpglibBackend, symmetrize
 # the SLCE pipeline
 export BasisSpec, Sector, SLCEBasis, SLCEDataset, SLCEModel, SLCEFit, fit, refit,
     symmetrized_lattice,

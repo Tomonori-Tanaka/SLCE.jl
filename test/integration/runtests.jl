@@ -92,6 +92,8 @@ include("checks.jl")
         @test count(x -> abs(x) < 1e-8 * maximum(abs, ev), ev) == 3
     end
 
+    include("symmetrize.jl")
+
     @testset "every declared column ran" begin
         # The ledger. A check that throws is caught by its own testset; a check
         # that was never CALLED — a dispatch typo, a row edited out of the loop —

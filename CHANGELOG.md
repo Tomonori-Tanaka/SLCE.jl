@@ -6,6 +6,47 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — `symmetrize`; noisy crystals Spglib accepts are no longer refused (2026-11-15)
+
+A crystal with its symmetry only to a residue (relaxed coordinates, six decimals) passed
+the symmetry search and was then refused by the cluster enumeration ("not closed under the
+space group"), whose message said "symmetrize the coordinates" with no way to do it here.
+
+- **`symmetrize(crystal; backend, tol)`** (exported): the crystal with the symmetrized
+  lattice (the one `symmetrized_lattice` reports) and every atom at the average of its
+  images under the operations, the translation of each operation refitted so the centroid
+  stays. Same atoms, same order; an exactly symmetric crystal comes back to round-off. The
+  group and the removed residue are logged. The package never calls it itself. Ported from
+  SphericalTensorFC `4bb2929`.
+- **The closure refusal measures the residue** (`_symmetry_residual`: atoms in Å, the
+  metric relative) and names the cause that applies: an approximate symmetry (quoting the
+  residue, remedy `symmetrize` or `tie_tol`) or, for a crystal that has its group exactly,
+  the image selection.
+- **The atom map accepts an image up to 2·`tol` from its atom** (`_IMAGE_ACCEPT_FACTOR`).
+  Two same-species atoms both in reach of one image are refused as unresolved, never
+  settled by picking one, on the slab path too — so the resolution is now about 2·`tol`
+  instead of `tol` (atoms 1–2·`tol` apart, which used to build, are refused), and
+  `_check_symprec` bounds 2·`tol`, not `tol`, below half the smallest interplanar
+  spacing. Both are far from any physical structure. And **translations are kept as the backend returns them** (the
+  zero-snap of components below `tol` is gone). On 1260 noisy cells (seven crystals,
+  1e-6–1e-5 Å, three origins, 20 seeds) for which Spglib returned a group at `tol = 1e-5`,
+  SLCE refused 117 before — 39 with no image within exactly `tol` (Spglib's operations
+  leave an atom up to 1.24·`tol` from its image) and 78 as "not a group", because snapping
+  zeroed some operations' translations and not their products' — and refuses none now
+  (nor at noise 1.5–3·`tol`, another 1260 cells). Exactly symmetric crystals with atoms
+  resolved at 2·`tol` are unaffected: no pinned basis moved (pin tier 85/85 at 1 and 4
+  threads, integration tier green).
+- **The Spglib backend warns when a search ten times looser finds more operations** — a
+  smaller group is otherwise returned without complaint, builds a larger basis, and is
+  what `symmetrize` would then make the crystal symmetric under.
+
+Gates: `test/unit/test_symmetrize.jl` (hand-assembled Pm-3m / Fm-3m / R-3m; a brute-force
+asymmetry measure independent of the atom map; positions and lattices worked out by hand;
+the 1.6·tol / 3·tol acceptance on three cell sizes; the refusal text and its remedy
+rebuilding the ideal keys) — accepting at exactly `tol` errors 3 checks, restoring the
+snap fails 1. The integration tier adds a fifth of the sweep against Spglib, a noisy hcp
+cell that symmetrizes to the ideal basis, and the looser-`tol` warning. (OPEN-WORK S-5.)
+
 ### Fixed — `effective_dof` / `gcv` answer for a `refit` result (2026-11-15)
 
 Both diagnostics refused a `refit` result (review 2026-08-11 M3): they rebuilt the full

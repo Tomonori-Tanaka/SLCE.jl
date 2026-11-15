@@ -134,7 +134,11 @@ capability consumed by both the introspection and the Sunny interop.
 ### symmetry (M5)
 - `AbstractSymmetryBackend` + `analyze_symmetry(backend, crystal; tol) -> SpaceGroup`;
   in-tree `NoSymmetry` (P1); `SpglibBackend` type in core, method in
-  `ext/SLCESpglibExt`. `map_sym` derived in-tree (shared by all backends).
+  `ext/SLCESpglibExt`. `map_sym` derived in-tree (shared by all backends): the
+  one same-species atom within `2·tol` (two in reach is refused), translations as the
+  backend returns them.
+  `symmetrize(crystal; backend, tol) -> Crystal` moves lattice and positions onto the
+  group (called by the user, never by the package).
 
 ### clusters (M6) — arbitrary body order
 - `ClusterMember` (atoms + per-site lattice `shift` R), `ClusterOrbit`, `ClusterSet`;

@@ -41,6 +41,7 @@ end
         include("unit/test_coupledbasis.jl")
         include("unit/test_symmetry.jl")
         include("unit/test_orientation.jl")
+        include("unit/test_symmetrize.jl")
         include("unit/test_clusters.jl")
         include("unit/test_imageselection.jl")
         include("unit/test_truncation.jl")

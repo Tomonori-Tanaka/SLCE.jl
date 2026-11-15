@@ -212,12 +212,14 @@ SLCE.analyze_symmetry(::_MirrorZBackend, c::Crystal; tol::Real = 1e-5) =
     @testset "`tol` must be a length this cell can carry" begin
         # `tol` is a distance in Å, so it has to be one; and every image search here
         # folds a fractional offset axis by axis, which is the minimum image only while
-        # the offset stays well inside the half cell.
+        # the offset stays well inside the half cell. The atom map reaches 2·tol
+        # (`_IMAGE_ACCEPT_FACTOR`, S-5), so it is 2·tol that must stay below it.
         E = SMatrix{3,3,Float64}(I)
         z0 = SVector{3,Float64}(0, 0, 0)
         cryst = Crystal(lat, [0.0; 0.0; 0.0;;], [1], ["Fe"])
-        @test _assemble_spacegroup(cryst, [E], [z0], "P1", 1; tol = 1.4) isa SpaceGroup
-        for bad in (0.0, -1e-5, NaN, Inf, 1.5, 10.0)   # `lat` is 3 Å cubic: half = 1.5
+        @test _assemble_spacegroup(cryst, [E], [z0], "P1", 1; tol = 0.7) isa SpaceGroup
+        # `lat` is 3 Å cubic: half the spacing is 1.5, so tol must stay below 0.75
+        for bad in (0.0, -1e-5, NaN, Inf, 0.75, 1.4, 10.0)
             @test_throws ArgumentError _assemble_spacegroup(cryst, [E], [z0], "P1", 1;
                                                             tol = bad)
         end
