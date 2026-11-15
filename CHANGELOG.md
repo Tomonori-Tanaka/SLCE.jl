@@ -6,6 +6,35 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — `write_alamode` wrote each anharmonic constant once per ordering (2026-11-15)
+
+**Numerical results change** for anything `anphon` computes from the cubic or quartic
+blocks of a file written by `write_alamode` (Grüneisen parameters, SCPH, thermal
+conductivity). The harmonic block, and so every dispersion, is unchanged.
+
+- **What was wrong.** `anphon`'s FCSXML reader (`load_fcs_xml`) stores every cubic and
+  quartic entry once for each `next_permutation` of its trailing pairs, ordered by the
+  supercell index alone, so it rebuilds the other orderings itself; ALM writes only the
+  ascending one. `write_alamode` wrote every ordered tuple a `ForceConstantSet` holds,
+  so `anphon` held 44 % of the cubic constants of the low-symmetry test fixture twice
+  (1.44× the total) and 77 % of the quartic ones two to six times (3.02×). No error,
+  and no dispersion could show it.
+- **The fix.** An entry of order ≥ 3 is written only when its trailing pairs are in
+  non-decreasing order of the supercell index (`_alamode_is_ascending`, ported from
+  SphericalTensorFC `c498af8`). Pairs that tie on the index but differ in `cell_s` are
+  distinct images `anphon` does not swap, so both orders stay.
+- **Gates.** A CI read-back (`test_latticeonly.jl`) replays `anphon`'s reader and
+  requires every ordered constant exactly once with its value in Ry/Bohrⁿ (CODATA
+  typed in), on the MinimumImage fixture and on an `AllImages` template over
+  `dim = (1,1,1)` that exercises the tie branch; it kills the old writer, `Bohr²` at
+  every order, and a strict-ascending filter. The local `anphon` suite replaces "the
+  cubic block parses" by a numerical gate: `anphon`'s mode Grüneisen parameters along a
+  generic path against the same quantity formed from `force_constants` in memory, on a
+  cell obeying the tiled sum rule — 4.9e-7 (its six-decimal print), against 4.3 for the
+  old writer.
+- The docstring, `guide/lattice_dynamics.md` and the writer's header now say that a
+  dispersion checks the harmonic block only.
+
 ### Documentation — what the three same-distance bands actually do (2026-08-26)
 
 No behaviour change; four places said something false about `tie_tol` and now do not.

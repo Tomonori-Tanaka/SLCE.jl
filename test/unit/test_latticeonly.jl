@@ -430,4 +430,113 @@ end
             @test_throws ArgumentError write_alamode(p, f2; dim = (0, 1, 1))
         end
     end
+
+    # `anphon` reads an FCSXML entry of order n ≥ 3 and stores it once for EVERY
+    # `std::next_permutation` of pairs 2..n that follows the order written, comparing
+    # the supercell index `3(s − 1) + β − 1` alone (`anphon/fcs_phonon.cpp`,
+    # `load_fcs_xml`; `fcs_phonon.h`, `AtomCellSuper::operator<`). `_anphon_read`
+    # replays that reader on the written text; the expected set is rebuilt from the
+    # FORMAT (supercell index, 27-entry `cell_s` table, CODATA 2018 typed in), never
+    # from the writer's helpers. Requiring every ordered constant to be held exactly
+    # once, with its value, is also the round trip "expanding the written rows over
+    # all permutations restores Φ". A writer that lists every ordering (as this one
+    # did until 2026-11-15) holds 44 % of the cubic and 77 % of the quartic constants
+    # of this fixture twice or more and fails here; so does a `Bohr²` unit factor at
+    # every order. The harmonic block cannot see either, which is why the phonopy-
+    # style dispersion check never did.
+    @testset "write_alamode: anharmonic sets read back as anphon reads them" begin
+        function next_permutation!(v::Vector, key)::Bool
+            i = length(v) - 1
+            while i >= 1 && !(key(v[i]) < key(v[i + 1]))
+                i -= 1
+            end
+            i == 0 && return false
+            j = length(v)
+            while !(key(v[i]) < key(v[j]))
+                j -= 1
+            end
+            v[i], v[j] = v[j], v[i]
+            reverse!(v, i + 1, length(v))
+            return true
+        end
+        function anphon_read(txt::AbstractString, n::Int)
+            held = Dict{Any,Vector{Float64}}()
+            for m in eachmatch(Regex("<FC$n ([^>]*)>([^<]+)</FC$n>"), txt)
+                pairs = [parse.(Int, split(p.captures[1]))
+                         for p in eachmatch(r"pair\d+=\"([^\"]*)\"", m.captures[1])]
+                value = parse(Float64, m.captures[2])
+                head = (pairs[1][1], pairs[1][2])
+                tail = [(3 * (p[1] - 1) + p[2] - 1, p[3]) for p in pairs[2:end]]
+                while true
+                    push!(get!(held, (head, copy(tail)), Float64[]), value)
+                    next_permutation!(tail, first) || break
+                end
+            end
+            return held
+        end
+
+        # The low-symmetry, interleaved-species cell of `test/alamode/`, lattice-only,
+        # displacement degrees 2–4 (no symmetry backend: every ordering is a separate
+        # constant, the hardest case for the multiplicity).
+        cr = Crystal(Lattice([3.3 0.0 0.0; 0.0 3.9 0.0; 0.0 0.0 7.4]),
+                     [0.06 0.93 0.10; 0.10 0.14 0.88; 0.20 0.23 0.26], [1, 2, 1],
+                     ["Fe", "Ni"])
+        b = SLCEBasis(cr, BasisSpec(cr; lmax = 0, pmax = 4,
+                                    sectors = [Sector(disp = (degree = 2:4,),
+                                                      cutoff = 3.0)]))
+        m = SLCEModel(b, 0.0, 0.3 .* randn(MersenneTwister(5), n_salcs(b)))
+        # A tiling template (`AllImages`, one atom, its own images as neighbours)
+        # written over `dim = (1, 1, 1)`: every site is supercell atom 1, so trailing
+        # pairs tie on the index and differ only in `cell_s`. `anphon` does not swap
+        # those, so the writer must keep both orders. (`MinimumImage` never puts one
+        # atom on two sites, so the first case cannot reach this branch at any `dim`.)
+        sc = Crystal(Lattice(Matrix(2.5 * I(3))), zeros(3, 1), [1], ["Fe"])
+        bt = SLCEBasis(sc, BasisSpec(sc; lmax = 0, pmax = 4,
+                                     sectors = [Sector(disp = (degree = 2:4,),
+                                                       sites = 1:3, cutoff = 2.6)]);
+                       images = AllImages())
+        mt = SLCEModel(bt, 0.0, 0.3 .* randn(MersenneTwister(6), n_salcs(bt)))
+        bohr, rydberg = 0.529177210903, 13.605693122994     # Å, eV (CODATA 2018)
+        for (model, dim, tied) in ((m, nothing, false), (mt, (1, 1, 1), true))
+            fcs = [force_constants(model; order = n) for n = 2:4]
+            path = tempname() * ".xml"
+            out = write_alamode(path, fcs...; dim = dim)
+            txt = read(path, String)
+            d, ncell = out.dim, prod(out.dim)
+            ties = 0
+            for f in fcs[2:3]
+                n = f.order
+                held = anphon_read(txt, n)
+                expected = Dict{Any,Float64}()
+                for ((atoms, shifts), T) in f.constants, c in CartesianIndices(T)
+                    T[c] == 0.0 && continue
+                    tail = map(2:n) do t
+                        R = shifts[t] - shifts[1]
+                        Rf = mod.(R, d)
+                        s = (atoms[t] - 1) * ncell +
+                            Rf[1] + d[1] * (Rf[2] + d[2] * Rf[3]) + 1
+                        # 1 is the origin, then ix, iy, iz ∈ {-1,0,1}, iz fastest,
+                        # the origin skipped
+                        ix, iy, iz = (R .- Rf) .÷ d
+                        k = 9 * (ix + 1) + 3 * (iy + 1) + (iz + 1)
+                        cell = k == 13 ? 1 : (k < 13 ? k + 2 : k + 1)
+                        (3 * (s - 1) + c[t] - 1, cell)
+                    end
+                    ties += any(t -> count(x -> first(x) == first(t), tail) > 1 &&
+                                     count(==(t), tail) == 1, tail)
+                    expected[((atoms[1], c[1]), tail)] = T[c] * bohr^n / rydberg
+                end
+                @test length(expected) > 50
+                @test Set(keys(held)) == Set(keys(expected))
+                @test all(length(v) == 1 for v in values(held))
+                @test all(isapprox(only(held[k]), v; rtol = 1e-12)
+                          for (k, v) in expected)
+            end
+            # the tie branch is exercised exactly where it is meant to be
+            @test (ties > 0) == tied
+            # the harmonic block is untouched: each ordered pair once
+            @test length(collect(eachmatch(r"<FC2 ", txt))) ==
+                  sum(count(!iszero, T) for T in values(fcs[1].constants))
+        end
+    end
 end

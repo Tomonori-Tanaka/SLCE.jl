@@ -22,9 +22,20 @@
 #     `xr_s[atm2] + xshift_s[c] - xr_s[p2s[atom(atm2)][0]]`, so writing the folded
 #     residue with `c = 1` would silently replace `R` by `R mod dim`.
 #
+# A fourth positional rule is about multiplicity: for n ≥ 3 `anphon` rebuilds the
+# orderings of pairs 2..n itself, so only the ascending one of each is written
+# (`_alamode_is_ascending`). Listing every ordering counted most cubic and quartic
+# constants twice or more until 2026-11-15; the harmonic block, and hence any
+# dispersion, could not show it.
+#
 # ALAMODE works in Rydberg atomic units, so the constants are converted from eV/Åⁿ.
-# All of it — ordering, sign, and units — is pinned by running `anphon` and comparing
-# its frequencies against `dynamical_matrix` (`test/alamode/`).
+# Pinned in CI (`test/unit/test_latticeonly.jl`): the `cell_s` table, and a read-back
+# of the cubic and quartic blocks the way `anphon` reads them (every ordered constant
+# exactly once, with its value in Ry/Bohrⁿ from CODATA typed in). Pinned against
+# `anphon` itself (`test/alamode/`, local-only): its frequencies against
+# `dynamical_matrix` (ordering, sign, `cell_s` and units of the harmonic block) and
+# its mode Grüneisen parameters against the same quantity formed from the cubic
+# constants in memory (the cubic block, 4.9e-7 at anphon's print resolution).
 
 const _RY_PER_EV = 1 / 13.605693122994      # CODATA 2018
 const _BOHR_PER_ANGSTROM = 1.8897261246257702
@@ -56,6 +67,12 @@ through the `cell_s` mechanism rather than being folded.
 
 Values are converted to Rydberg atomic units (Ry/Bohrⁿ), ALAMODE's convention, from
 the eV/Å of a model fitted to eV and Å.
+
+Cubic and quartic constants are written once per set of trailing pairs, in ascending
+order, because `anphon` makes the other orderings itself (as ALM's own files do). A
+phonon dispersion from the file checks its harmonic block only; to check the cubic
+block, compare a mode Grüneisen parameter (`GRUNEISEN = 1`) with one formed from
+[`force_constants`](@ref) directly.
 
 !!! note "This is a force-constant file, not an ALM calculation"
     The document carries the structure, the translation map and the constants —
@@ -193,6 +210,28 @@ function _alamode_structure(io::IO, crystal::Crystal, d::NTuple{3,Int}, ncell::I
     return nothing
 end
 
+# Whether an entry of order ≥ 3 is the one `anphon` expects to read. `anphon`'s
+# `load_fcs_xml` (`anphon/fcs_phonon.cpp`) stores every entry once for each
+# `std::next_permutation` of pairs 2..n, starting from the order written and comparing
+# the supercell index `3(s − 1) + β − 1` alone (`AtomCellSuper::operator<`,
+# `fcs_phonon.h`), so it rebuilds the other orderings itself; ALM writes only the
+# entries whose pairs 2..n are in non-decreasing order of that index
+# (`alm/writer.cpp`, `is_ascending_order`). A `ForceConstantSet` holds every ordered
+# tuple, so writing them all counts an entry once per permutation that precedes it —
+# twice or more for most cubic and quartic constants. Pairs with an equal index but
+# another `cell_s` are distinct images that `anphon` does not swap, so each of them is
+# kept. Order 2 has one trailing pair and nothing to permute.
+function _alamode_is_ascending(site::AbstractVector{Int}, cidx::CartesianIndex,
+                               n::Int)::Bool
+    previous = -1
+    for t = 2:n
+        index = 3 * (site[t] - 1) + cidx[t] - 1
+        index < previous && return false
+        previous = index
+    end
+    return true
+end
+
 function _alamode_fc_block(io::IO, f::ForceConstantSet, crystal::Crystal,
                            d::NTuple{3,Int}, ncell::Int)
     n = f.order
@@ -202,19 +241,24 @@ function _alamode_fc_block(io::IO, f::ForceConstantSet, crystal::Crystal,
     # displacement index (Φ⁽ⁿ⁾ is an n-th derivative).
     scale = _RY_PER_EV / _BOHR_PER_ANGSTROM^n
     println(io, "    <", tag, ">")
+    site = Vector{Int}(undef, n)                    # supercell atom of pair t
+    cell = Vector{Int}(undef, n)                    # its `cell_s`
     for (key, T) in f.constants
         atoms, shifts = key
+        for t = 2:n
+            R = ntuple(k -> shifts[t][k] - shifts[1][k], 3)
+            Rf = ntuple(k -> mod(R[k], d[k]), 3)
+            Rs = ntuple(k -> (R[k] - Rf[k]) ÷ d[k], 3)
+            site[t] = _alamode_index(atoms[t], Rf, d, ncell)
+            cell[t] = _alamode_cell_s(Rs)
+        end
         for cidx in CartesianIndices(T)
             v = T[cidx] * scale
             v == 0.0 && continue
+            _alamode_is_ascending(site, cidx, n) || continue
             print(io, "      <", name, " pair1=\"", atoms[1], " ", cidx[1], "\"")
             for t = 2:n
-                R = ntuple(k -> shifts[t][k] - shifts[1][k], 3)
-                Rf = ntuple(k -> mod(R[k], d[k]), 3)
-                Rs = ntuple(k -> (R[k] - Rf[k]) ÷ d[k], 3)
-                print(io, " pair", t, "=\"",
-                      _alamode_index(atoms[t], Rf, d, ncell), " ", cidx[t], " ",
-                      _alamode_cell_s(Rs), "\"")
+                print(io, " pair", t, "=\"", site[t], " ", cidx[t], " ", cell[t], "\"")
             end
             @printf(io, ">%.15e</%s>\n", v, name)
         end

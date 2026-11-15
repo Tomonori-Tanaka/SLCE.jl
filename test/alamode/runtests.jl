@@ -128,28 +128,121 @@ end
     end
 
     # The reason this exporter exists: phonopy takes the harmonic channel, and nothing
-    # else downstream consumes the cubic one. `GRUNEISEN = 1` is the cheapest anphon
-    # mode that actually READS `ANHARM3` — it refuses without cubic constants — so it
-    # proves the anharmonic indices parse, not merely that the file is well-formed.
-    @testset "cubic: anphon reads ANHARM3" begin
-        model = _fixture(; degree = 2:3, pmax = 3)
+    # else downstream consumes the cubic one. This gate checks the cubic NUMBERS as
+    # `anphon` uses them: its mode Grüneisen parameters along a generic path against
+    # the same quantity formed here directly from the in-memory constants,
+    #
+    #     γ_s(q) = −⟨e_s| δD(q) |e_s⟩ / (6 |ω_s²|),
+    #     δD(q)_{aα,bβ} = Σ_{R,k,R'} Φ[(a,0),(b,R),(k,R')]_{αβγ} x_{k,γ}(R')
+    #                     · e^{2πi q·R} / √(m_a m_b),
+    #
+    # (`anphon/gruneisen.cpp`: `prepare_delta_fcs` contracts the last index with the
+    # atom's position, `calc_gruneisen` divides by −6 times the SQUARE OF THE SIGNED
+    # frequency, i.e. by |ω²| — which is why an unstable mode of this random model
+    # keeps the sign written here). The position origin is irrelevant because the
+    # fixture obeys the sum rule of the tiled crystal (checked below, and printed by
+    # `anphon` itself as "Maximum deviation from the translational invariance"). That
+    # needs a cell in which no cutoff sphere reaches an image (cutoff 3.0 < every
+    # L/2 of the 2×2×1 cell): with overlapping images the folded sum rule leaves the
+    # cubic constants origin dependent (OPEN-WORK S-4) and the comparison is moot.
+    #
+    # Measured 2026-11-15: 4.9e-7 — `anphon` prints γ to six decimals. The writer that
+    # listed every ordering of the trailing pairs (before 2026-11-15) differs by 4.3,
+    # i.e. this gate also catches the multiplicity defect the read-back test in
+    # `test_latticeonly.jl` is built for, and any error in `cell_s`, units or index
+    # order of the cubic block.
+    @testset "cubic: anphon's Grüneisen parameters are ours" begin
+        lat0 = [3.3 0.0 0.0; 0.0 3.9 0.0; 0.0 0.0 7.4]
+        x0 = [0.06 0.93 0.10; 0.10 0.14 0.88; 0.20 0.23 0.26]
+        pos, typ = Vector{Float64}[], Int[]
+        for i = 0:1, j = 0:1, a = 1:3
+            push!(pos, (x0[:, a] .+ [i, j, 0]) ./ [2, 2, 1])
+            push!(typ, [1, 2, 1][a])
+        end
+        cr = Crystal(Lattice(lat0 * Diagonal([2, 2, 1])), reduce(hcat, pos), typ,
+                     ["Fe", "Ni"])
+        b = SLCEBasis(cr, BasisSpec(cr; lmax = 0, pmax = 3,
+                                    sectors = [Sector(disp = (degree = 2,), sites = 1:2,
+                                                      cutoff = 3.0),
+                                               Sector(disp = (degree = 3,), sites = 1:3,
+                                                      cutoff = 3.0)]))
+        rep = SLCE.build_asr(b; warn = false)
+        beta = SLCE._lift_gamma(rep, randn(MersenneTwister(11), size(rep.Z, 2)))
+        model = SLCEModel(b, 0.0, beta)
         f2 = force_constants(model; order = 2)
         f3 = force_constants(model; order = 3)
-        @test !isempty(f3.constants)
+
+        # the tiled-crystal sum rule, Σ_{k,R'} Φ[(a,0),(b,R),(k,R')] = 0 per (a,b,R)
+        sums, scale = Dict{Any,Float64}(), 0.0
+        for ((atoms, shifts), T) in f3.constants, c in CartesianIndices(T)
+            scale = max(scale, abs(T[c]))
+            key = (atoms[1:2], shifts[2], Tuple(c))
+            sums[key] = get(sums, key, 0.0) + T[c]
+        end
+        @test maximum(abs, values(sums)) < 1e-12 * scale
+
+        nat = n_atoms(cr)
+        masses = [[55.845, 58.6934][t] for t in typ]
+        A = cr.lattice.vectors
+        function gamma_here(q)
+            D = zeros(ComplexF64, 3nat, 3nat)
+            dD = zeros(ComplexF64, 3nat, 3nat)
+            for ((atoms, shifts), T) in f2.constants
+                a, c = atoms
+                ph = cis(2π * dot(q, shifts[2])) / sqrt(masses[a] * masses[c])
+                D[3a-2:3a, 3c-2:3c] .+= T .* ph
+            end
+            for ((atoms, shifts), T) in f3.constants
+                a, c, k = atoms
+                x = A * (cr.frac_positions[:, k] .+ shifts[3])
+                ph = cis(2π * dot(q, shifts[2])) / sqrt(masses[a] * masses[c])
+                for γ = 1:3
+                    dD[3a-2:3a, 3c-2:3c] .+= (@view T[:, :, γ]) .* (x[γ] * ph)
+                end
+            end
+            F = eigen(Hermitian((D + D') / 2))
+            return [-real(F.vectors[:, s]' * dD * F.vectors[:, s]) / (6 * abs(F.values[s]))
+                    for s in eachindex(F.values)]
+        end
+
+        qend = [0.37, 0.21, 0.13]
         mktempdir() do dir
             out = write_alamode(joinpath(dir, "slce.xml"), f2, f3)
             @test out.orders == [2, 3]
-            _, log = _anphon_frequencies(dir, f2.crystal, [[0.13, 0.29, 0.41]];
-                                         extra = "&analysis\n  GRUNEISEN = 1\n/")
-            @test occursin("Cubic force constants are necessary", log)
+            Ab = A * 1.8897261246257702
+            p0, p1 = join(0.2 .* qend, " "), join(qend, " ")
+            write(joinpath(dir, "in"), """
+            &general
+              PREFIX = slce
+              MODE = phonons
+              FCSXML = slce.xml
+              NKD = 2; KD = Fe Ni
+              MASS = 55.845 58.6934
+            /
+            &analysis
+              GRUNEISEN = 1
+            /
+            $(_cell_block(cr))
+            &kpoint
+              1
+              P $p0 Q $p1 5
+            /
+            """)
+            log = read(pipeline(Cmd(`$ANPHON in`; dir = dir); stderr = devnull), String)
             @test occursin("Calculating Gruneisen parameters ... done!", log)
-            # What this proves and what it does not: `anphon` PARSED the ANHARM3
-            # indices (a malformed one aborts the reader — a stray space in the value
-            # field is how this exporter first failed) and consumed them without
-            # complaint. It does not check the cubic NUMBERS against an independent
-            # computation; that would mean reimplementing Grüneisen parameters here.
-            # The harmonic block above is what pins units, sign and cell_s, and the
-            # cubic block is written by the same code path.
+            rows = filter(l -> !startswith(l, "#"),
+                          readlines(joinpath(dir, "slce.gruneisen")))
+            @test length(rows) == 5                    # both ends of the path included
+            worst = 0.0
+            for (k, t) in enumerate(range(0.2, 1.0; length = 5))
+                got = parse.(Float64, split(rows[k]))[2:end]
+                want = gamma_here(t .* qend)
+                @test length(got) == length(want) == 3nat
+                worst = max(worst, maximum(abs.(got .- want)))
+            end
+            # 20× the six-decimal print resolution; the defect it guards is O(1).
+            @test worst < 1e-5
+            @info "anphon Grüneisen vs here" max_abs_difference = worst
         end
     end
 

@@ -326,6 +326,12 @@ write_alamode("si.xml", force_constants(model; spins = e, order = 2),
 All sets must come from one crystal and one spin state — they are the expansion of a
 single energy surface, and `anphon` has no notion of a magnetic state.
 
+Cubic and quartic constants are written the way `anphon` reads them: each set of
+trailing pairs once, in ascending order, since `anphon` generates the other orderings
+itself. A dispersion computed from the file checks the harmonic block only; when the
+anharmonic sets matter, also compare one of `anphon`'s mode Grüneisen parameters with
+one formed from [`force_constants`](@ref) directly.
+
 
 Next: the cell-deformation half of the lattice channel —
 [Strain, magnetoelasticity and volume grids](strain.md).

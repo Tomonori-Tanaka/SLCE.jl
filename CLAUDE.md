@@ -382,10 +382,23 @@ Easy to break silently — confirm before touching the algorithm.
   modes at all q and asserts the absolute residual after it (3.7e-5 cm⁻¹, bounded
   below by anphon printing four decimals — a RELATIVE tolerance is meaningless on a
   soft mode) AND that the scale is 1 to 5.5e-10; the two claims are separate, and a
-  single `≈` loose enough to absorb the constants would pass a sign error. The cubic
-  block is proven to PARSE and be consumed (`GRUNEISEN = 1` refuses without it), never
-  numerically verified — the harmonic block pins units/sign/`cell_s` and the cubic
-  block rides the same code path. **`anphon` uses `boost::lexical_cast`, which rejects
+  single `≈` loose enough to absorb the constants would pass a sign error. **A fourth
+  positional rule is multiplicity, and the harmonic gate is blind to it**: for
+  `n ≥ 3` `anphon`'s `load_fcs_xml` stores each entry once per `next_permutation` of
+  pairs 2..n, ordered by the supercell index `3(s−1)+β−1` alone, so only the ascending
+  ordering is written (`_alamode_is_ascending`; pairs tying on the index but differing
+  in `cell_s` are kept in both orders — `anphon` does not swap them, and only an
+  `AllImages` template over a small `dim` produces them). Writing every ordered tuple
+  counted 44 % of the cubic and 77 % of the quartic constants twice or more until
+  2026-11-15, with every dispersion still exact. Two gates: the CI read-back
+  (`test_latticeonly.jl`, replays the reader; kills the old writer, `Bohr²` at every
+  order, and a strict-ascending filter that drops ties) and the local Grüneisen gate
+  (`test/alamode/`, `anphon`'s γ vs the same quantity formed from `force_constants`,
+  4.9e-7 = its six-decimal print; the old writer is off by 4.3). The Grüneisen gate
+  needs a fixture obeying the TILED sum rule — no cutoff sphere reaching an image —
+  or the cubic constants are origin dependent and the comparison means nothing; and
+  `anphon` divides by the square of the SIGNED frequency, i.e. `|ω²|`, which matters
+  for the unstable modes a random model has. **`anphon` uses `boost::lexical_cast`, which rejects
   leading whitespace**: a padded `%25.15e` in the value field aborts the reader, so
   the core suite checks every value parses bare.
 - **The spin-free entry path shares ONE predicate AND one refusal** (`slce/model.jl`
