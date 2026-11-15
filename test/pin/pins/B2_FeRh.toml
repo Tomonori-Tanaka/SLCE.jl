@@ -28,8 +28,8 @@ n_ops = 48
 nbody = 3
 
 [meta]
-captured = "2026-08-21"
-commit = "1ced374"
-julia = "1.12.6"
+captured = "2026-11-15"
+commit = "2f7d2d5"
+julia = "1.12.7"
 platform = "aarch64-Darwin"
 threads = 4
