@@ -17,12 +17,12 @@ models, volume grids, and phonopy / ALAMODE export. See `SPEC.md`.
 """
 module SLCE
 
-using LinearAlgebra: norm, det, I, eigen, eigvals, svd, svdvals, cholesky, Symmetric,
+using LinearAlgebra: norm, cond, det, I, eigen, eigvals, svd, svdvals, cholesky, Symmetric,
     Diagonal, dot, cross, qr, ColumnNorm
 using StaticArrays
 using Statistics: mean, quantile, std
 using Random: AbstractRNG, default_rng, MersenneTwister
-using Printf: @printf
+using Printf: @printf, @sprintf
 import TOML
 import Tables
 # Extend the StatsAPI generics rather than shadow them, so `coef` / `fit` / `nobs` /
@@ -154,6 +154,7 @@ export AbstractImageSelection, MinimumImage, AllImages
 export AbstractSymmetryBackend, NoSymmetry, SpglibBackend
 # the SLCE pipeline
 export BasisSpec, Sector, SLCEBasis, SLCEDataset, SLCEModel, SLCEFit, fit, refit,
+    symmetrized_lattice,
     n_salcs, read_setup
 export predict_energy, predict_torque, predict_force, has_torque, has_force
 export asr_residual

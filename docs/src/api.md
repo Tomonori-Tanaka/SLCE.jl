@@ -122,6 +122,7 @@ BasisSpec
 Sector
 SLCE.SectorRule
 SLCEBasis
+symmetrized_lattice
 SLCEDataset
 SLCEModel
 SLCEFit

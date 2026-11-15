@@ -6,6 +6,63 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — the sum rule's rank depended on how the crystal was turned (2026-11-15)
+
+**Numerical results change** for crystals whose lattice is not aligned with the
+Cartesian axes and for lattices that are symmetric only to the search tolerance; for
+an exactly symmetric lattice the columns move at round-off only (see the pin entry).
+
+- **What was wrong.** A crystal turned by a small angle θ has tensor entries and
+  constraint rows of genuine size θ and θ². Four places treated them as zero or
+  amplified their round-off, so `build_asr` returned a constraint rank that depended on
+  the orientation: over 455 turned crystals (sc, fcc, Si, hcp displacement bases and bcc /
+  hcp spin × displacement bases with and without SOC; five axes; thirteen angles from
+  1e-12 to 1 rad), 72 got a wrong rank without a warning — always too many constraints,
+  so the fit passed, obeyed the sum rule and silently lost freedom (fcc turned by 0.01
+  rad about [123] among them) — and 157 were refused in the forbidden band. Separately,
+  a lattice symmetric only to `tol` (a relaxed cell, six-decimal lattice vectors; hcp and
+  bcc sheared by 5e-7) was refused inside `wignerD_real` with a message blaming
+  "degenerate sampling".
+- **The fix** (ported from SphericalTensorFC `311e08f`, measured one cause at a time):
+  1. the rank is decided on the constraint rows as they are, never normalized one by one;
+     rows are stored scaled by one factor per displacement degree
+     (`_scale_rows_by_degree`), which moves no rank;
+  2. zero decisions are relative and at round-off: tensor entries against their tensor's
+     largest entry (`_ROUNDOFF_RTOL = 1e-13`, both SALC engines), sum-rule entries against
+     their gross mass (`_ASR_CANCELLATION_RTOL = 1e-13`, split from
+     `_CANCELLATION_RTOL`, which stays at 1e-10 for whole columns — `unresolvable_columns`
+     counts unchanged);
+  3. the Gram–Schmidt pivot of the gauge is 1e-4 (`_GAUGE_PIVOT_MIN`, was 1e-8);
+  4. every operation's Cartesian rotation comes from the symmetrized lattice (the metric
+     averaged over the operations, oriented like the given lattice): exactly orthogonal
+     and closed under products. Operations are still validated on the raw `A·W·A⁻¹`
+     first. Only the rotations use it; the crystal is used as given everywhere else.
+- After causes 1–3: 455 of 455 correct, 0 refused, pins byte-identical. With cause 4:
+  455 of 455 again, `tilt.jl` (the handoff's 56 cases) 56 of 56, and the lattices
+  symmetric only to `tol` build (same keys, values to 2e-14, same rank as the unsheared
+  crystal). `unresolvable_columns` counts unchanged (sc 2×2×2: 3, fcc 2×2×2: 5).
+- **Cause 4 is applied always**, not only when `A·W·A⁻¹` is off (decided 2026-11-15, for
+  one code path and parity with SphericalTensorFC). For an exactly symmetric lattice it
+  moves the rotations at round-off: the pin tier's L1/L2 move for hcp_Co, wz_GaN and
+  rs_MnO (L0/L0′ do not; every value stays inside the off-platform tolerances, L1 rtol
+  1e-12) and are recaptured in the next, pin-only commit. Real-data parity with
+  SCEFitting (`SCEFitting.jl/test/parity`, re-measured on this tree): FeGe B20 2×2×2
+  columns 0.00e+00, FeRh B2 4×4×4 5.5e-16 (was 0.00e+00), acceptance σ unchanged
+  (within 0.15 % of reference). SCEFitting has not received the change (OPEN-WORK F-5).
+- **New: `symmetrized_lattice(basis)`** returns the lattice you gave and the one the
+  rotations come from (`input_lattice`, `symmetric_lattice`, `lattice_shift`,
+  `metric_change` — names shared with SphericalTensorFC's `symmetry_report`);
+  `SLCEBasis` prints both (`@info`) when they differ by more than round-off, before the
+  cluster build, so the report is on screen if the build then refuses for ties split
+  by the same asymmetry (no `symmetrize` yet: OPEN-WORK S-5).
+- Gates: `test/unit/test_orientation.jl` (new: sc, fcc, diamond and bcc spin ×
+  displacement with and without SOC over 3 axes × 9 angles against the aligned crystal;
+  the idealized rotations; refusal of non-symmetries; a 5e-7-sheared lattice; the
+  report). Mutation-tested: each of the four causes reverted, validation moved after the
+  idealization, `_ROUNDOFF_RTOL` and `_ASR_CANCELLATION_RTOL` set to 0 and the pivot to
+  0.3 — all nine killed (the cancellation cut only by the diamond row).
+  `test_resolvability.jl`'s byte-neutrality reference now scales rows per degree.
+
 ### Fixed — `write_alamode` wrote each anharmonic constant once per ordering (2026-11-15)
 
 **Numerical results change** for anything `anphon` computes from the cubic or quartic

@@ -200,6 +200,28 @@ basis = SLCEBasis(cr, interaction; backend = SpglibBackend())
     Use `import Spglib`, not `using Spglib` — Spglib exports `Lattice` / `Crystal`
     names that would clash with this package's. Importing only activates the extension.
 
+### A lattice that is symmetric only to the tolerance
+
+A relaxed cell, or lattice vectors typed to six decimals, has its symmetry only to the
+backend's tolerance `tol`. The rotation matrices `A·W·A⁻¹` of such a lattice are not quite
+orthogonal, and a Wigner matrix cannot represent them. The basis therefore takes the
+rotations of the symmetry operations from the **symmetrized lattice**: the metric `AᵀA`
+averaged over the operations (exactly invariant under each of them), given the
+orientation of your lattice. Only the rotations come from it — distances, displacements,
+forces, readouts and the atomic positions use your crystal exactly as given. When the two
+differ by more than round-off, `SLCEBasis` prints both lattices, and
+[`symmetrized_lattice`](@ref) returns them:
+
+```julia
+s = symmetrized_lattice(basis)
+s.input_lattice, s.symmetric_lattice   # your lattice, the one the rotations come from
+s.lattice_shift                        # how far its vectors move, Å
+```
+
+For an exactly symmetric lattice the two are equal up to round-off, and nothing is
+printed. The same construction makes every decision of the basis and of the sum rule
+independent of how the crystal is turned against the Cartesian axes.
+
 ## Body order beyond pairs
 
 `nbody = K` enumerates clusters of up to `K` atoms as *pairwise-within-cutoff cliques* of

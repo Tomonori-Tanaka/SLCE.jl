@@ -386,7 +386,8 @@ capability consumed by both the introspection and the Sunny interop.
   monomials by `SolidHarmonics.solid_harmonic_poly` (a coefficient-space
   rerun of the evaluator recurrences, kernel-gated) — collected in one
   common monomial basis across orbits, in design-column coordinates.
-  Rank policy: row-normalized, exact connected components, per-component
+  Rank policy: rows as they are (never normalized one by one; stored scaled per
+  displacement degree), exact connected components, per-component
   SVD with cut `1e-10·σ_max` and a forbidden band `[1e-12, 1e-8]·σ_max`
   (ambiguous rank errors); `Z` orthonormal, identity on pure-spin columns;
   `rank(A)` gated for exact equality against the numerical translation

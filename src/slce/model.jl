@@ -367,6 +367,10 @@ function SLCEBasis(crystal::Crystal, spec::BasisSpec;
                             "coordinate noise. If the coordinates are that far from " *
                             "their space group, symmetrize them instead"))
     sg = analyze_symmetry(backend, crystal; tol = tol)
+    # Said before the build, so it is on screen when a lattice that is symmetric only to
+    # the tolerance goes on to be refused by the cluster enumeration (S-5: ties split by
+    # the same asymmetry).
+    _report_symmetrized_lattice(crystal, sg)
     # The neighbor list is built at the per-pair superset radius (element-wise max
     # over body orders); each body order's own radii then trim edges per cluster in
     # `candidate_clusters`. In sector mode `spec.cutoff` is the derived envelope;
@@ -383,6 +387,80 @@ function SLCEBasis(crystal::Crystal, spec::BasisSpec;
         build_salc_basis(crystal, sg, clusters, spec; neighbors = nl,
                          selection = images)
     return SLCEBasis(crystal, sg, salcs, spec)
+end
+
+"""
+    symmetrized_lattice(basis::SLCEBasis) -> NamedTuple
+
+How the lattice of `basis.crystal` is treated for symmetry: `(; input_lattice,
+symmetric_lattice, lattice_shift, metric_change)` (field names shared with
+SphericalTensorFC's `symmetry_report`).
+
+- `input_lattice` — the lattice vectors as you passed them (columns `aᵢ`, Å).
+- `symmetric_lattice` — the **symmetrized lattice** the rotations of the symmetry
+  operations are
+  taken from: the metric `G = AᵀA` averaged over the point operations of
+  `basis.spacegroup` (`Ḡ = (1/n) Σ_W Wᵀ G W`, exactly invariant under every `W`),
+  given the orientation of `input_lattice` by a polar factor. Each operation's
+  Cartesian rotation is then `A_s · W · A_s⁻¹` with `A_s = symmetric_lattice`, exactly
+  orthogonal, and the rotations multiply exactly as the integer matrices `W` do.
+- `lattice_shift` — how far the lattice vectors move, `maxᵢ ‖A_s[:, i] − A[:, i]‖`
+  in Å.
+- `metric_change` — `max|Ḡ − G| / max|G|` with `G = AᵀA`, the relative size of the
+  asymmetry the averaging removed.
+
+**Only the rotations come from `symmetric_lattice`.** Distances, neighbour shells,
+displacements, forces, strains and every readout use the crystal exactly as given, and
+so do the
+atomic positions (they are not symmetrized). For an exactly symmetric lattice the two
+are equal up to round-off; for one that is symmetric only to the search tolerance
+`tol` (a relaxed cell, coordinates typed to six decimals), the difference is the size
+of that asymmetry. [`SLCEBasis`](@ref) reports it when it is larger than round-off.
+
+```julia
+basis = SLCEBasis(crystal, spec; backend = SpglibBackend())
+s = symmetrized_lattice(basis)
+s.lattice_shift      # Å; ~1e-15 for an exactly symmetric lattice
+```
+"""
+symmetrized_lattice(basis::SLCEBasis) =
+    _symmetrized_lattice(basis.crystal, basis.spacegroup)
+
+function _symmetrized_lattice(crystal::Crystal, spacegroup::SpaceGroup)
+    input_lattice = Matrix{Float64}(crystal.lattice.vectors)
+    rotations = [op.rotation_frac for op in spacegroup.ops]
+    symmetric_lattice = _symmetric_lattice(input_lattice, rotations)
+    metric = input_lattice' * input_lattice
+    averaged = sum(W' * metric * W for W in rotations) / length(rotations)
+    lattice_shift = maximum(norm(symmetric_lattice[:, i] - input_lattice[:, i])
+                            for i = 1:3)
+    metric_change = maximum(abs, averaged - metric) / maximum(abs, metric)
+    return (; input_lattice, symmetric_lattice, lattice_shift, metric_change)
+end
+
+# Above this relative asymmetry of the metric the given lattice is not exactly symmetric
+# but symmetric to a tolerance, and `SLCEBasis` says which lattice the rotations come
+# from. Round-off of an exactly symmetric metric is ~1e-16 (measured ≤ 1.7e-14 on cells
+# of condition number 135); a lattice typed to six decimals sits at ≥ 1e-8.
+const _SYMMETRIZED_LATTICE_REPORT_RTOL = 1e-11
+
+function _report_symmetrized_lattice(crystal::Crystal, spacegroup::SpaceGroup)
+    s = _symmetrized_lattice(crystal, spacegroup)
+    s.metric_change > _SYMMETRIZED_LATTICE_REPORT_RTOL || return nothing
+    show_matrix(M) = join([join([@sprintf("%14.9f", M[r, c]) for c = 1:3], " ")
+                           for r = 1:3], "\n")
+    @info "SLCEBasis: the lattice you gave is symmetric under the " *
+          "$(n_ops(spacegroup)) operations of $(spacegroup.symbol) only " *
+          "to the search tolerance (relative asymmetry of the metric " *
+          "$(@sprintf("%.2e", s.metric_change)); its vectors move by at most " *
+          "$(@sprintf("%.2e", s.lattice_shift)) Å under symmetrization). The " *
+          "rotations of the symmetry operations are taken from the symmetrized " *
+          "lattice below; the crystal itself — lattice and positions — is used as given everywhere else " *
+          "(distances, displacements, forces, readouts). `symmetrized_lattice(basis)` " *
+          "returns both.\n" *
+          "given (columns a₁ a₂ a₃, Å):\n" * show_matrix(s.input_lattice) * "\n" *
+          "symmetrized (used for the rotations, Å):\n" * show_matrix(s.symmetric_lattice)
+    return nothing
 end
 
 """
@@ -404,8 +482,9 @@ salcs(b::SLCEBasis) = b.salc_basis.salcs
     ASRReparam
 
 The acoustic-sum-rule (translation-invariance) reparameterization of a joint
-basis: the row-normalized constraint matrix `A` (`A·β = 0` ⇔ the model energy is
-invariant under rigid translations `u_a → u_a + t`), an **orthonormal** null-space
+basis: the constraint matrix `A`, rows scaled per displacement degree (`A·β = 0` ⇔
+the model energy is invariant under rigid translations `u_a → u_a + t`), an
+**orthonormal** null-space
 basis `Z` (`β = beta_p + Z·γ`; identity blocks on pure-spin columns), the
 particular solution `beta_p` (all-zero in the homogeneous case), and the number of
 constraints binding the reparameterized columns. Built once per basis by

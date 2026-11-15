@@ -182,8 +182,14 @@ Shared assembler: turn raw fractional `rotations`/`translations` into `SymOp`s
 (deriving Cartesian rotations, properness, pure-translation flags) and derive
 `map_sym` in-tree. Backends call this so they all share one convention.
 
-The assembled set is validated as a group (see `_validate_ops`) before it is
-returned.
+The assembled set is validated as a group of THIS lattice (see `_validate_ops`), on
+the Cartesian matrices `A·W·A⁻¹` of the lattice as given. The operations that are
+returned carry the rotations of the symmetrized lattice instead
+(`_idealized_cartesian_rotations`): a lattice that has the symmetry only to `tol`
+gives matrices `A·W·A⁻¹` that are not quite rotations, and everything built from
+them — the Wigner matrices first of all — would inherit the defect. The order
+matters: averaging the metric over ANY set of integer matrices makes the averaged
+rotations orthogonal, so checking after the idealization would check nothing.
 """
 function _assemble_spacegroup(crystal::Crystal,
                               rotations::AbstractVector,
@@ -218,8 +224,75 @@ function _assemble_spacegroup(crystal::Crystal,
     ops, symbol, cols = _restrict_to_pbc(crystal, ops, String(symbol), tol)
     map_sym = cols === nothing ? _build_map_sym(crystal, ops, tol) :
               reduce(hcat, cols; init = Matrix{Int}(undef, n_atoms(crystal), 0))
+    # Validated (above, and inside `_restrict_to_pbc`) on `A·W·A⁻¹` of the lattice as
+    # given; only now replaced by the rotations of the symmetrized lattice.
+    exact = _idealized_cartesian_rotations(A, [op.rotation_frac for op in ops])
+    ops = [SymOp(op.rotation_frac, R, op.translation_frac, op.is_proper,
+                 op.is_translation) for (op, R) in zip(ops, exact)]
     translation_ops = [i for i in eachindex(ops) if ops[i].is_translation]
     return SpaceGroup(symbol, Int(number), ops, map_sym, translation_ops, Float64(tol))
+end
+
+"""
+    _idealized_cartesian_rotations(A, fractional_rotations) -> Vector{SMatrix{3,3}}
+
+The Cartesian rotation matrices of the operations whose integer matrices are
+`fractional_rotations`, for the symmetrized lattice of `A` (columns are the lattice
+vectors): an exactly symmetric lattice close to `A`, though not the closest one in
+any particular norm (ported from SphericalTensorFC `311e08f`).
+
+A lattice has an operation `W` as a symmetry when `Wᵀ G W = G` for its metric
+`G = AᵀA`. A lattice that is symmetric only to a tolerance violates that slightly, and
+`A·W·A⁻¹` is then not orthogonal; `wignerD_real` refuses such a matrix (it represents
+no rotation), and a rank decision downstream sees its defect at first order. Three
+steps repair it:
+
+1. average the metric over the `n` operations, `Ḡ = (1/n) Σ_W Wᵀ G W` — invariant
+   under every `W` exactly, the shape of a lattice that has the symmetry;
+2. give that shape the orientation of `A`: `A_s = Q·Ḡ^{1/2}` with `Q` the polar factor
+   of `A·Ḡ^{−1/2}`, so a lattice distorted by a pure stretch is not turned;
+3. take the rotations of that lattice, `A_s·W·A_s⁻¹`.
+
+Every matrix comes from the one lattice `A_s`, so the matrices are orthogonal and
+multiply exactly as the `W` do. Making each `A·W·A⁻¹` orthogonal on its own would leave
+their products off by the square of the distortion. For an exactly symmetric lattice
+`A_s` is `A` up to round-off.
+
+Only the rotation matrices are idealized; the crystal — its lattice and the positions
+of its atoms — is used as given everywhere else.
+"""
+function _idealized_cartesian_rotations(A::AbstractMatrix{<:Real},
+                                        fractional_rotations::AbstractVector)
+    lattice = _symmetric_lattice(A, fractional_rotations)
+    inverse = inv(lattice)
+    rotations = [SMatrix{3,3,Float64,9}(lattice * W * inverse)
+                 for W in fractional_rotations]
+    worst = maximum(maximum(abs, R' * R - I) for R in rotations)
+    # The square root of the averaged metric loses digits as cond(A)²: an exactly
+    # symmetric crystal in a skewed or elongated cell is not a defect of the symmetry.
+    condition = cond(Matrix{Float64}(A))
+    bound = max(1e-12, 1e-14 * condition^2)
+    worst <= bound || throw(ArgumentError(
+        "the rotations of the operations, idealized on this lattice, are not " *
+        "orthogonal (defect $worst, allowed $bound for a cell of condition number " *
+        "$condition). A cell this skewed or elongated loses the digits; give the " *
+        "crystal in a reduced (Niggli) cell"))
+    return rotations
+end
+
+# The symmetrized lattice of `A`: the metric averaged over the operations, with the
+# orientation of `A` (steps 1 and 2 of `_idealized_cartesian_rotations`). Columns are
+# the lattice vectors. Over the whole list: in a space group every rotation occurs
+# equally often (once per translation of the coset), so this is the average over the
+# point group.
+function _symmetric_lattice(A::AbstractMatrix{<:Real},
+                            fractional_rotations::AbstractVector)::Matrix{Float64}
+    metric = A' * A
+    averaged = sum(W' * metric * W for W in fractional_rotations) /
+               length(fractional_rotations)
+    shape = sqrt(Symmetric(Matrix{Float64}((averaged + averaged') / 2)))
+    orientation = svd(A / shape)                  # polar factor of A·shape⁻¹
+    return (orientation.U * orientation.Vt) * shape
 end
 
 # `tol` is a length in Å, and two things bound it. It must be positive and finite to

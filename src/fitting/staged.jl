@@ -90,7 +90,7 @@ function sector_columns(basis::SLCEBasis, sels)::Vector{Int}
 end
 
 # Feasibility tolerance for the affine constraint `A_free·β_free = −A_frozen·β_frozen`
-# (relative to ‖rhs‖ on the row-normalized A). Loose enough to accept a frozen
+# (relative to ‖rhs‖ on the degree-scaled A). Loose enough to accept a frozen
 # vector that satisfies the ASR only to fit precision, tight enough that a genuine
 # straddle — a constraint row the free columns cannot balance — is refused.
 const _STAGE_FEAS_RTOL = 1e-8

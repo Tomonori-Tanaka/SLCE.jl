@@ -244,6 +244,46 @@ Easy to break silently — confirm before touching the algorithm.
   stored `tol` straight back to it), so changing any of these bands changes which
   already-written documents still open, and the diagnostic a reader sees blames the
   coordinates rather than the band.
+- **Zero decisions must not depend on how the crystal is turned, and the rotations come
+  from ONE symmetrized lattice** (`symmetry/backend.jl` `_idealized_cartesian_rotations` /
+  `_symmetric_lattice` ↔ `basis/salcbasis.jl` `_zero_roundoff!` / `_ROUNDOFF_RTOL` /
+  `_GAUGE_PIVOT_MIN` ↔ `fitting/asr.jl` `_asr_nullspace` / `_scale_rows_by_degree` /
+  `_ASR_CANCELLATION_RTOL` ↔ `slce/model.jl` `symmetrized_lattice` and the build-time
+  report). A crystal turned by a small angle θ has tensor entries and constraint rows of
+  genuine size θ and θ²; until 2026-11-15 four places treated them as zero or amplified
+  their round-off, and 72 of 455 turned crystals returned a wrong sum-rule rank WITHOUT a
+  warning (157 more were refused). The rules now: (1) the rank is decided on constraint
+  rows AS THEY ARE — never normalized one by one (that turns the round-off of a size-θ row
+  into a full constraint); rows are stored scaled by one factor per displacement degree,
+  which moves no rank; (2) "is this entry zero?" is relative and at round-off (1e-13 of
+  the tensor's largest entry; `_prune_residue!` at 1e-13 of the entry's gross mass —
+  `unresolvable_columns` keeps its own 1e-10 for whole columns); (3) the Gram–Schmidt
+  pivot of the gauge is 1e-4, because normalizing a remainder of norm ν multiplies its
+  round-off by 1/ν (it can never leave the basis short: some remainder exceeds 1/√n
+  while a vector is missing); (4) every operation's Cartesian rotation is `A_s·W·A_s⁻¹`
+  with `A_s` the metric averaged over the operations, oriented like `A` by a polar factor
+  — orthogonal and closed under products exactly, ALWAYS (not only when `A·W·A⁻¹` is
+  off; decided 2026-11-15 for consistency with SphericalTensorFC, at the cost of a
+  round-off-level pin recapture). **Validation runs BEFORE the idealization, on the raw
+  `A·W·A⁻¹`** (`_validate_ops`, also inside `_restrict_to_pbc`): averaging the metric
+  makes ANY set of integer matrices orthogonal, so a check after it checks nothing (gate:
+  cubic operations offered for a tetragonal lattice are refused). Only the rotations come
+  from `A_s`; distances, displacements, forces, readouts and the atomic positions use the
+  crystal as given, and `SLCEBasis` says so in an `@info` (given vs symmetrized lattice)
+  whenever the metric's asymmetry exceeds `_SYMMETRIZED_LATTICE_REPORT_RTOL` — printed
+  before the cluster build, so it is on screen when a tie split by the same asymmetry
+  then refuses the build (OPEN-WORK S-5: no `symmetrize` yet). `_sign_canon!`'s `1e-8`
+  stays absolute on purpose: at round-off a sign would be chosen by noise; the gauge
+  choice inside a block is S-3's subject, not this entry's. SCEFitting.jl has the same
+  raw `A * W * Ainv` and absolute cuts and has NOT received this change yet (OPEN-WORK
+  F-5) — a port must recapture its pins the same way. Gates:
+  `test/unit/test_orientation.jl` (rank of the aligned crystal for every orientation on
+  sc / fcc / diamond / bcc spin × displacement with and without SOC; orthogonality and
+  closure of the idealized rotations; refusal of non-symmetries; a 5e-7-sheared lattice
+  giving the unsheared basis; the report), each of the four causes and each threshold
+  pushed the other way mutation-tested. **Keep the diamond row**: it is the only one that
+  sees `_ASR_CANCELLATION_RTOL` (the cubic Bravais rows pass with it at 1e-10; the full
+  sweep then refuses 34 of 455).
 - **Image selection ↔ neighbor list ↔ cluster edges** (`geometry/neighborlist.jl`,
   `clusters/enumerate.jl`, `slce/model.jl`): `SLCEBasis` threads one `images` value to
   **both** `build_neighbor_list` and `candidate_clusters`/`build_clusters`; they must
@@ -848,14 +888,18 @@ Easy to break silently — confirm before touching the algorithm.
   column against its own gross accumulation (a global cut is blind to the all-columns-cancel
   case, which is exactly the bcc harmonic one). Its group-resolved
   form is `group_freedom` (`s_g = ‖Z[g, :]‖_F²`, `Σ_g s_g ≡ q`, gauge-invariant).
-  **`_CANCELLATION_RTOL` (`basis/resolvability.jl`) is one constant with two readers, and
-  the reading is "did this cancel?", never "is this small?"**: `unresolvable_columns` judges
-  a COLUMN of the undifferentiated expansion, `_prune_residue!` (`asr.jl`) judges each ENTRY
-  of the differentiated one against the gross mass `_asr_expansion` reports beside it. The
+  **"Did this cancel?" is asked at two granularities with two constants, and the reading is
+  never "is this small?"**: `unresolvable_columns` judges a COLUMN of the undifferentiated
+  expansion (`_CANCELLATION_RTOL = 1e-10`, `basis/resolvability.jl`, budgeted for large
+  orbit sums), `_prune_residue!` (`asr.jl`) judges each ENTRY of the differentiated one
+  against the gross mass `_asr_expansion` reports beside it (`_ASR_CANCELLATION_RTOL =
+  1e-13`, round-off — at 1e-10 it deleted genuine entries of size θ in a crystal turned by
+  a small angle θ; split 2026-11-15, `zero.jl` counts unchanged). The
   differentiated expansion cancels wherever the undifferentiated one does, so a tied cell can
   produce an `A` that is residue end to end — and a cut against `A`'s own maximum (per row or
-  global) cannot see it: every row then looks full-strength, the row normalization promotes
-  BLAS rounding to unit constraints, and `asr_residual` read 0.36 on a bcc spin × displacement
+  global) cannot see it: every row then looks full-strength, the (since retired) row
+  normalization promoted BLAS rounding to unit constraints, and `asr_residual` read 0.36 on a
+  bcc spin × displacement
   basis whose every column is identically zero (`max|A| = 3.6e-15` against a gross 82), i.e.
   the public verifier the force-constant / dynamical-matrix / strain paths gate on refused a
   legal model over noise. The prune is why `build_asr`'s broken-expansion refusal reads

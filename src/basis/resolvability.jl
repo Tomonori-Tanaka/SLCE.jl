@@ -128,12 +128,14 @@ Base.isless(a::_FuncRowKey, b::_FuncRowKey) = (a.spins, a.disps) < (b.spins, b.d
 # count of a large orbit sum (N ~ 1e4 already reaches 1e-12) and stay far below any
 # genuine ratio.
 #
-# ONE definition, two readers, because it answers one question — "did this cancel?",
-# never "is this small?" — at two granularities: `unresolvable_columns` below judges
-# a whole COLUMN of the undifferentiated expansion, `_prune_residue!`
-# (`fitting/asr.jl`) judges each ENTRY of the differentiated one. A cut taken
-# against the matrix's own maximum instead cannot see the case where EVERYTHING
-# cancels, which is exactly the case a Wigner–Seitz-tied cell produces.
+# It answers "did this COLUMN cancel?", never "is it small?": `unresolvable_columns`
+# below judges a whole column of the undifferentiated expansion (and
+# `moment_resolvability` the same for the pointed basis). A cut taken against the
+# matrix's own maximum instead cannot see the case where EVERYTHING cancels, which is
+# exactly the case a Wigner–Seitz-tied cell produces. The entry-level question of the
+# sum rule (`_prune_residue!`) has had its own constant at round-off,
+# `_ASR_CANCELLATION_RTOL`, since 2026-11-15: at this value it deleted genuine entries
+# of size θ in a crystal turned by a small angle θ.
 const _CANCELLATION_RTOL = 1e-10
 
 """

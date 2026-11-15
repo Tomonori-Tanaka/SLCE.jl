@@ -38,8 +38,10 @@ Base.isless(a::_ASRRowKey, b::_ASRRowKey) =
 The ASR constraint matrix `A` (rows = common monomials of `Σ_a ∂E/∂u_a`, columns
 = SALC coefficients in design order): `A·β = 0` ⇔ the model energy is invariant
 under every rigid translation `u_a → u_a + t`. Pure-spin columns are identically
-zero. Rows are sorted by their monomial key for determinism and NOT yet
-normalized — [`_asr_nullspace`](@ref) row-normalizes before the rank decision.
+zero. Rows are sorted by their monomial key for determinism and not scaled;
+[`build_asr`](@ref) scales them degree by degree for storage
+(`_scale_rows_by_degree`), and the rank is decided on rows that were never normalized
+one by one (see [`_asr_nullspace`](@ref)).
 
 Cancellation residue is pruned to exact zeros by [`_prune_residue!`](@ref); a caller
 that must distinguish "the expansion deposited nothing" from "everything it deposited
@@ -74,8 +76,8 @@ function _asr_expansion(basis::SLCEBasis)
         # coordinates the fit solves in. It does not actually move the null space:
         # `_ASRRowKey` keys on the spin monomial itself, so every column a given row
         # touches carries the identical spin factor — hence the identical
-        # `n_spin` — and a factor constant along a row is divided out again by the
-        # relative row normalization below. Keep it anyway: it is what makes the
+        # `n_spin` — and a factor constant along a row is a uniform row scale, which
+        # moves no rank. Keep it anyway: it is what makes the
         # matrix's ENTRIES comparable to the design's (the symbolic-vs-numerical rank
         # gate and any future per-degree `disp_scale` rescaling both read them), and
         # a row that ever couples mixed `n_spin` would need it for real.
@@ -114,9 +116,10 @@ each entry against its own gross accumulation `G[r, j]` (see
 [`_asr_expansion`](@ref)).
 
 Exact zeros are the contract, not a cosmetic: `refit` subselects columns, and a row
-whose real columns were all dropped would otherwise have its residue entry blown up to
-a full-strength, BLAS-rounding-determined constraint by [`_asr_nullspace`](@ref)'s row
-normalization.
+whose real columns were all dropped must then be an empty row, which
+[`_asr_nullspace`](@ref) ignores, not a row of residue — a component made of residue
+alone would have its own largest singular value as its scale and read as a full set of
+constraints.
 
 The scale must be the entry's own gross mass — "did this entry cancel?", never "is this
 entry small?". A cut taken against the matrix's own maximum (per row or global) is blind
@@ -124,15 +127,25 @@ to the case where EVERY entry cancels, which is exactly what a Wigner–Seitz-ti
 produces: measured on a bcc spin × displacement basis whose `max|A|` is 3.6e-15, the old
 global cut kept all of it and [`asr_residual`](@ref) reported **0.299** for a
 hand-built model, i.e. a physical consumer's gate refusing a legal model over rounding
-noise. Same constant, same reading as `unresolvable_columns`
-(`_CANCELLATION_RTOL`, `basis/resolvability.jl`).
+noise. Same reading as `unresolvable_columns` (`_CANCELLATION_RTOL`,
+`basis/resolvability.jl`), with its own constant at round-off
+(`_ASR_CANCELLATION_RTOL`).
 """
+# The entry-level cut of `_prune_residue!`: "did this entry cancel?", at round-off.
+# It used to be `_CANCELLATION_RTOL` (1e-10), shared with `unresolvable_columns`. In a
+# crystal turned by a small angle `θ`, genuine entries of relative size `θ` and `θ²`
+# were deleted as if they had cancelled, and what was left of their rows carried
+# singular values into the forbidden band of the rank decision (measured 2026-11-15).
+# The column-level reader keeps its own constant: a whole column's cancellation is a
+# different question with its own round-off budget (large orbit sums).
+const _ASR_CANCELLATION_RTOL = 1e-13
+
 function _prune_residue!(A::Matrix{Float64}, G::Matrix{Float64})::Matrix{Float64}
     size(A) == size(G) ||
         throw(DimensionMismatch("ASR expansion: value and gross matrices differ in " *
                                 "size ($(size(A)) vs $(size(G)))"))
     @inbounds for j in axes(A, 2), r in axes(A, 1)
-        abs(A[r, j]) <= _CANCELLATION_RTOL * G[r, j] && (A[r, j] = 0.0)
+        abs(A[r, j]) <= _ASR_CANCELLATION_RTOL * G[r, j] && (A[r, j] = 0.0)
     end
     keep = [r for r in axes(A, 1) if any(!=(0.0), @view A[r, :])]
     return A[keep, :]
@@ -222,11 +235,11 @@ function _asr_expand_product!(rows::Dict{_ASRRowKey,Dict{Int,Tuple{Float64,Float
     return nothing
 end
 
-# Rank / null-space policy (design record §6 amendment 3): row-normalize, split
-# into exact connected components of the column–row bipartite graph, decide rank
-# per component by SVD with cut σ ≤ RTOL_ZERO·σ_max, and REFUSE ambiguous spectra
-# (any σ inside the forbidden band). Z is orthonormal per component, identity on
-# untouched (pure-spin) columns.
+# Rank / null-space policy (design record §6 amendment 3): split into exact connected
+# components of the column–row bipartite graph, decide rank per component by SVD with
+# cut σ ≤ RTOL_ZERO·σ_max on the rows AS THEY ARE (never normalized one by one — see
+# `_asr_nullspace`), and REFUSE ambiguous spectra (any σ inside the forbidden band).
+# Z is orthonormal per component, identity on untouched (pure-spin) columns.
 const _ASR_RTOL_ZERO = 1e-10
 const _ASR_BAND = (1e-12, 1e-8)
 # A column is STRUCTURALLY ZEROED by a constraint when its row of the null-space basis
@@ -258,11 +271,53 @@ end
 """
     _asr_nullspace(A) -> (Z::Matrix{Float64}, rank::Int)
 
-Orthonormal null-space basis of the (row-normalized) constraint matrix `A` and
-its rank. Deterministic per platform; the basis GAUGE is factorization-dependent
-— never persist `Z` or `γ`, only `β = Z·γ` (gauge-invariant). Throws on an
-ambiguous singular spectrum (forbidden band) instead of guessing the rank.
+Orthonormal null-space basis of the constraint matrix `A` and its rank.
+Deterministic per platform; the basis GAUGE is factorization-dependent — never
+persist `Z` or `γ`, only `β = Z·γ` (gauge-invariant). Throws on an ambiguous
+singular spectrum (forbidden band) instead of guessing the rank.
+
+The rows are used as they are, NOT normalized one by one. The rank must not depend
+on how the crystal is turned against the Cartesian axes, and it does not as long as
+the rows are only combined linearly: turning the crystal mixes the rows of one
+cluster and degree among themselves. Normalizing each row to unit length breaks
+that. A crystal turned by a small angle `θ` has rows of genuine size `θ`; brought to
+unit length, their round-off grows by `1/θ` and counts as constraints (measured
+2026-11-15 on `eea5c16`: of 56 turned crystals, 17 refused in the forbidden band and
+12 returned a rank too large, with no warning). Rows of different displacement degree
+differ in scale by orders of magnitude, but they never share a column, so each
+connected component is of one degree and its own largest singular value is the right
+scale for it.
 """
+# The displacement degree of every column (`Σ disp_degree` over the key's sites); a
+# pure-spin column has degree 0 and never touches a constraint row.
+_column_disp_degrees(basis::SLCEBasis)::Vector{Int} =
+    [sum(disp_degree, s.key.decors; init = 0) for s in salcs(basis)]
+
+"""
+    _scale_rows_by_degree(A, column_degrees) -> Matrix{Float64}
+
+`A` with every row divided by the norm of the largest row of its own displacement
+degree (a row touches columns of one degree only; `column_degrees[j]` is the degree
+of column `j`).
+
+The rows of different degrees differ in scale by orders of magnitude, and a residual
+`‖A·β‖` taken over all of them would see the lowest degree only. One factor per degree
+evens that out and cannot change a rank: all the rows that a rotation of the crystal
+mixes among themselves get the same factor. Dividing each row by its own norm, which
+was done here before 2026-11-15, does change the rank of a slightly turned crystal
+(see [`_asr_nullspace`](@ref)).
+"""
+function _scale_rows_by_degree(A::Matrix{Float64},
+                               column_degrees::Vector{Int})::Matrix{Float64}
+    row_degree = [column_degrees[findfirst(!=(0.0), @view A[r, :])] for r in axes(A, 1)]
+    largest = Dict{Int,Float64}()
+    for r in axes(A, 1)
+        largest[row_degree[r]] = max(get(largest, row_degree[r], 0.0),
+                                     norm(@view A[r, :]))
+    end
+    return A ./ [largest[row_degree[r]] for r in axes(A, 1)]
+end
+
 function _asr_nullspace(A::Matrix{Float64})
     p = size(A, 2)
     # (Near-)zero rows impose nothing — they cannot occur in a fresh
@@ -275,8 +330,7 @@ function _asr_nullspace(A::Matrix{Float64})
     nzrows = [r for r in axes(A, 1) if rnorms[r] > 1e-12 * rmax]
     m = length(nzrows)
     m == 0 && return Matrix{Float64}(I, p, p), 0
-    A = A[nzrows, :]
-    An = A ./ rnorms[nzrows]
+    An = A[nzrows, :]
     # connected components over columns (union-find via shared rows)
     parent = collect(1:p)
     find(x) = (while parent[x] != x; parent[x] = parent[parent[x]]; x = parent[x]; end; x)
@@ -344,7 +398,8 @@ end
 Build the reparameterization every fit on `basis` solves in. It encodes two exact
 facts about the basis, kept in separate fields so neither is mistaken for the other:
 
-  * **translation invariance** — the row-normalized ASR constraint matrix `A` and its
+  * **translation invariance** — the ASR constraint matrix `A` (rows scaled per
+    displacement degree, never one by one) and its
     orthonormal null-space basis `Z`, so `β = Z·γ` satisfies `A·β = 0` by
     construction. Skipped entirely with `translation = false` (an ablation path).
   * **the unresolvable-column freeze** — the columns
@@ -467,9 +522,10 @@ function build_asr(basis::SLCEBasis; translation::Bool = true,
     visited = any(>(0.0), G)
     A = _prune_residue!(A_gross, G)
     m = size(A, 1)
-    # store the row-normalized form (the residual gate's conditioning);
-    # `_asr_nullspace` normalizes internally (idempotent on this input)
-    An = m == 0 ? A : A ./ [norm(@view A[r, :]) for r = 1:m]
+    # Stored scaled degree by degree (`_scale_rows_by_degree`), so that the residual
+    # `‖A·β‖/(‖A‖‖β‖)` weighs the displacement degrees alike. The rank is decided on
+    # these rows as they are.
+    An = m == 0 ? A : _scale_rows_by_degree(A, _column_disp_degrees(basis))
     rep = _stage_reparam(basis, free, zeros(p), An)
     Z, rank = rep.Z, rep.rank
     ndisp = length(intersect(_disp_active_cols(basis), free))
@@ -558,7 +614,8 @@ function asr_residual(model::SLCEModel)::Float64
     any(s -> any(has_disp, s.key.decors), salcs(basis)) || return 0.0
     A = _asr_matrix(basis)
     isempty(A) && return 0.0
-    return _asr_residual(A ./ [norm(@view A[r, :]) for r in axes(A, 1)], model.jphi)
+    return _asr_residual(_scale_rows_by_degree(A, _column_disp_degrees(basis)),
+                         model.jphi)
 end
 
 # The fit RECORDS its residual at fit time, so this reads the field rather than rebuilding

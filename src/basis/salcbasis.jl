@@ -14,11 +14,13 @@
 # ordering (`basis/salc.jl`). For 1/2-body and equal-l channels this reduces to a
 # single term and a single path, matching the earlier construction.
 #
-# The absolute drop thresholds below (1e-10/1e-12) and the idempotency guard (1e-6)
-# are sized for the validated regime (per-site l ≤ 2, small body order), where the
-# CG/recoupling products stay O(1e-3)–O(1). The ground-truth invariance test and the
-# exact-0/1 eigenvalue assertion are the in-band gates; at much higher l these
-# thresholds would want to scale with the coupled-tensor magnitude.
+# Entries of a coefficient tensor that are round-off against its largest entry are set
+# to exactly zero (`_ROUNDOFF_RTOL`), and the group average is checked to be idempotent
+# (eigenvalues 0 or 1 to 1e-6). Both decisions are relative, and neither depends on how
+# the crystal is turned against the Cartesian axes; the invariance tests and the
+# orientation tests of the sum rule hold them. (Until 2026-11-15 the drops were
+# absolute, 1e-10 / 1e-12, which deleted genuine entries of size θ in a crystal turned
+# by a small angle θ.)
 
 """
 Sentinel meaning "no `Σl` cap" for a body order (in `BasisSpec.lsum` and
@@ -207,7 +209,7 @@ function _project_and_fold(stab::Vector{Tuple{Int,Vector{Int}}},
             oi2 === nothing && error("ordering set not closed under the stabilizer")
             for p2 in eachindex(tens[oi2]), Mf2 = 1:(2Lf + 1)
                 c = _frobenius_inner(_mf_slice(tens[oi2][p2], Mf2), v)
-                abs(c) < 1e-12 && continue
+                abs(c) < _ROUNDOFF_RTOL && continue    # the tensors are orthonormal
                 P[colidx[(oi2, p2, Mf2)], k] += c
             end
         end
@@ -233,18 +235,51 @@ function _project_and_fold(stab::Vector{Tuple{Int,Vector{Int}}},
                 coef == 0.0 && continue
                 Fo .+= coef .* _mf_slice(tens[oi][p], Mf)
             end
-            @inbounds for index in eachindex(Fo)
-                abs(Fo[index]) < 1e-10 && (Fo[index] = 0.0)
-            end
-            norm(Fo) > 1e-10 && push!(terms, (collect(o), Fo))
+            _zero_roundoff!(Fo)
+            norm(Fo) > _ROUNDOFF_RTOL && push!(terms, (collect(o), Fo))
         end
         push!(blocks, terms)
     end
     return blocks
 end
 
+"""
+Relative size below which an entry of a coefficient tensor is round-off: an entry
+smaller than this times the largest entry of its tensor is set to exactly zero
+(`_zero_roundoff!`).
+
+Exact zeros matter downstream — a term whose tensor is zero is dropped, and so is a
+member without terms. The cut must sit at round-off and be relative. A crystal turned
+by a small angle `θ` against the Cartesian axes has genuine entries of size `θ`, and
+an absolute cut of `1e-10`, which stood here before 2026-11-15, kept them for `θ`
+above it and deleted them below: the basis then jumped with the orientation, and with
+it the rank of the sum rule (ported from SphericalTensorFC `311e08f`).
+"""
+const _ROUNDOFF_RTOL = 1e-13
+
+# Set the entries of `tensor` that are round-off against its largest entry to zero.
+function _zero_roundoff!(tensor::AbstractArray{Float64})
+    cut = _ROUNDOFF_RTOL * maximum(abs, tensor; init = 0.0)
+    @inbounds for index in eachindex(tensor)
+        abs(tensor[index]) < cut && (tensor[index] = 0.0)
+    end
+    return tensor
+end
+
 # Deterministic, BLAS-independent gauge: axis-pivoted modified Gram–Schmidt on the
 # block projector, with a first-significant-component sign fix.
+#
+# A column of the projector is taken as the next basis vector when what is left of it
+# after removing the vectors already chosen has norm above `_GAUGE_PIVOT_MIN`. The
+# threshold is that high on purpose: normalizing a remainder of norm `ν` multiplies
+# its round-off by `1/ν`, and in a crystal turned by a small angle `θ` remainders of
+# norm about `θ` occur (at 1e-8, which stood here before 2026-11-15, the amplified
+# round-off reached the forbidden band of the sum rule's rank decision for θ between
+# 1e-8 and 1e-4). It can never leave the basis short: the squared remainders of all
+# columns add up to the number of vectors still missing, so while one is missing some
+# remainder exceeds `1/√n` for an `n`-dimensional block.
+const _GAUGE_PIVOT_MIN = 1e-4
+
 function _canonical_basis(V1::AbstractMatrix{Float64})
     n, d = size(V1)
     d == 0 && return zeros(Float64, n, 0)
@@ -257,7 +292,7 @@ function _canonical_basis(V1::AbstractMatrix{Float64})
             u .-= dot(view(W, :, i), u) .* view(W, :, i)
         end
         nu = norm(u)
-        if nu > 1e-8
+        if nu > _GAUGE_PIVOT_MIN
             k += 1
             W[:, k] = u ./ nu
             _sign_canon!(view(W, :, k))
@@ -288,10 +323,7 @@ function _transport_term(o::Vector{Int}, F::Array{Float64}, g::Int,
         T = AngularMomentum.nmode_mul(T, _wigner_d(wcache, o[i], g), i)
     end
     q = invperm(perm)                       # member axis j ← rep axis q[j]
-    G = Array{Float64}(permutedims(T, q))
-    @inbounds for index in eachindex(G)
-        abs(G[index]) < 1e-10 && (G[index] = 0.0)
-    end
+    G = _zero_roundoff!(Array{Float64}(permutedims(T, q)))
     return o[q], G                          # member ls = o[invperm(perm)]
 end
 
@@ -448,7 +480,7 @@ function _project_and_fold_decors(stab::Vector{Tuple{Int,Vector{Int}}},
             v = permutedims(v, invperm(σ))
             for p2 in eachindex(tens[ai2]), Mf2 = 1:(2Lf + 1)
                 c = _frobenius_inner(_mf_slice(tens[ai2][p2], Mf2), v)
-                abs(c) < 1e-12 && continue
+                abs(c) < _ROUNDOFF_RTOL && continue    # the tensors are orthonormal
                 P[colidx[(ai2, p2, Mf2)], k] += c
             end
         end
@@ -473,10 +505,10 @@ function _project_and_fold_decors(stab::Vector{Tuple{Int,Vector{Int}}},
                 coef == 0.0 && continue
                 Fo .+= coef .* _mf_slice(tens[ai][p], Mf)
             end
-            @inbounds for index in eachindex(Fo)
-                abs(Fo[index]) < 1e-10 && (Fo[index] = 0.0)
-            end
-            norm(Fo) > 1e-10 && push!(terms, (ai, Fo))
+            _zero_roundoff!(Fo)
+            # `c` and the coupled tensors are orthonormal, so Σ_ai ‖Fo‖² = 1 and a term
+            # is round-off when its norm is round-off against 1.
+            norm(Fo) > _ROUNDOFF_RTOL && push!(terms, (ai, Fo))
         end
         push!(blocks, terms)
     end
@@ -497,10 +529,7 @@ function _transport_term_decors(a::Vector{SiteDecor}, slots::Vector{Slot},
     a2 = _assignment_image(a, perm)
     slots2 = _assignment_slots(a2)
     σ = _slot_sigma(slots, slots2, perm)
-    G = Array{Float64}(permutedims(T, invperm(σ)))
-    @inbounds for index in eachindex(G)
-        abs(G[index]) < 1e-10 && (G[index] = 0.0)
-    end
+    G = _zero_roundoff!(Array{Float64}(permutedims(T, invperm(σ))))
     return SALCTerm(slots2, G)
 end
 

@@ -355,11 +355,12 @@ end
     @testset "no unresolvable column => the reparameterization is unchanged" begin
         # Byte-neutrality: where nothing is frozen, `build_asr` must reproduce exactly
         # what it produced before the freeze existed — the null space of the whole
-        # row-normalized constraint matrix, with every column free.
+        # constraint matrix (stored scaled per displacement degree since 2026-11-15,
+        # never normalized row by row), with every column free.
         b = Dict(fixtures)["bcc as 2x2x2"]
         @test isempty(unresolvable_columns(b))
         A = _asr_matrix(b)
-        An = A ./ [norm(@view A[r, :]) for r in axes(A, 1)]
+        An = SLCE._scale_rows_by_degree(A, SLCE._column_disp_degrees(b))
         Z0, rank0 = _asr_nullspace(An)
         rep = build_asr(b; warn = false)
         @test rep.free == collect(1:n_salcs(b))

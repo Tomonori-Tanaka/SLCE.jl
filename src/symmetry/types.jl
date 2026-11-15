@@ -5,8 +5,11 @@ A single space-group operation `(W | t)`.
 
 # Fields
 - `rotation_frac::SMatrix{3,3,Float64,9}`: rotation in fractional coordinates `W`.
-- `rotation_cart::SMatrix{3,3,Float64,9}`: rotation in Cartesian coordinates,
-  `A·W·A⁻¹` with `A` the lattice (used to rotate spin directions / harmonics).
+- `rotation_cart::SMatrix{3,3,Float64,9}`: rotation in Cartesian coordinates, an
+  orthogonal matrix `A_s·W·A_s⁻¹` with `A_s` the symmetrized lattice of the crystal's
+  (`_idealized_cartesian_rotations`), which is the crystal's own lattice up to
+  round-off when that is exactly symmetric (used to rotate spin directions /
+  harmonics).
 - `translation_frac::SVector{3,Float64}`: translation `t` (fractional).
 - `is_proper::Bool`: `det(rotation_cart) > 0`.
 - `is_translation::Bool`: `W == I` (a pure translation).
