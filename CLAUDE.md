@@ -1328,9 +1328,31 @@ Easy to break silently — confirm before touching the algorithm.
   `cost_weights` docstring — keep the formulas in Greek (a derivation written in
   `score_rtol` is unreadable) and the keywords in words, never the other way round. `select_fit`'s alive-group rule is the `refit` scaled-magnitude support rule
   (`|jϕⱼ|·‖X[:,j]‖ > threshold`) applied per group — change one side and the other (and
-  the E2E cost-recomputation test) follows; `select_support` uses that rule only to build
+  the E2E cost-recomputation test) follows. Its DEFAULT threshold is `_alive_floor`
+  (**rule B**, S-14 2026-11-15), and both halves are load-bearing: if the largest scaled
+  magnitude `smax ≤ _ALIVE_RTOL·‖y‖` the point is all-dead and the threshold IS that data
+  floor (≥ `smax`, so `refit(path.fit; threshold = path.threshold)` returns the mean
+  model); otherwise it is the old relative floor `_ALIVE_RTOL·smax`, so live points
+  partition bit-identically to before. The relative floor alone compares `smax` with
+  itself and called every group alive at an all-crushed λ (null gate in
+  `test_selection.jl`, joint in `test_jointdata.jl`, freeze-only in
+  `test_resolvability.jl`). **Which `y`**: the centered, row-scaled target the path's
+  solves were handed — all weighted blocks. A constrained / staged λ path (not built:
+  `select_fit` refuses constraint rows and takes a dataset, never a staged fit) must read
+  the γ-space target `y − X·beta_p` instead; for every non-staged reparameterization
+  `beta_p ≡ 0` and the two are bitwise equal (asserted in both gates). **Every λ is
+  solved cold** — path and folds; `_solve_gar` has no `beta0`. The descending warm start
+  was removed because a seed crushed by a larger λ holds the next λ at the all-dead fixed
+  point of this non-convex reweighting (it did on Nd2Fe14B real data); do not reintroduce
+  it as a speed-up — the "every path point is the cold fit at its λ" test (score/edof to
+  1e-10) fails on it. `select_support` uses the support rule only to build
   its threshold grid and to drive `refit` (column-wise), and reads its `n_alive`/`cost`
   columns back off the **returned refits** (groups with a nonzero de-biased coefficient).
+  Its auto grid (`_support_thresholds`) carries an **empty-support point** at
+  `2·max m_g` (the mean model, so "nothing is needed" is selectable; 2× rather than `max`
+  so it stays empty whatever rounding `refit`'s recomputation sees), and that one point
+  goes through `_refit(...; warn_empty = false)` — `refit`'s empty-support warning would
+  otherwise fire on every sweep. An explicit `thresholds` vector keeps the warning.
   Do not "simplify" that back to `m_g > t`: the two agree without a constraint, but under
   an ASR a support that splits a constraint-coupled column set structurally zeroes some
   survivors, and `m_g > t` would then report a cost the returned model does not pay.

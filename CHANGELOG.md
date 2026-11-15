@@ -6,6 +6,51 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — `select_fit` called every group alive at a λ where the fit explained nothing; the path is no longer warm-started; `select_support` can select the empty support (2026-11-15, S-14)
+
+On a target with no coupling (i.i.d. noise energies, the test fixture's P1 basis, 3 seeds ×
+`:gcv`/`:cv`) `select_fit` selected λ = 1e8, where the fit explains 4e-16 of the data,
+and reported **4/4 groups alive at full cost**; the docstring's
+`refit(path.fit; threshold = path.threshold)` then kept 44/44 columns and returned OLS
+on the noise.
+
+- **Alive rule B** (`_alive_floor`). The default floor compared a λ's largest scaled
+  magnitude `smax` with a fraction of ITSELF, so the largest group always cleared it. Now
+  `smax ≤ 1e-6·‖y‖` (`y` the assembled, centered, row-scaled target the solve saw, all
+  weighted blocks) makes the point all-dead: `n_alive = 0`, `cost = 0`, and the threshold
+  reported is `1e-6·‖y‖`, so the de-biasing recipe returns the mean model
+  (`j0 = mean(y_E)`). Every other λ keeps the relative floor `1e-6·smax`, so **live points
+  partition bit-identically to before**; only all-dead points change (on the
+  Nd₂Fe₁₄B l02 path, the seven the user had been overwriting by hand). The reference under
+  a reparameterization is the γ-space target `y − X·beta_p`, which equals `y` bitwise for
+  every non-staged one (`beta_p ≡ 0`); `select_fit` still refuses constraint rows and never
+  sees a staged fit, so today it is always `y`.
+- **No warm start.** Each λ (and each fold × λ under `:cv`) is solved cold from the
+  fixed-weight ridge start; `_solve_gar` lost its `beta0` keyword (internal — no public
+  keyword controlled it). The descending warm start was captured by the all-dead fixed
+  point on real data, which the docstring and design-notes §13 had said it followed.
+  Each path point is now `fit` at its λ (score and dof agree to 1e-10, the warm path to
+  ~1e-4). This **can change a selection**: on the pure-noise fixture `:cv` still selects
+  the null on 20/20 seeds, while `:gcv` selects a λ = 0.01 noise fit on 1/20 (seed 3,
+  score 0.85 of the null) that the warm path had masked by never leaving the null — the
+  documented optimism of GCV, now visible. Cost: one cold IRLS per λ.
+- **`select_support`'s automatic grid carries an empty-support point** at
+  `2·max m_g` (refit = the mean model, `n_alive = 0`, `cost = 0`), so "nothing is
+  needed" is selectable; before, the sparsest point kept the top group and a front on
+  noise always fitted something. The grid holds at most `npoints + 1` points. That
+  point's refit does not emit `refit`'s empty-support warning (an explicit `thresholds`
+  vector still does). Measured on noise with a 200-configuration holdout: the empty point
+  is selected on 6/6 seeds; on the group-sparse signal fixture it is listed and not
+  selected.
+- Tests: the S-14 null gate (pure spin, `:gcv` and `:cv`; joint three-block under
+  `asr = false`, `:cv` — `:gcv` picks noise fits there on every seed, its co-fit caveat;
+  freeze-only reparameterization), the live-point partition against the relative rule
+  computed inline, "every path point is the cold fit at its λ" (replaces "warm-started
+  path matches cold fits"), and the empty point winning on noise. Mutation-checked:
+  reverting rule B fails 43 assertions across the three null gates and the partition
+  test; reinstating the warm start fails 12 (cold-fit and partition tests); dropping the
+  empty point fails 20.
+
 ### Added — `symmetrize`; noisy crystals Spglib accepts are no longer refused (2026-11-15)
 
 A crystal with its symmetry only to a residue (relaxed coordinates, six decimals) passed

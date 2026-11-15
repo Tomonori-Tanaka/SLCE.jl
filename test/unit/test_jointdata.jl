@@ -11,6 +11,7 @@ using SLCE: _design_energy, _design_torque, _design_force, _disp_active_cols,
     _disp_referenced_atoms, accumulate_grad!
 using LinearAlgebra
 using Random
+using Statistics: mean
 
 isdefined(@__MODULE__, :same_members) || include("testutils.jl")
 
@@ -353,6 +354,58 @@ _jd_cfg(rng, nat) = reduce(hcat, [_jd_unit(rng) for _ = 1:nat])
         @test !said(() -> fit(SLCEFit, dsq, OLS(); asr = false))
         @test !said(() -> fit(SLCEFit, ds, OLS(); force_weight = 0.5, asr = false))
         @test said(() -> fit(SLCEFit, ds, OLS(); asr = false))
+    end
+
+    # S-14 rule B on the joint path: the data floor reads the WHOLE weighted target —
+    # energy and force blocks alike — and, on a dataset carrying an ASR (constraint
+    # rows), the γ-space target a constrained solve would see is that same target,
+    # because a non-staged reparameterization has `beta_p ≡ 0`. Truth: no coupling;
+    # energies and forces are i.i.d. noise. The premise (the selected fit explains
+    # < 1e-10 of the target) and the target norm are both computed here from the raw
+    # blocks and the documented row weights, not from `_assemble_problem`.
+    @testset "select_fit: an all-dead λ on the joint target (S-14)" begin
+        rngn = MersenneTwister(0x514)
+        noise = [TrainingDatum(; energy = randn(rngn), directions = _jd_cfg(rngn, nat),
+                               magmoms = ones(nat),
+                               displacements = 0.08 .* randn(rngn, 3, nat),
+                               forces = randn(rngn, 3, nat), provenance = prov(false))
+                 for _ = 1:60]
+        dsn = SLCEDataset(basis, noise; use_torque = false)
+        # which `y`: the γ-space target of the constrained problem IS the β-space one
+        @test dsn.asr !== nothing && size(dsn.asr.A, 1) > 0
+        @test all(iszero, dsn.asr.beta_p)
+        wF = 0.5
+        @test SLCE._assemble_problem(dsn, 0.0, wF, dsn.asr)[2] ==
+              SLCE._assemble_problem(dsn, 0.0, wF)[2]
+        nE, nF = length(dsn.y_E), length(dsn.y_F)
+        yc = dsn.y_E .- mean(dsn.y_E)
+        ynorm = sqrt((1 - wF) * sum(abs2, yc) / nE + wF * sum(abs2, dsn.y_F) / nF)
+        Xc = dsn.X_E .- mean(dsn.X_E; dims = 1)
+        gar = GroupAdaptiveRidge(collect(1:m), ones(m); lambda = 1.0)
+        # `:cv` only, the criterion the docstring prescribes for co-fits. `:gcv` is not
+        # a usable premise here: on this three-block null it selected a noise fit
+        # (12–18 of 90 singleton groups, score 0.78–0.95 of the null) on all four seeds
+        # scanned at wF = 0.2 and 0.5 — the documented optimism of GCV on correlated
+        # rows, not a property of the alive rule. `:cv` selected the null on all eight.
+        for crit in (:cv,)
+            p = select_fit(dsn, gar; lambdas = 10.0 .^ (8:-1:-6), force_weight = wF,
+                           criterion = crit, asr = false)
+            b = p.fit.jphi
+            fitnorm = sqrt((1 - wF) * sum(abs2, Xc * b) / nE +
+                           wF * sum(abs2, dsn.X_F * b[dsn.force_cols]) / nF)
+            @test fitnorm / ynorm < 1e-10                      # premise: crushed
+            @test p.n_alive[p.selected] == 0
+            @test p.cost[p.selected] == 0.0
+            @test p.threshold ≈ 1e-6 * ynorm rtol = 1e-12      # both blocks counted
+            fr = @test_logs (:warn, r"empty support") refit(p.fit;
+                                                           threshold = p.threshold)
+            @test isempty(fr.support) && all(iszero, fr.jphi)
+            @test fr.j0 ≈ mean(dsn.y_E) rtol = 1e-12
+            @test p.n_alive[end] > 0                 # small λ does fit the noise
+        end
+        # and the constrained path is still refused rather than run on the wrong y
+        @test_throws ArgumentError select_fit(dsn, gar; lambdas = [1.0],
+                                              force_weight = wF)
     end
 
     @testset "fit / dataset error surface" begin

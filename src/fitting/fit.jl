@@ -492,6 +492,15 @@ model is exactly as translation-invariant as the staged one.
 """
 function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
                threshold::Real = 0.0)::SLCEFit
+    return _refit(f, estimator, threshold, true)
+end
+
+# `refit`'s body. `warn_empty = false` silences the empty-support warning and nothing
+# else, for a caller that asks for the empty support ON PURPOSE — `select_support`'s
+# mean-model point (`_support_thresholds`), where an empty support is the point's
+# definition rather than a surprise, and a warning on every sweep would be noise.
+function _refit(f::SLCEFit, estimator::AbstractEstimator, threshold::Real,
+                warn_empty::Bool)::SLCEFit
     threshold >= 0 || throw(ArgumentError("refit threshold must be ≥ 0; got $threshold"))
     _reject_fixed_coefficients(estimator)
     # Same shape of up-front refusal: the group labels are indexed by the FULL basis
@@ -541,14 +550,16 @@ function refit(f::SLCEFit, estimator::AbstractEstimator = OLS();
         # error on a zero-column design). γ = 0 is the well-defined degenerate fit,
         # and on a stage that is `beta_p` itself — feasible by construction, frozen
         # part and particular solution intact.
-        @warn "refit: empty support — every fitted coefficient is at or below the " *
-              "scaled-magnitude threshold. Returning the stage's particular " *
-              "solution (γ = 0); j0 is re-derived." threshold
+        warn_empty &&
+            @warn "refit: empty support — every fitted coefficient is at or below " *
+                  "the scaled-magnitude threshold. Returning the stage's particular " *
+                  "solution (γ = 0); j0 is re-derived." threshold
         jphi = copy(rep.beta_p)
     elseif isempty(support)
-        @warn "refit: empty support — every coefficient is at or below the " *
-              "scaled-magnitude threshold. Returning an all-zero jϕ; " *
-              "j0 falls back to mean(y_E)." threshold
+        warn_empty &&
+            @warn "refit: empty support — every coefficient is at or below the " *
+                  "scaled-magnitude threshold. Returning an all-zero jϕ; " *
+                  "j0 falls back to mean(y_E)." threshold
     elseif rep === nothing
         # A penalty metric is per-column data, so it has to be cut down to the chosen
         # support with the design — otherwise the solve dies on a length check whose

@@ -1040,24 +1040,31 @@ capability consumed by both the introspection and the Sunny interop.
   grouped CV is the ground truth there (documented, not an error).
 - **λ path + Pareto** (exported): `select_fit(dataset, est; lambdas, torque_weight,
   criterion = :gcv|:cv, score_rtol, costs, threshold, nfolds, seed) -> LambdaPath` —
-  descending warm-started path on a once-assembled Gram; per-λ score, effective dof,
+  descending λ grid on a once-assembled Gram, **every λ solved cold** (no warm start —
+  removed 2026-11-15, S-14: a crushed seed holds the next λ at the all-dead fixed point;
+  each path point is exactly `fit` at its λ); per-λ score, effective dof,
   alive groups (the `refit` scaled-magnitude rule, any-column-per-group) and predicted
   MC cost `Σ_{g alive} c_g`; selection = cheapest λ within `(1 + score_rtol)` of the minimum score
   (the cost-aware generalization of `:lambda_1se`; `Inf` scores never eligible, cost
   ties → larger λ). The adaptive iteration never yields exact zeros, so the default
-  `threshold = nothing` is a per-λ **relative** alive floor (`_ALIVE_RTOL = 1e-6` of
-  that λ's largest scaled magnitude; an absolute number reproduces `refit`'s rule,
-  `0.0` degenerates to all-alive). `criterion = :cv` is configuration-grouped K-fold in
+  `threshold = nothing` is `_alive_floor` (rule B): with `smax` the λ's largest scaled
+  magnitude and `‖y‖` the assembled target's norm, `smax ≤ _ALIVE_RTOL·‖y‖` (`1e-6`)
+  makes the point **all-dead** (`n_alive = 0`, `cost = 0`, threshold `_ALIVE_RTOL·‖y‖`),
+  otherwise the **relative** floor `_ALIVE_RTOL·smax` applies unchanged (an absolute
+  number reproduces `refit`'s rule, `0.0` degenerates to all-alive).
+  `criterion = :cv` is configuration-grouped K-fold in
   core (deterministic seeded folds; per-fold Gram downdate; fold reduction warns). The
-  selected fit is re-solved cold — its path row (`n_alive`/`cost`) is re-derived from
-  that cold solve and the effective absolute threshold is returned as
+  selected fit is re-solved by `fit` — its path row (`n_alive`/`cost`) is re-derived from
+  that solve and the effective absolute threshold is returned as
   `path.threshold`, so `refit(path.fit; threshold = path.threshold)` realizes exactly
-  the reported support; `LambdaPath` is a Tables.jl source.
+  the reported support (empty — the mean model — at an all-dead point); `LambdaPath` is
+  a Tables.jl source.
 - **Threshold front** (exported): `select_support(f; npoints = 25, thresholds, score_rtol, column_groups,
   costs, evalset = f.dataset, estimator = OLS()) -> SupportPath` — the second knob:
-  sweeps the alive threshold at a fixed fit (auto grid = log-rank-spaced points on
-  the per-group scaled-magnitude spectrum + the full-support anchor, or an explicit
-  vector), de-biases with `refit` per point, scores each refit by the fit's own
+  sweeps the alive threshold at a fixed fit (auto grid = an empty-support point at
+  `2·max m_g` — the mean model, so "nothing is needed" is selectable, S-14 — plus
+  log-rank-spaced points on the per-group scaled-magnitude spectrum + the full-support
+  anchor; or an explicit vector, used verbatim), de-biases with `refit` per point, scores each refit by the fit's own
   `(1−w)·MSE_E + w·MSE_T` objective on `evalset` (pass a held-out slice for an honest
   axis; fingerprint-checked against the training basis), and applies the same
   Pareto rule. Needed because real-data group-magnitude spectra are continuous (no
@@ -1093,8 +1100,11 @@ capability consumed by both the introspection and the Sunny interop.
 - Validated in `test/unit/test_selection.jl`: construction/validation, exact
   `AdaptiveRidge` degeneration, group-sparse recovery + weight monotonicity, label/cost
   hand counts + additivity, `θ` endpoints, dense-hat-matrix trace agreement, the
-  underdetermined regime + guards, warm/cold path consistency, the Pareto rule, and the
-  end-to-end select → refit workflow.
+  underdetermined regime + guards, every path point equal to the cold fit at its λ, the
+  live-point partition against the relative rule computed inline, the all-dead null
+  gate (pure spin; joint and freeze-only in `test_jointdata.jl` /
+  `test_resolvability.jl`), the empty-support point winning on noise, the Pareto rule,
+  and the end-to-end select → refit workflow.
 
 ### Adiabatic moment channel — pointed basis (step 2, slices A–E)
 

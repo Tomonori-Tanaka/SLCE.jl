@@ -431,8 +431,8 @@ saves nothing, and killing single columns of a group saves nothing either.
 `AdaptiveRidge` (Frommlet & Nuel 2016; the group form follows Goepp–Bouaziz–Nuel's use
 for knot selection) rather than adding a block-coordinate-descent group-lasso solver:
 every step is the same analytic SPD solve `(X'X + λ·Diagonal(w))\X'y` the package
-already trusts, it needs no groupwise orthonormalization and no GLMNet, it
-warm-starts trivially along a λ path (the Gram is formed once), and — decisively — it
+already trusts, it needs no groupwise orthonormalization and no GLMNet, a λ path costs
+one Gram (formed once, every λ solved against it), and — decisively — it
 targets the group-L0 objective directly instead of its convex relaxation. The weight
 map is
 
@@ -543,9 +543,42 @@ minimum: the direct cost-aware generalization of the conventional `:lambda_1se`
 one-standard-error rule, with `δ` an explicit accuracy tolerance instead of a
 fold-noise estimate. Together with `θ` this exposes the full trade surface — sweep `θ`,
 take the lower envelope of the per-θ paths, and the (cost, error) Pareto front is
-explicit rather than implicit in a penalty default. The selected fit is re-solved cold
-at the chosen λ so that `fit(SLCEFit, dataset, estimator)` reproduces it verbatim, and
-the de-biasing `refit` closes the workflow.
+explicit rather than implicit in a penalty default. The selected fit is re-solved by
+`fit` at the chosen λ so that `fit(SLCEFit, dataset, estimator)` reproduces it verbatim,
+and the de-biasing `refit` closes the workflow.
+
+**Correction (S-14, 2026-11-15): the path is solved cold, and "alive" needs a data
+floor.** This section used to say the iteration warm-starts trivially along a λ path,
+and the driver seeded each λ with the previous (larger) λ's solution on the premise that
+the warm path follows the cold one. It does not, and the reason is the non-convexity
+the paragraphs above already concede: a large λ drives every group to the `ε` floor,
+and a seed sitting at that floor stays there at the next λ too: the weights
+`v_g/(N_g + p_g ε) ≈ v_g/(p_g ε)` it produces are so large that a λ a decade or two
+smaller still crushes every group. On real data
+(Nd₂Fe₁₄B 1×1×1, descending grid) the warm path stayed captured by that all-dead point
+where cold single-λ solves recovered the model, and the only user of the driver had
+switched to calling it one λ at a time. Every λ is now solved cold — the cost is one
+IRLS from the fixed-weight ridge start per λ, on the same cached Gram.
+
+The same measurement exposed the alive rule's blind spot. A group was alive when some
+column cleared `10⁻⁶·s_max`, with `s_max` the largest scaled magnitude *at that λ* — a
+fraction of itself, so the largest group always passes, and a λ at which the fit
+explains `4·10⁻¹⁶` of a pure-noise target reported every group alive at full cost;
+the recommended `refit(path.fit; threshold = path.threshold)` then fitted OLS to the
+noise. The rule now also asks whether anything was fitted at all: if
+`s_max ≤ 10⁻⁶·‖y‖` (the assembled target the solve saw) the point is all-dead and its
+threshold is that data floor, so the de-biasing recipe returns the mean model;
+otherwise the relative floor applies unchanged, so every live point partitions exactly
+as before (on the Nd₂Fe₁₄B l02 path the change touched only the seven all-dead points,
+the ones the user had been correcting by hand). Under a reparameterization the
+reference is the γ-space target `y − X·β_p`, which equals `y` whenever `β_p ≡ 0` —
+every non-staged fit, the ASR-constrained one included, since the constraint is
+homogeneous.
+
+Its threshold-sweep counterpart had the dual gap: `select_support`'s automatic grid
+started at "keep only the top group", so no point on it could say that nothing is
+needed, and on noise it always fitted something. The grid now carries an
+empty-support point (the mean model, zero cost) above every group magnitude.
 
 **Postscript: the threshold is the second knob (`select_support`).** The clean
 alive/dead magnitude gap that makes the λ path's relative floor sufficient exists on

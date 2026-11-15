@@ -43,6 +43,7 @@ using SLCE: salcs, SALC, SALCScratch, evaluate_salc, _signature_matrix,
 using LinearAlgebra
 using Random
 using StaticArrays
+using Statistics: mean
 
 # The 48 signed permutation matrices: the full cubic point group m-3m, written out.
 function _cubic_ops()
@@ -399,6 +400,29 @@ end
                 @test coef(f)[j] === 0.0
             end
             @test dof(f) == length(dss.asr.free) + 1     # + the analytic intercept
+        end
+
+        # (a') S-14 rule B under the one reparameterization `select_fit` runs under: the
+        # freeze-only one (no constraint rows, `beta_p ≡ 0`). Its γ-space target is the
+        # β-space one bitwise, so the data floor reads the assembled `y` either way.
+        # Truth: no coupling — the energies are i.i.d. noise on the same configurations.
+        dsn = SLCEDataset(bs, configs, randn(rng, length(configs)))
+        @test size(dsn.asr.A, 1) == 0 && all(iszero, dsn.asr.beta_p)
+        @test SLCE._assemble_problem(dsn, 0.0, 0.0, dsn.asr)[2] ==
+              SLCE._assemble_problem(dsn, 0.0)[2]
+        for crit in (:gcv, :cv)
+            pn = select_fit(dsn, GroupAdaptiveRidge(bs; lambda = 1.0);
+                            lambdas = 10.0 .^ (8:-1:-6), criterion = crit)
+            Xc = dsn.X_E .- mean(dsn.X_E; dims = 1)
+            yc = dsn.y_E .- mean(dsn.y_E)
+            @test norm(Xc * pn.fit.jphi) / norm(yc) < 1e-10      # premise: crushed
+            @test pn.n_alive[pn.selected] == 0 && pn.cost[pn.selected] == 0.0
+            @test pn.threshold ≈ 1e-6 * norm(yc) / sqrt(length(yc)) rtol = 1e-12
+            @test all(j -> pn.fit.jphi[j] === 0.0, sfrozen)
+            fr = @test_logs (:warn, r"empty support") refit(pn.fit;
+                                                           threshold = pn.threshold)
+            @test isempty(fr.support) && all(iszero, fr.jphi)
+            @test fr.j0 ≈ mean(dsn.y_E) rtol = 1e-12
         end
 
         # (b) a STAGED fit. `sector_columns` resolves selectors from key content alone,

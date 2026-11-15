@@ -734,30 +734,32 @@ end
     # the energy block by `1/√n_E` at every weight setting, so the penalty a given λ applies
     # scales with `n_E`; a grid written in the old SSE units sits ~1.6 decades too high on
     # this fixture, where the IRLS lands on the all-zero fixed point (`edof ≈ 1`) and the
-    # warm/cold agreement below stops testing anything.
-    @testset "select_fit: warm-started path matches cold fits" begin
+    # comparison below stops testing anything.
+    @testset "select_fit: every path point is the cold fit at its λ" begin
+        # The path is solved cold at every λ (S-14: the descending warm start was
+        # captured by the all-dead fixed point on real data and is gone). A cold path
+        # point is the SAME arithmetic as a plain `fit` at that λ — same assembled
+        # design, same Gram, same IRLS start — so its score and dof are `gcv` /
+        # `effective_dof` of that fit to rounding, not to the IRLS tolerance (the
+        # warm path agreed only to ~1e-4 here; that slack is what this gate removes,
+        # and reinstating a warm start fails it).
         lams = 10.0 .^ range(0, -6; length = 6) ./ nconf_p
         path = select_fit(ds_p, est_p; lambdas = lams, criterion = :gcv)
         @test path.lambda == sort(unique(Float64.(lams)); rev = true)
-        # warm-started path entries reproduce cold single-λ fits: both converge to the
-        # same fixed point but stop within the IRLS tol (1e-6 on coefficients), so the
-        # scores agree to a few multiples of that tolerance, not exactly
         # `with_lambda`, NOT a hand-rebuilt GroupAdaptiveRidge: rebuilding from
         # `column_groups` / `group_weights` silently drops the basis-intrinsic penalty
         # metric `est_p` carries, and the cold fit would then solve a different
-        # objective than the path did — which is exactly what this comparison would
-        # otherwise report as a warm/cold disagreement.
-        for i in (2, 4)
-            est_i = with_lambda(est_p, path.lambda[i])
-            fc = fit(SLCEFit, ds_p, est_i)
-            @test isapprox(path.score[i], gcv(fc); rtol = 1e-4)
-            @test isapprox(path.edof[i], effective_dof(fc); rtol = 1e-4)
+        # objective than the path did.
+        for i in eachindex(path.lambda)
+            fc = fit(SLCEFit, ds_p, with_lambda(est_p, path.lambda[i]))
+            @test isapprox(path.score[i], gcv(fc); rtol = 1e-10)
+            @test isapprox(path.edof[i], effective_dof(fc); rtol = 1e-10)
         end
         # the selected fit is the cold fit at the selected λ, byte-for-byte
         est_s = with_lambda(est_p, path.lambda[path.selected])
         @test path.fit.jphi == fit(SLCEFit, ds_p, est_s).jphi
-        # the selected row's score/edof are re-derived from that cold fit, so the
-        # displayed row is self-consistent (not the warm path value)
+        # the selected row's score/edof are re-derived from that fit, so the
+        # displayed row is self-consistent
         @test path.score[path.selected] ≈ gcv(path.fit) rtol = 1e-12
         @test path.edof[path.selected] ≈ effective_dof(path.fit) rtol = 1e-12
         # the returned fit carries the path's metric: the cold re-solve at the
@@ -767,6 +769,77 @@ end
         @test path.fit.estimator.metric_provenance === est_p.metric_provenance
         # alive count grows (weakly) as λ decreases along the descending path
         @test all(diff(path.n_alive) .>= 0)
+    end
+
+    # Rule B (S-14). The oracle for the alive partition is computed HERE from the cold
+    # fit's β and the dataset's raw design, never by calling the package's alive code:
+    # the partition is invariant under the uniform `1/√n_E` row scale, so the centered,
+    # UNscaled `X_E` / `y_E` give the same answer as the assembled problem.
+    @testset "select_fit: live λ points partition exactly as the relative rule" begin
+        lams = 10.0 .^ range(4, -7; length = 12) ./ nconf_p
+        path = select_fit(ds_p, est_p; lambdas = lams, criterion = :gcv)
+        Xc = ds_p.X_E .- mean(ds_p.X_E; dims = 1)
+        yc = ds_p.y_E .- mean(ds_p.y_E)
+        cn = [norm(Xc[:, j]) for j in axes(Xc, 2)]
+        cg = group_costs(basis, labels_p)
+        rtol_alive = 1e-6                       # the documented ratio of both floors
+        nlive = ndead = npartial = 0
+        for i in eachindex(path.lambda)
+            b = fit(SLCEFit, ds_p, with_lambda(est_p, path.lambda[i])).jphi
+            s = abs.(b) .* cn
+            smax = maximum(s)
+            if smax > rtol_alive * norm(yc)
+                # live: the pre-S-14 relative rule, verbatim
+                ag = unique(labels_p[s .> rtol_alive * smax])
+                @test path.n_alive[i] == length(ag)
+                @test path.cost[i] == sum(cg[ag])
+                nlive += 1
+                0 < length(ag) < maximum(labels_p) && (npartial += 1)
+            else
+                @test path.n_alive[i] == 0 && path.cost[i] == 0.0
+                ndead += 1
+            end
+        end
+        # the fixture discriminates: both kinds of point, and a live point whose
+        # partition is proper (a flat partition would pass any rule)
+        @test ndead >= 1 && nlive >= 1 && npartial >= 1
+    end
+
+    # The S-14 gate. Truth: NO coupling — the energies are i.i.d. noise. At the selected
+    # λ the premise is MEASURED from the design (the fit explains < 1e-10 of the data),
+    # and given it, no group may be alive and the de-biasing recipe must return the mean
+    # model. The relative-only floor reported every group alive at full cost there, and
+    # `refit(p.fit; threshold = p.threshold)` then fitted OLS to the noise (44/44
+    # columns) — the mutation this gate must kill. Seeds 1–2: on seed 3 the optimistic
+    # `:gcv` score picks a λ = 0.01 noise fit (0.85 of the null score), a property of
+    # GCV and not of the alive rule; `:cv` picks the null on all 20 seeds scanned.
+    @testset "select_fit: an all-dead λ reports nothing alive (S-14 null gate)" begin
+        rdir(rng) = (v = randn(rng, 3); v / norm(v))
+        lams = 10.0 .^ (8:-1:-6)
+        G = maximum(salc_groups(basis))
+        for seed in (1, 2), crit in (:gcv, :cv)
+            rng = MersenneTwister(seed)
+            cfg = [reduce(hcat, (rdir(rng) for _ = 1:2)) for _ = 1:80]
+            E = randn(rng, 80)
+            ds = SLCEDataset(basis, cfg, E)
+            est = GroupAdaptiveRidge(basis; lambda = 1.0)
+            p = select_fit(ds, est; lambdas = lams, criterion = crit)
+            Xc = ds.X_E .- mean(ds.X_E; dims = 1)
+            yc = E .- mean(E)
+            @test norm(Xc * p.fit.jphi) / norm(yc) < 1e-10     # premise: crushed
+            @test p.n_alive[p.selected] == 0
+            @test p.cost[p.selected] == 0.0
+            # the reported threshold is the DATA floor, 1e-6 of the assembled target's
+            # norm — the energy-only target is `(y_E − ȳ)/√n_E`
+            @test p.threshold ≈ 1e-6 * norm(yc) / sqrt(80) rtol = 1e-12
+            fr = @test_logs (:warn, r"empty support") refit(p.fit;
+                                                           threshold = p.threshold)
+            @test isempty(fr.support) && all(iszero, fr.jphi)
+            @test fr.j0 ≈ mean(E) rtol = 1e-12
+            # the path is not degenerate: small λ fits the noise, and those points
+            # are alive (rule B leaves live points to the relative floor)
+            @test p.n_alive[end] == G
+        end
     end
 
     @testset "select_fit: end-to-end selection, tables, and validation" begin
@@ -905,6 +978,10 @@ end
         @test issorted(sp.n_alive) && issorted(sp.cost)           # nested supports
         @test sp.threshold[end] == 0.0                            # full-support anchor
         @test sp.n_alive[end] == maximum(salc_groups(basis))
+        # the empty-support point is on the grid, and on this signal fixture it is
+        # NOT selected: the mean model scores far outside the window
+        @test sp.n_alive[1] == 0 && sp.cost[1] == 0.0
+        @test sp.selected != 1 && sp.n_alive[sp.selected] > 0
         @test minimum(sp.n_alive) < maximum(sp.n_alive)           # front discriminates
         @test all(isnan, sp.rmse_torque)                          # energy-only evalset
         @test sp.score ≈ sp.rmse_energy .^ 2                      # w = 0 objective
@@ -940,12 +1017,14 @@ end
         @test length(ag) == sp.n_alive[sp.selected]
         @test sum(cg_b[ag]) == sp.cost[sp.selected]
 
-        # the auto grid: midpoints between distinct magnitudes + the 0.0 anchor;
-        # exact ties collapse (tied groups die together, no empty-support point)
+        # the auto grid: the empty-support point at 2·max, midpoints between distinct
+        # magnitudes, and the 0.0 anchor; exact ties collapse (tied groups die
+        # together — no t = 1.0 point inside a tie)
         st = SLCE._support_thresholds
-        @test st(5, [3.0, 2.0, 1.0]) == [2.5, 1.5, 0.0]
-        @test st(4, [2.0]) == [0.0]                       # G = 1 → anchor only
-        @test st(9, [1.0, 1.0, 0.5]) == [0.75, 0.0]       # tie: no t = 1.0 point
+        @test st(5, [3.0, 2.0, 1.0]) == [6.0, 2.5, 1.5, 0.0]
+        @test st(4, [2.0]) == [4.0, 0.0]                  # G = 1 → empty + anchor
+        @test st(9, [1.0, 1.0, 0.5]) == [2.0, 0.75, 0.0]  # tie: no t = 1.0 point
+        @test st(3, [0.0, 0.0]) == [0.0]                  # all-zero fit: anchor IS empty
         @test_throws ArgumentError st(1, [1.0])
 
         # torque co-fit: rmse_torque populated; energy-only evalset rejected
@@ -960,7 +1039,7 @@ end
                   torque_weight = 0.4)
         spc = select_support(fco; npoints = 3)
         @test all(isfinite, spc.rmse_torque)
-        @test length(spc.threshold) == 1        # single-group basis: grid collapses
+        @test length(spc.threshold) == 2        # single group: empty point + anchor
         @test_throws ArgumentError select_support(fco;
                                                   evalset = SLCEDataset(small, cfg_s, en_s))
 
@@ -989,6 +1068,43 @@ end
         @test basis_b.salc_basis.fingerprint == basis.salc_basis.fingerprint
         ds_b = SLCEDataset(basis_b, ds_ev.configs, ds_ev.y_E)
         @test_throws ArgumentError select_support(f; evalset = ds_b)
+    end
+
+    # S-14 (3): "nothing is needed" must be selectable. Truth: no coupling — training
+    # and held-out energies are independent noise, so the best held-out predictor is the
+    # training mean, and any refit that keeps columns predicts noise with noise. The
+    # oracle is that held-out MSE, computed here from the raw energies; the gate is that
+    # the auto grid carries a point realizing it and the Pareto rule takes it (at cost 0
+    # it wins whenever it is inside the window). Without the empty point the sparsest
+    # refit keeps a group, and the selected row has `n_alive ≥ 1` — the mutation this
+    # gate kills. The holdout is 200 configurations: with 40, a 5-column group refit
+    # fitted to the noise scored 0.95 and 0.89 of the null on two of six seeds scanned
+    # (holdout noise, not signal), and a gate must not hinge on that draw. Measured
+    # with 200 on six seeds: the empty point is selected on all six, the best non-empty
+    # score at 0.995–1.014 of the null.
+    @testset "select_support: the empty support is on the grid and wins on noise" begin
+        rdir(rng) = (v = randn(rng, 3); v / norm(v))
+        for seed in (1, 2, 3)
+            rng = MersenneTwister(100 + seed)
+            cfg = [reduce(hcat, (rdir(rng) for _ = 1:2)) for _ = 1:260]
+            E = randn(rng, 260)
+            tr = SLCEDataset(basis, cfg[1:60], E[1:60])
+            ev = SLCEDataset(basis, cfg[61:260], E[61:260])
+            f = fit(SLCEFit, tr, GroupAdaptiveRidge(basis; lambda = 1e-6))
+            # no "empty support" warning: the driver asks for that point on purpose
+            sp = @test_logs select_support(f; evalset = ev)
+            null_mse = mean(abs2, E[61:260] .- mean(E[1:60]))
+            @test sp.n_alive[1] == 0 && sp.cost[1] == 0.0
+            # above every scaled magnitude of the assembled (1/√n_E) design
+            Xc = tr.X_E .- mean(tr.X_E; dims = 1)
+            @test sp.threshold[1] >
+                  maximum(abs(f.jphi[j]) * norm(Xc[:, j]) for j in axes(Xc, 2)) / sqrt(60)
+            @test sp.score[1] ≈ null_mse rtol = 1e-12
+            @test all(>(0), sp.n_alive[2:end])        # the only empty point is the new one
+            @test sp.selected == 1
+            @test all(iszero, sp.fit.jphi)
+            @test sp.fit.j0 ≈ mean(E[1:60]) rtol = 1e-12
+        end
     end
 
     @testset "cross_validate" begin

@@ -477,9 +477,19 @@ fbest = refit(path.fit; threshold = path.threshold)   # de-bias exactly the aliv
 ```
 
 (The reweighted ridge crushes dead groups to tiny — not exactly zero — values, so
-"alive" is decided by a relative floor on the scaled magnitudes; `path.threshold` is
-the effective absolute value at the selected λ, and passing it to [`refit`](@ref)
-realizes exactly the support the path reported.)
+"alive" is decided by a floor on the scaled magnitudes: a λ whose largest scaled
+magnitude is below `1e-6` of the data norm is **all-dead** (`n_alive = 0`, `cost = 0`),
+and at every other λ a group is alive above `1e-6` of that λ's largest magnitude.
+`path.threshold` is the effective absolute value at the selected λ, and passing it to
+[`refit`](@ref) realizes exactly the support the path reported — the mean model when the
+selected λ is all-dead, which is the honest answer on a target the basis cannot
+explain.)
+
+Every λ is solved **cold**, so each row of the path is exactly what
+`fit(SLCEFit, dataset, with_lambda(est, λ))` returns. The path is deliberately not
+warm-started: the reweighting is non-convex, and a seed a larger λ crushed to the
+`epsilon` floor holds the next λ at the all-dead solution — on real data the warm path
+stayed there while cold single-λ fits recovered the model.
 
 The convenience constructor bundles `SLCE.salc_groups` (the column → group
 labels) with `SLCE.cost_weights`, which sets the fixed per-group weights to
@@ -517,7 +527,12 @@ front.fit                                           # the selected de-biased ref
 ```
 
 Pass a held-out `evalset` for an honest error axis (the default is the in-sample
-training set). On a production Nd₂Fe₁₄B model the front exposed trades the λ path alone
+training set). The automatic grid always includes an **empty-support** point (above
+every group magnitude; its refit is the mean model, at zero cost), so when the held-out
+score of the mean model is within `score_rtol` of the front minimum — what a target with
+no signal in the basis looks like — the front selects "nothing is needed" rather than
+fitting a group to the noise. In-sample, the mean model is the worst fit by
+construction, so the point is listed but rarely chosen. On a production Nd₂Fe₁₄B model the front exposed trades the λ path alone
 cannot see: a large fraction of the Monte-Carlo cost removed at a held-out torque RMSE
 *better* than the full model (de-biasing beats the interpolating tail), and an
 order-of-magnitude cheaper model at a modest error penalty.
