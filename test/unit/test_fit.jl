@@ -34,6 +34,17 @@ struct _DummyEstimator <: SLCE.AbstractEstimator end
         @test_throws DimensionMismatch SLCEModel(basis, 0.0, zeros(m + 1))
     end
 
+    @testset "SLCEModel refuses keys out of basis order" begin
+        # readouts pair jphi[k] with salcs(basis)[k] positionally; coeftable labels
+        # rows by keys — a permuted key list would predict right and label wrong
+        @test m >= 2
+        k = basis.salc_basis.keys
+        perm = [2; 1; 3:m]
+        err = try; SLCEModel(basis, 0.0, zeros(m), k[perm]); nothing; catch e; e; end
+        @test err isa ArgumentError && occursin("basis order", err.msg)
+        @test SLCEModel(basis, 0.0, zeros(m), copy(k)).keys == k
+    end
+
     rng = MersenneTwister(1)
     configs = [randcfg(rng, 2) for _ = 1:40]
 

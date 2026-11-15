@@ -119,6 +119,31 @@ end
         end
     end
 
+    @testset "term views hand out copies, not the basis's arrays" begin
+        model = SLCEModel(b, 0.1, 0.1 .* randn(rng, K), keys)
+        es = [_rand_config(rng, 2) for _ = 1:4]
+        before = [predict_energy(model, e) for e in es]
+        fresh = spin_multipole_terms(model)
+        freshd = decorated_terms(model)
+        for t in spin_multipole_terms(model)     # a consumer normalizing in place
+            t.folded .*= 2.0
+            fill!(t.atoms, 1)
+            fill!(t.shifts, SVector(1, 1, 1))
+        end
+        for t in decorated_terms(model)
+            t.folded .*= 2.0
+            fill!(t.atoms, 1)
+            empty!(t.slots)
+        end
+        @test [predict_energy(model, e) for e in es] == before
+        again = spin_multipole_terms(model)
+        @test all(again[i].folded == fresh[i].folded && again[i].atoms == fresh[i].atoms &&
+                  again[i].shifts == fresh[i].shifts for i in eachindex(again))
+        againd = decorated_terms(model)
+        @test all(againd[i].folded == freshd[i].folded &&
+                  againd[i].slots == freshd[i].slots for i in eachindex(againd))
+    end
+
     @testset "SpinMultipoleTerm field contract (downstream consumers pin on this)" begin
         # SLCETools.jl's bridge reads exactly these fields; a rename/retype must fail here
         # (and then be synchronized downstream), not slip through the energy gates.
@@ -218,7 +243,9 @@ end
         @test length(dt) == length(mt)
         for (d, m) in zip(dt, mt)
             @test d.coef == m.coef && d.body == m.body
-            @test d.atoms == m.atoms && d.shifts == m.shifts && d.folded === m.folded
+            # equal content; since 2026-11-15 each view hands out its own copy
+            @test d.atoms == m.atoms && d.shifts == m.shifts && d.folded == m.folded
+            @test d.folded !== m.folded
             @test [s.factor.l for s in d.slots] == m.ls          # the v4 `ls` view
             @test all(s -> s.factor.channel === SLCE.SPIN, d.slots)
             @test d.scale == (4π)^(d.body / 2)                   # the rules agree here

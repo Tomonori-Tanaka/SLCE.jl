@@ -38,6 +38,9 @@ coef · (4π)^(body/2) · Σ_μ folded[μ] ∏ᵢ Z_{ls[i], μ_i}(e_{atoms[i]}),
 ```
 
 (the same kernel as [`evaluate_salc`](@ref) for a single SALC term). See [`spin_multipole_terms`](@ref).
+
+The arrays are the caller's own copies: mutating a returned term never reaches the
+model's basis.
 """
 struct SpinMultipoleTerm
     coef::Float64
@@ -97,8 +100,12 @@ function spin_multipole_terms(model::SLCEModel;
         salc = salcs[k]
         for mem in salc.members
             for t in mem.terms
-                push!(out, SpinMultipoleTerm(j, salc.body, mem.atoms, mem.shifts,
-                                         _term_spin_ls(t), t.folded))
+                # copies: the term is handed to downstream code, and the basis's
+                # own member arrays must not be reachable through it (an in-place
+                # normalization of `folded` would rewrite the basis)
+                push!(out, SpinMultipoleTerm(j, salc.body, copy(mem.atoms),
+                                             copy(mem.shifts), _term_spin_ls(t),
+                                             copy(t.folded)))
             end
         end
     end
@@ -139,7 +146,8 @@ may share a site: a site is not an axis.
     parts ways as soon as one site is pure displacement. Deriving it from `body` or
     `length(atoms)` (as the pure-spin-era consumers do) silently mis-scales those terms.
 
-See [`decorated_terms`](@ref).
+The arrays are the caller's own copies: mutating a returned term never reaches the
+model's basis. See [`decorated_terms`](@ref).
 """
 struct DecoratedTerm
     coef::Float64
@@ -202,8 +210,10 @@ function decorated_terms(model::SLCEModel;
         salc = salcs[k]
         for mem in salc.members
             for t in mem.terms
+                # copies, as in `spin_multipole_terms`: never hand out the basis
                 push!(out, DecoratedTerm(j, _slot_scale(t.slots), salc.body,
-                                         mem.atoms, mem.shifts, t.slots, t.folded))
+                                         copy(mem.atoms), copy(mem.shifts),
+                                         copy(t.slots), copy(t.folded)))
             end
         end
     end

@@ -340,11 +340,12 @@ using Random
                 end
             end
         end
-        wemb(e1, 1.2, -1.0)
+        # the smoothed MW moments are the shorter ones (real archives: ratio 0.68-0.69)
+        wemb(e1, 0.8, -1.0)
         wemb(e2, 1.1, -2.0)                     # energies differ ON PURPOSE
         pd = read_embset_pair(e1, e2; constraint_mode = 4)
         @test length(pd) == 3
-        @test pd[1].magmoms[1] == 1.2           # MW file: decomposition source
+        @test pd[1].magmoms[1] == 0.8           # MW file: decomposition source
         @test pd[1].moments_bare[3, 1] == 1.1   # mint file: bare target
         @test pd[1].energy == -2.0              # the MW-file energy is used
         @test pd[1].constraint_mode == 4
@@ -372,6 +373,27 @@ using Random
                                                     constraint_axes = axv[1:2])
         # mode 1 without axes dies at the datum ctor (loud, not a silent fallback)
         @test_throws ArgumentError read_embset_pair(e1, e2; constraint_mode = 1)
+        # swapped arguments: every sibling check above is symmetric in the two files,
+        # so only the moment lengths can tell — the first file must be the shorter
+        err = try; read_embset_pair(e2, e1; constraint_mode = 4); nothing; catch e; e; end
+        @test err isa ArgumentError && occursin("swapped", err.msg)
+        # the decision is on the total, not per atom: one atom whose MW exceeds its
+        # M_int (an induced moment) does not flip it
+        open(e1, "w") do io
+            for c = 1:3
+                println(io, -1.0 - c)
+                println(io, "1 0.0 0.0 0.8 0.01 0.02 0.0")
+                println(io, "2 0.0 0.0 0.06 0.01 0.02 0.0")
+            end
+        end
+        open(e2, "w") do io
+            for c = 1:3
+                println(io, -2.0 - c)
+                println(io, "1 0.0 0.0 1.1 0.01 0.02 0.0")
+                println(io, "2 0.0 0.0 0.05 0.01 0.02 0.0")
+            end
+        end
+        @test length(read_embset_pair(e1, e2; constraint_mode = 4)) == 3
     end
 
     @testset "ExtxyzFile source → SLCEDataset (E path inert to the trio)" begin

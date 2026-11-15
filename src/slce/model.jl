@@ -815,14 +815,28 @@ end
 
 Base.getindex(d::SLCEDataset, ::Colon)::SLCEDataset = d[1:length(d)]
 
+# The geometry half of "the same basis". `SALCBasis.fingerprint` hashes the sorted
+# keys only, and a key carries no geometry: two cells of one structure type at
+# different lattice constants enumerate the same keys over the same atom count.
+# Compared exactly — the persistence round trip writes shortest-round-trip decimals,
+# so a reloaded crystal is bitwise the one that was saved.
+function _same_crystal(a::Crystal, b::Crystal)::Bool
+    return a.lattice.vectors == b.lattice.vectors && a.lattice.pbc == b.lattice.pbc &&
+           a.frac_positions == b.frac_positions && a.species == b.species &&
+           a.species_labels == b.species_labels
+end
+
 """
     vcat(a::SLCEDataset, b::SLCEDataset...) -> SLCEDataset
 
 Concatenate datasets built on the **same basis** — checked by the SALC-basis
-fingerprint, so a dataset built from a persisted-and-reloaded basis concatenates
-with one built in-session. Parts may differ in torque presence (a torque-bearing
-part and an energy-only part concatenate into a mixed dataset; each torque row
-keeps its configuration through the re-offset `torque_config`). Together with
+fingerprint AND the crystal (lattice, periodicity, fractional positions, species),
+so a dataset built from a persisted-and-reloaded basis concatenates with one built
+in-session, while two cells of one structure type at different lattice constants
+(same keys, same atom count, so the same fingerprint) are refused. Parts may
+differ in torque presence (a torque-bearing part and an energy-only part
+concatenate into a mixed dataset; each torque row keeps its configuration through
+the re-offset `torque_config`). Together with
 `dataset[index]` this supports incremental data addition and resampling without
 rebuilding design matrices.
 """
@@ -836,6 +850,11 @@ function Base.vcat(a::SLCEDataset, rest::SLCEDataset...)::SLCEDataset
         n_atoms(b.basis.crystal) == n_atoms(a.basis.crystal) ||
             throw(ArgumentError("dataset $k has $(n_atoms(b.basis.crystal)) atoms " *
                                 "per config, dataset 1 has $(n_atoms(a.basis.crystal))"))
+        _same_crystal(b.basis.crystal, a.basis.crystal) ||
+            throw(ArgumentError("dataset $k was built on a different crystal than " *
+                                "dataset 1 (same SALC keys, but the lattice, positions " *
+                                "or species differ) — its design rows describe another " *
+                                "structure"))
         # The one-setup / one-reference invariants are checked when a dataset is
         # built from TrainingDatum vectors; vcat (the incremental-addition path)
         # must re-assert them or it silently reintroduces exactly the
@@ -1148,6 +1167,14 @@ struct SLCEModel
             "functions"))
         length(keys) == length(jphi) || throw(DimensionMismatch(
             "keys has $(length(keys)) entries for $(length(jphi)) coefficients"))
+        # The same positional pairing makes the keys' ORDER load-bearing: every
+        # readout ignores `keys`, `coeftable` labels its rows with them, so a permuted
+        # (or foreign) key list predicts correctly and mislabels every coefficient.
+        (keys === basis.salc_basis.keys || keys == basis.salc_basis.keys) ||
+            throw(ArgumentError(
+                "SLCEModel: `keys` is not the basis's SALC key list in basis order — " *
+                "coefficients pair with `salcs(basis)` positionally, so the keys must be " *
+                "`basis.salc_basis.keys` (re-pair coefficients by key before building)"))
         return new(basis, j0, jphi, keys)
     end
 end

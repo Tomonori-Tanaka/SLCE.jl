@@ -71,6 +71,29 @@ using Random
         @test we.X_E == dse.X_E && !has_torque(we)
     end
 
+    @testset "vcat refuses another crystal with the same keys" begin
+        # the same cell at a 3 % larger lattice constant: the same pair shell
+        # (0.4·a, its image at 0.6·a stays outside the 1.5 cutoff), so the same keys
+        # over the same atom count — the fingerprint cannot tell them apart
+        crystal_b = Crystal(Lattice(Matrix(3.1 * I(3))), [0.2 -0.2; 0.0 0.0; 0.0 0.0],
+                            [1, 1], ["Fe"])
+        basis_b = SLCEBasis(crystal_b, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
+                                                 soc = false))
+        @test basis_b.salc_basis.fingerprint == basis.salc_basis.fingerprint
+        dsb = SLCEDataset(basis_b, configs, energies)
+        err = try; vcat(dse, dsb); nothing; catch e; e; end
+        @test err isa ArgumentError && occursin("different crystal", err.msg)
+        # a persisted-and-reloaded basis is the same basis (exact round trip)
+        mktempdir() do tmp
+            path = joinpath(tmp, "basis.toml")
+            SLCE.save(path, basis)
+            basis_r = SLCE.load(SLCEBasis, path)
+            dsr = SLCEDataset(basis_r, configs, energies)
+            w = vcat(dse[1:3], dsr[4:6])
+            @test w.X_E == dse.X_E
+        end
+    end
+
     @testset "vcat validation and mixed concatenation" begin
         basis2 = SLCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
                                              soc = false))

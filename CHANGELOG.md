@@ -6,6 +6,32 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — four input-pairing holes found in the SCEFitting.jl audit (2026-11-15)
+
+No fitted number changes; each item turns a silently wrong combination into an error.
+
+- **`read_embset_pair` refuses swapped arguments.** Every sibling check (configuration
+  count, block shape, bitwise-equal field blocks, "the same moments twice") is
+  symmetric in the two files, so `read_embset_pair(mint_path, mw_path)` loaded the bare
+  `M_int` as the configuration coordinates and the smoothed moments as the projection
+  target, and passed. The smoothed moments are the shorter ones: over five real archives
+  (FeRh 4×4×4 / 2×2×2 FM and AFM, FeGe 1×1×1 and 2×2×2) `Σ|MW_int| / Σ|M_int|` is
+  0.68–0.69 per file and 0.676–0.694 per configuration, so a pair whose first file is
+  longer in total is refused as swapped (the ratio is then ≈ 1.45). The synthetic unit
+  fixtures, which had the MW file longer, were corrected.
+- **`vcat` and `select_support(...; evalset)` compare the crystal.** "Same basis" was
+  decided by the SALC fingerprint, which hashes the keys only; two cells of one structure
+  type at different lattice constants have the same keys and atom count, so their design
+  rows were stacked as one dataset. Both now also require the same lattice, periodicity,
+  fractional positions and species (exactly — a persisted-and-reloaded basis still
+  concatenates). The fingerprint and the persisted format are unchanged.
+- **`SLCEModel`'s inner constructor checks the key order** (`keys ==
+  basis.salc_basis.keys`). The readouts pair `jphi[k]` with `salcs(basis)[k]`
+  positionally and never read `keys`; `coeftable` labels its rows with them.
+- **`spin_multipole_terms` and `decorated_terms` return copies** of the member atoms,
+  shifts, slots and folded tensors, so a consumer normalizing a term in place no longer
+  rewrites the basis.
+
 ### Fixed — the sum rule's rank depended on how the crystal was turned (2026-11-15)
 
 **Numerical results change** for crystals whose lattice is not aligned with the

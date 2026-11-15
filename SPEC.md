@@ -880,7 +880,8 @@ capability consumed by both the introspection and the Sunny interop.
   training set (`io/embset.jl`, legacy): `read_embset` + the `EmbsetFile` source,
   cross-checked against `Magesty.read_embset` in this package's oracle, plus
   `read_embset_pair` for MW + M_int sibling archives (loud pairing: config count /
-  block shape / field blocks bitwise; energies deliberately uncompared).
+  block shape / field blocks bitwise; argument order by the smoothed moments being
+  the shorter in total; energies deliberately uncompared).
 - Validated: basis / model / fit round-trips (predictions bit-identical, coefficients
   re-paired by key under scrambled order, multi-op space-group ops, empty basis), input
   parsing + defaults + keyword overrides + error paths.

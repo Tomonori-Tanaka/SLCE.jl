@@ -44,11 +44,12 @@ f = fit(SLCEFit, train, OLS())
 rmse_holdout = sqrt(sum(abs2, predict_energy(f, test.configs) .- test.y_E) / length(test))
 
 more = SLCEDataset(basis2, new_configs, new_energies)
-dataset = vcat(dataset, more)     # basis2 must be the same basis (fingerprint-checked)
+dataset = vcat(dataset, more)     # basis2 must be the same basis (keys and crystal checked)
 ```
 
 `vcat` accepts parts built on a persisted-and-reloaded basis (the check is the SALC-basis
-fingerprint, not object identity), and a torque-bearing part concatenates with an
+fingerprint plus the crystal itself, not object identity — the same keys on a cell at
+another lattice constant are refused), and a torque-bearing part concatenates with an
 energy-only one into a **mixed** dataset — each torque row keeps its own configuration
 through the re-offset `torque_config`. What the parts must agree on is (1) their
 provenance, i.e. one computational setup and one clamped-ion reference, (2) whether they

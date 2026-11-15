@@ -159,6 +159,16 @@ siblings). The **energy lines are deliberately NOT compared**: the two writers'
 energy conventions differ (measured ΔE = 0.148 eV on the FeRh archive), and the
 `mw_path` energy is the one used.
 
+The **argument order** is checked too, because every check above is symmetric in the
+two files: a swapped call would otherwise load the bare `M_int` as the configuration
+coordinates and the smoothed moments as the projection target, and pass. The
+smoothing weight that defines `MW_int` tapers to zero inside the integration sphere,
+so the smoothed moments are the SHORTER of the two: over the whole file
+`Σ|MW_int| / Σ|M_int|` measured 0.68–0.69 on five archives (FeRh 4×4×4 and 2×2×2,
+FM and AFM; FeGe 1×1×1 and 2×2×2), every configuration inside 0.676–0.694. A pair
+whose `mw_path` moments are in total longer than its `mint_path` moments is refused
+as swapped (the ratio is then ≈ 1.45).
+
 The result is [`spin_datum`](@ref)s built from the `mw_path` observables with
 `moments_bare` from `mint_path`. `constraint_mode` / `constraint_axes` (a single
 `3 × n_atoms` matrix applied to every configuration, or one matrix per
@@ -203,6 +213,7 @@ function read_embset_pair(mw_path::AbstractString, mint_path::AbstractString;
                                 "run-identical; only the moment columns differ " *
                                 "between the MW and M_int writers)"))
     end
+    _check_embset_pair_order(m_mw, m_mint, mw_path, mint_path)
     axes_for = if constraint_axes === nothing
         _ -> nothing
     elseif constraint_axes isa AbstractMatrix
@@ -232,6 +243,35 @@ function read_embset_pair(mw_path::AbstractString, mint_path::AbstractString;
                        axis_angle_p99_max = axis_angle_p99_max,
                        label = "read_embset_pair($mw_path, $mint_path)")
     return data
+end
+
+# The argument-order check of `read_embset_pair` (see its docstring): the smoothed
+# MW_int moments are shorter in total than the bare M_int ones, so a pair whose
+# first file carries the longer moments was passed in the wrong order. Summed over
+# every atom of every configuration so that one configuration of near-zero moments
+# cannot decide it; a pair with no moment at all has nothing to compare.
+function _check_embset_pair_order(m_mw::Vector{Matrix{Float64}},
+                                  m_mint::Vector{Matrix{Float64}},
+                                  mw_path::AbstractString, mint_path::AbstractString)
+    s_mw = 0.0
+    s_mint = 0.0
+    for c in eachindex(m_mw)
+        for i in axes(m_mw[c], 2)
+            s_mw += norm(@view m_mw[c][:, i])
+            s_mint += norm(@view m_mint[c][:, i])
+        end
+    end
+    s_mint > 0 || return nothing
+    s_mw <= s_mint ||
+        throw(ArgumentError(
+            "EMBSET pair: the moments of $mw_path are longer in total than those of " *
+            "$mint_path (Σ|m| ratio $(round(s_mw / s_mint; sigdigits = 4))). The " *
+            "first argument must be the smoothed MW_int file, which is the shorter " *
+            "one (measured ratio 0.68–0.69 on real archives) — the arguments look " *
+            "swapped: call read_embset_pair(mw_path, mint_path). If they are in this " *
+            "order, the MW smoothing of these files differs from every archive " *
+            "measured so far; report it rather than reordering the files"))
+    return nothing
 end
 
 function _embset_number(s::AbstractString, what::String, path::AbstractString)::Float64

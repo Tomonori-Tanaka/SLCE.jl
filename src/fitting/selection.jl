@@ -1528,7 +1528,8 @@ function select_support(f::SLCEFit;
          Float64.(group_costs(basis, lab; asr = f.reparam)) : Float64.(costs)
     length(cg) == G ||
         throw(ArgumentError("costs length $(length(cg)) ≠ number of groups $G"))
-    evalset.basis.salc_basis.fingerprint == basis.salc_basis.fingerprint ||
+    (evalset.basis.salc_basis.fingerprint == basis.salc_basis.fingerprint &&
+     _same_crystal(evalset.basis.crystal, basis.crystal)) ||
         throw(ArgumentError("evalset was built on a different SLCEBasis than the fit"))
     w = f.torque_weight
     if w > 0 && !has_torque(evalset)
