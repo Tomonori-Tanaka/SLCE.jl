@@ -38,7 +38,11 @@ module SolidHarmonics
 
 using StaticArrays
 
-# Not exported: callers reach these via `SolidHarmonics.Rlm` etc.
+# Not exported: callers reach these via `SolidHarmonics.Rlm` etc. The `public` list is
+# the surface documented in docs/src/api.md ("SolidHarmonics kernel");
+# `solid_harmonic_poly` / `poly_eval` stay internal to the core's derivative readouts.
+public solid_harmonics, solid_harmonics!, solid_harmonics_grad, solid_harmonics_grad!,
+       Rlm, grad_Rlm, solid_harmonic_index, num_solid_harmonics
 
 """
     solid_harmonic_index(l, m) -> Int

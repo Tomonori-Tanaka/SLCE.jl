@@ -20,7 +20,10 @@ using LinearAlgebra: norm
 using StaticArrays
 
 # Not exported: callers reach these via `Harmonics.Zlm` etc. The `_unsafe`
-# variants skip validation for hot paths.
+# variants skip validation for hot paths. The `public` list is the stable surface
+# SLCEMonteCarlo / SLCEDynamics / SLCETools bind (docs/src/api.md, "Harmonics
+# kernel"); anything else in this module is internal.
+public Zlm, Zlm_unsafe, grad_Zlm, grad_Zlm_unsafe, lm_index, num_lm, N1, A2, B2
 
 # Tesseral normalization constants for the l ≤ 2 Cartesian conversions:
 # `Z_{1,m} = N1·(y,z,x)_m` and the `Z_{2,m}` prefactors A2 (m = ±1, ±2) / B2 (m = 0).

@@ -1,5 +1,5 @@
 using Test
-using SLCE: Harmonics
+using SLCE: SLCE, Harmonics
 using StaticArrays
 using LinearAlgebra
 using Random
@@ -146,4 +146,25 @@ end
     u_out = base .* (1 + 2.0 * atol_family)
     @test Z(1, 1, u_in) isa Float64
     @test_throws ArgumentError Z(1, 1, u_out)
+end
+
+@testset "the downstream harmonic surface is declared public" begin
+    # The names SLCEMonteCarlo / SLCEDynamics / SLCETools call from the two kernels
+    # in code (grepped from their src/ and test/ on 2026-11-15; their comments also
+    # NAME some internals — `_plm_norm`, `_racah_norm`, … — as coupled sites of their
+    # device ports, which is a sync note, not a binding). Calling a new name
+    # downstream means adding it to the module's `public` list and here.
+    for name in (:Zlm, :Zlm_unsafe, :grad_Zlm, :grad_Zlm_unsafe, :lm_index, :num_lm,
+                 :N1, :A2, :B2)
+        @test Base.ispublic(Harmonics, name)
+    end
+    SH = SLCE.SolidHarmonics
+    for name in (:solid_harmonics, :solid_harmonics!, :solid_harmonics_grad,
+                 :solid_harmonics_grad!, :Rlm, :grad_Rlm, :solid_harmonic_index,
+                 :num_solid_harmonics)
+        @test Base.ispublic(SH, name)
+    end
+    # and the internals stay internal
+    @test isdefined(SH, :solid_harmonic_poly) && !Base.ispublic(SH, :solid_harmonic_poly)
+    @test isdefined(Harmonics, :_plm_norm) && !Base.ispublic(Harmonics, :_plm_norm)
 end

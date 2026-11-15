@@ -6,6 +6,16 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — `SLCE.Harmonics` / `SLCE.SolidHarmonics` declare their downstream surface `public` (2026-11-15)
+
+The two kernels' stable names (`Zlm`, `Zlm_unsafe`, `grad_Zlm`, `grad_Zlm_unsafe`,
+`lm_index`, `num_lm`, `N1`, `A2`, `B2`; `solid_harmonics[!]`, `solid_harmonics_grad[!]`,
+`Rlm`, `grad_Rlm`, `solid_harmonic_index`, `num_solid_harmonics`) were public only in
+prose (docs/src/api.md). They are now declared with `public`, so `Base.ispublic` and
+tooling see the contract SLCEMonteCarlo, SLCEDynamics and SLCETools call in code; a test
+pins the list. (Their comments also name a few internals as coupled sites of their
+device ports; those stay internal.) No name changed and nothing new is exported.
+
 ### Fixed — four input-pairing holes found in the SCEFitting.jl audit (2026-11-15)
 
 No fitted number changes; each item turns a silently wrong combination into an error.
