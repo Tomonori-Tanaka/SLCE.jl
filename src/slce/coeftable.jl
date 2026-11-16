@@ -10,9 +10,9 @@ meaningful rows); the caller brings the table / IO package. The reference energy
 is the model intercept (not a per-row quantity); read it with [`intercept`](@ref).
 """
 
-const _COEF_NAMES = (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J)
-const _COEF_COLTYPES = (Int, Int, String, Int, Int, Int, Float64)
-const _CoefRow = NamedTuple{_COEF_NAMES,Tuple{Int,Int,String,Int,Int,Int,Float64}}
+const _COEF_NAMES = (:body, :orbit_id, :decors, :L_S, :Lf, :block, :regauged, :J)
+const _COEF_COLTYPES = (Int, Int, String, Int, Int, Int, Bool, Float64)
+const _CoefRow = NamedTuple{_COEF_NAMES,Tuple{Int,Int,String,Int,Int,Int,Bool,Float64}}
 
 # The sorted decoration label as a flat string. A pure-spin decor renders as its
 # bare `l` (so a v4-shaped key reads "1,1,2" exactly as before); a displacement
@@ -31,25 +31,32 @@ end
     SLCECoefficients
 
 A Tables.jl-compatible table of fitted SLCE coefficients: parallel `keys` /
-`jphi` (column `J`) plus the intercept `j0`. Build it with [`coeftable`](@ref);
-iterate it for `NamedTuple` rows, or hand it to any Tables.jl sink.
+`regauged` / `jphi` (column `J`) plus the intercept `j0`. Build it with
+[`coeftable`](@ref); iterate it for `NamedTuple` rows, or hand it to any Tables.jl
+sink. `regauged` defaults to all `false` for a table assembled by hand.
 """
 struct SLCECoefficients
     keys::Vector{SALCKey}
+    regauged::Vector{Bool}
     jphi::Vector{Float64}
     j0::Float64
 
-    function SLCECoefficients(keys::Vector{SALCKey}, jphi::Vector{Float64}, j0::Real)
+    function SLCECoefficients(keys::Vector{SALCKey}, jphi::Vector{Float64}, j0::Real;
+                              regauged::AbstractVector{Bool} = fill(false, length(keys)))
         length(keys) == length(jphi) ||
             throw(ArgumentError("got $(length(keys)) keys for $(length(jphi)) coefficients"))
-        return new(keys, jphi, Float64(j0))
+        length(regauged) == length(keys) ||
+            throw(ArgumentError("got $(length(keys)) keys for $(length(regauged)) " *
+                                "regauged flags"))
+        return new(keys, collect(Bool, regauged), jphi, Float64(j0))
     end
 end
 
 @inline _coef_row(c::SLCECoefficients, i::Int)::_CoefRow =
     (body = c.keys[i].body, orbit_id = c.keys[i].orbit_id,
      decors = _decor_string(c.keys[i].decors), L_S = c.keys[i].L_S,
-     Lf = c.keys[i].Lf, block = c.keys[i].block, J = c.jphi[i])
+     Lf = c.keys[i].Lf, block = c.keys[i].block, regauged = c.regauged[i],
+     J = c.jphi[i])
 
 """
     coeftable(f::SLCEFit) -> SLCECoefficients
@@ -58,13 +65,28 @@ end
 A Tables.jl-compatible table of the fitted coefficients — one row per SALC with
 columns `body`, `orbit_id`, `decors` (the sorted decoration label as a string:
 a pure-spin key reads like `"1,1,2"`, displacement factors as `u(k:l)`), `L_S`,
-`Lf`, `block`, and `J` (the coefficient `Jϕ`). The intercept `j0` is available
-via [`intercept`](@ref). Example: `using DataFrames; DataFrame(coeftable(f))`.
+`Lf`, `block`, `regauged`, and `J` (the coefficient `Jϕ`). The intercept `j0` is
+available via [`intercept`](@ref). Example: `using DataFrames; DataFrame(coeftable(f))`.
+
+`regauged` is `true` on the columns of a block whose gauge this reference cell chose
+([`regauged_columns`](@ref)): part of the block vanishes identically on the cell, and
+the columns were rotated inside the block so that the vanishing part is columns of its
+own. Their coefficients are not comparable column by column with those of a model of
+the same crystal on another cell (or along other lattice vectors); compare such models
+through readouts that do not depend on the gauge — `force_constants`,
+`bilinear_terms`, predicted energies.
 """
 coeftable(f::SLCEFit)::SLCECoefficients =
-    SLCECoefficients(copy(f.dataset.basis.salc_basis.keys), copy(f.jphi), f.j0)
+    _coeftable(f.dataset.basis, copy(f.dataset.basis.salc_basis.keys), copy(f.jphi), f.j0)
 coeftable(m::SLCEModel)::SLCECoefficients =
-    SLCECoefficients(copy(m.keys), copy(m.jphi), m.j0)
+    _coeftable(m.basis, copy(m.keys), copy(m.jphi), m.j0)
+
+function _coeftable(basis::SLCEBasis, keys::Vector{SALCKey}, jphi::Vector{Float64},
+                    j0::Float64)::SLCECoefficients
+    flags = fill(false, length(keys))
+    length(keys) == n_salcs(basis) && (flags[regauged_columns(basis)] .= true)
+    return SLCECoefficients(keys, jphi, j0; regauged = flags)
+end
 # `copy` duplicates the `jphi` and key vectors so the table is independent of later
 # refits; the `SALCKey`s themselves are shared (they are treated as immutable — used
 # as `Dict` keys — so their `ls` is never mutated).
@@ -106,6 +128,7 @@ function Base.show(io::IO, ::MIME"text/plain", c::SLCECoefficients)
             ["L_S"; [string(c.keys[i].L_S) for i = 1:nshow]],
             ["Lf"; [string(c.keys[i].Lf) for i = 1:nshow]],
             ["block"; [string(c.keys[i].block) for i = 1:nshow]],
+            ["regauged"; [c.regauged[i] ? "yes" : "" for i = 1:nshow]],
             ["J"; [_fmtj(c.jphi[i]) for i = 1:nshow]])
     w = map(col -> maximum(length, col), cols)
     for r = 1:(nshow + 1)

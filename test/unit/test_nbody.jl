@@ -169,7 +169,8 @@ end
         basis_cs = build_salc_basis(xtal_cs, sg_cs, cs_cs; lmax_by_species = [2])
         @test allunique(basis_cs.keys)                       # the regression the fix guards
         @test issorted(basis_cs.keys)
-        @test basis_cs.fingerprint == hash(basis_cs.keys)
+        @test basis_cs.fingerprint ==
+              hash(basis_cs.keys, hash(SLCE.SALC_GAUGE_CONVENTION))
         # ls=[1,1,2] splits into two distinct SALCs (apex vs base carries l=2)
         @test count(s -> SLCE.spin_ls(s.key) == [1, 1, 2] && s.Lf == 0, basis_cs.salcs) == 2
         # and they are still individually space-group invariant

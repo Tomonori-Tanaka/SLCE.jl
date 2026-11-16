@@ -287,7 +287,7 @@ Easy to break silently — confirm before touching the algorithm.
   and names `symmetrize(crystal; backend, tol)`, which moves lattice AND positions onto
   the group (`src/symmetry/symmetrize.jl`; the package never calls it itself). `_sign_canon!`'s `1e-8`
   stays absolute on purpose: at round-off a sign would be chosen by noise; the gauge
-  choice inside a block is S-3's subject, not this entry's. SCEFitting.jl has the same
+  choice inside a block is the next entry's subject. SCEFitting.jl has the same
   raw `A * W * Ainv` and absolute cuts and has NOT received this change yet (OPEN-WORK
   F-5) — a port must recapture its pins the same way. Gates:
   `test/unit/test_orientation.jl` (rank of the aligned crystal for every orientation on
@@ -297,6 +297,58 @@ Easy to break silently — confirm before touching the algorithm.
   pushed the other way mutation-tested. **Keep the diamond row**: it is the only one that
   sees `_ASR_CANCELLATION_RTOL` (the cubic Bravais rows pass with it at 1e-10; the full
   sweep then refuses 34 of 455).
+- **The gauge inside a block: crystal axes, then the vanishing subspace as its own
+  columns** (`symmetry/backend.jl` `_crystal_frame` ↔ `basis/salcbasis.jl`
+  `_build_frame_cache` / the `to_cartesian` line of `_project_and_fold` AND
+  `_project_and_fold_decors` ↔ `basis/regauge.jl` `_regauge_vanishing` /
+  `_block_split` / `_REGAUGE_BAND_TOP` ↔ `basis/resolvability.jl` `_signature_of` /
+  `_unresolvable_split` ↔ `basis/momentbasis.jl` `_moment_signature_of` ↔
+  `fitting/selection.jl` / `fitting/momentfit.jl` `_blockwise_metric!` and the
+  crystal-frame reference ensemble ↔ `slce/coeftable.jl` `regauged` ↔ `slce/model.jl`
+  `symmetrized_lattice(...).crystal_axes`; decided 2026-11-16, OPEN-WORK S-3 points
+  1, 3 (case C) and 4). A BLOCK is the columns sharing every key label but `block`
+  (one mark class more in the pointed basis — never mix mark classes, they predict
+  different atoms). Symmetry fixes its span, not its columns. (1) The columns are
+  `W = to_cartesian·canon(to_cartesianᵀ·V1)`, `to_cartesian` the action of the crystal
+  frame `Q` (vectors of the symmetrized lattice, Gram–Schmidt in order; improper for a
+  left-handed lattice) on every slot, spin included — `det(Q)^{Σl_spin} = +1`, so polar
+  and axial agree, and on `L_S = 0` paths the spin slots are a scalar and the frame
+  cannot move them (gated). Projection, transport, member fold and the sum rule are
+  untouched. The gauge follows the LATTICE VECTORS, not the orientation: the same
+  crystal with `(a1, a2, a1 + a3)` gets other columns (same span, same model). (2) On a
+  tied cell, per orbit and per block, `_regauge_vanishing` expands the block
+  symbolically (the same expansion the per-column test reads — `_signature_of` /
+  `_moment_signature_of`), takes the right null space `N0` at `_CANCELLATION_RTOL` of
+  the block's largest gross mass, refuses a singular value in
+  `(_CANCELLATION_RTOL, _REGAUGE_BAND_TOP]`, and replaces the block by
+  `[canon(N1) canon(N0)]` (W entries below `_ROUNDOFF_RTOL` snapped, so an already
+  aligned block is an exact permutation and its tensors are copied). The per-column
+  freeze (route A) then reaches the whole vanishing subspace; keys do not change, the
+  functions behind the keys of a re-gauged block do. Measured margins: cancellations
+  ≤ 3.1e-16, content ≥ 1.9e-2 of the gross mass (gate in `test_gauge.jl`, three decades
+  of headroom each side). Runs inside the threaded orbit loop: everything it allocates
+  is task-local. A block with no tie is never expanded, so an untied cell builds
+  exactly the S-3 basis. (3) What remains — a vanishing combination ACROSS blocks of one
+  orbit — is announced per orbit by `build_asr` (`residual_groups`, G-ASR-4 shape) and
+  left out of `dof` (`_flat_in_span`); none has been measured since (hcp/rhombohedral/fcc
+  degree 2–4, three-body, joint SOC, the integration tier). (4) The penalty metric gives
+  one weight per block (trace / live count) and 0 to frozen columns, and draws its
+  reference ensemble along the crystal axes (the zero refusal reads the MEASURED norms,
+  before the block average); `_effective_dof_nullspace` ignores the weights of dead `Z`
+  rows, and `select_fit`'s λ path and folds solve in the free coordinates of the
+  freeze-only `Z` (in β space a frozen column's weight 0 is an unpenalized, possibly
+  nonzero face-(b) column — it threw). **Frozen means "not fitted from data"**: held at 0 only
+  because the folded sum rule never touches a frozen column; once the sum rule is
+  written with lattice shifts (OPEN-WORK S-4) it may complete them — never infer
+  frozen-ness from `coef == 0`. Coefficients of a re-gauged block are not comparable
+  across cells (`regauged_columns`, `coeftable.regauged`). Gates: `test/unit/test_gauge.jl`
+  (columns turn with the crystal incl. improper R, with an in-suite Cartesian-frame
+  mutant; L_S = 0 spin slots inert; sampled per-block nullity = frozen count, energy
+  and pointed; one crystal in three descriptions → same force constants under OLS /
+  Ridge / AdaptiveRidge / refit and same per-instance energies under metric Ridge;
+  no zero-cost support drop; untouched blocks bit-identical). SphericalTensorFC has (1)
+  (`c7b9957`) but not (2)–(4); SCEFitting.jl has neither — a port must keep the
+  per-mark-class grouping and the crystal-frame metric ensemble.
 - **Image selection ↔ neighbor list ↔ cluster edges** (`geometry/neighborlist.jl`,
   `clusters/enumerate.jl`, `slce/model.jl`): `SLCEBasis` threads one `images` value to
   **both** `build_neighbor_list` and `candidate_clusters`/`build_clusters`; they must
@@ -1283,7 +1335,9 @@ Easy to break silently — confirm before touching the algorithm.
   `GroupAdaptiveRidge`, and it enters at SIX sites — `Ridge`'s solve, `AdaptiveRidge`'s
   iteration 0 and its weight update, `_solve_gar`'s cold start and
   `_group_adaptive_weights!`, and the three `_penalty_diagonal` methods behind
-  GCV/`effective_dof`. Always in the DENOMINATOR of a weight map: outside it the
+  GCV/`effective_dof`. The metric itself is one weight per BLOCK with frozen columns at
+  exactly 0 (`_blockwise_metric!`, both channels; see the gauge entry above) — a
+  per-column weight inside a block is a gauge-dependent penalty. Always in the DENOMINATOR of a weight map: outside it the
   adaptive estimators stop being scale invariant and the group-L0 fixed point reads
   `λ·v_g·⟨m⟩_g` instead of `λ·v_g`. Three consequences that are easy to miss when adding
   a site: (i) **`select_fit` resolves the metric ONCE** and passes it to every solve,

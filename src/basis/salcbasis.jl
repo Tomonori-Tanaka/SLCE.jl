@@ -169,12 +169,34 @@ function _build_wig_cache(sg::SpaceGroup, maxl::Int)::_WigCache
 end
 _wigner_d(cache::_WigCache, l::Int, g::Int) = cache[(l, g)]   # read-only lookup
 
+# The Wigner matrices of ONE orthogonal matrix, the crystal frame (`_crystal_frame`),
+# in the same table shape as the operations' cache: entry `(l, 1)` is `D^l(Q)`. Built
+# serially next to the operations' cache and read-only below, for the same reason.
+function _build_frame_cache(frame::AbstractMatrix{<:Real}, maxl::Int)::_WigCache
+    cache = _WigCache()
+    for l = 1:maxl
+        cache[(l, 1)] = AngularMomentum.wignerD_real(l, Matrix{Float64}(frame))
+    end
+    return cache
+end
+_build_frame_cache(crystal::Crystal, spacegroup::SpaceGroup, maxl::Int) =
+    _build_frame_cache(_crystal_frame(crystal, spacegroup), maxl)
+
 # Project the combined (ordering, path, Mf) space onto stabilizer invariants for a
 # fixed final `Lf`, gauge-fix, and fold each invariant into per-ordering tensors.
 # Returns a list of blocks; each block is `Vector{(ls, folded)}` (the rep terms).
+#
+# The invariants of a block span a space that the symmetry fixes; which vectors of
+# that space become the columns (the gauge) it does not. `_canonical_basis` decides by
+# looking at components, so the answer depends on the axes the components are taken
+# along. They are taken along the axes of the crystal (`_crystal_frame`; `fcache` is
+# the Wigner table of that one matrix), not along the Cartesian axes: the columns of a
+# crystal turned as a whole are then the turned columns, and nothing that picks out
+# single columns of a block depends on the orientation (ported from SphericalTensorFC
+# `c7b9957`). Every site axis is a spin axis here and turns with the same matrix.
 function _project_and_fold(stab::Vector{Tuple{Int,Vector{Int}}},
                            orderings::Vector{Vector{Int}}, cbs::Vector, Lf::Int,
-                           wcache::_WigCache)
+                           wcache::_WigCache, fcache::_WigCache)
     N = length(orderings[1])
     # coupled tensors of this Lf, per ordering — selected from the prebuilt `cbs`
     # (built once per ordering in `_orbit_salcs`, not recomputed for each Lf).
@@ -222,7 +244,23 @@ function _project_and_fold(stab::Vector{Tuple{Int,Vector{Int}}},
     all(λ -> abs(λ) < 1e-6 || abs(λ - 1) < 1e-6, F.values) ||
         error("SALC projector is not idempotent (eigenvalues $(F.values)); convention bug")
     V1 = F.vectors[:, findall(>(0.5), F.values)]
-    W = _canonical_basis(V1)
+    # Turning a tensor from the axes of the crystal to the Cartesian axes is an
+    # orthogonal matrix in these coordinates; the sites stay where they are.
+    to_cartesian = zeros(Float64, D, D)
+    for k = 1:D
+        (oi, p, Mf) = cols[k]
+        o = orderings[oi]
+        v = _mf_slice(tens[oi][p], Mf)
+        for i = 1:N
+            v = AngularMomentum.nmode_mul(v, _wigner_d(fcache, o[i], 1), i)
+        end
+        for p2 in eachindex(tens[oi]), Mf2 = 1:(2Lf + 1)
+            c = _frobenius_inner(_mf_slice(tens[oi][p2], Mf2), v)
+            abs(c) < _ROUNDOFF_RTOL && continue
+            to_cartesian[colidx[(oi, p2, Mf2)], k] = c
+        end
+    end
+    W = to_cartesian * _canonical_basis(to_cartesian' * V1)
 
     blocks = Vector{Tuple{Vector{Int},Array{Float64}}}[]
     for b = 1:size(W, 2)
@@ -444,11 +482,16 @@ end
 # Decor-general `_project_and_fold`: project the combined (assignment, path, Mf)
 # space onto stabilizer invariants for a fixed (L_S, Lf) block. Returns a list
 # of invariant blocks; each is `Vector{(assignment index, folded)}`.
+#
+# The gauge inside a block is chosen along the crystal axes exactly as in
+# `_project_and_fold`: every slot, spin and displacement alike, turns with the frame
+# `fcache`. On an `L_S = 0` path the spin slots couple to a scalar, which no rotation
+# moves, so including them changes nothing there (gated in `test_orientation.jl`).
 function _project_and_fold_decors(stab::Vector{Tuple{Int,Vector{Int}}},
                                   assignments::Vector{Vector{SiteDecor}},
                                   slotlists::Vector{Vector{Slot}},
                                   cbs::Vector, L_S::Int, Lf::Int,
-                                  wcache::_WigCache)
+                                  wcache::_WigCache, fcache::_WigCache)
     tens = [Array{Float64}[] for _ in assignments]
     for ai in eachindex(assignments)
         for (ls_path, lf_path, tensor) in cbs[ai]
@@ -491,7 +534,22 @@ function _project_and_fold_decors(stab::Vector{Tuple{Int,Vector{Int}}},
     all(λ -> abs(λ) < 1e-6 || abs(λ - 1) < 1e-6, F.values) ||
         error("decor SALC projector is not idempotent (eigenvalues $(F.values))")
     V1 = F.vectors[:, findall(>(0.5), F.values)]
-    W = _canonical_basis(V1)
+    to_cartesian = zeros(Float64, D, D)
+    for k = 1:D
+        (ai, p, Mf) = cols[k]
+        slots = slotlists[ai]
+        v = _mf_slice(tens[ai][p], Mf)
+        for j in eachindex(slots)
+            slots[j].factor.l == 0 && continue          # D⁰ = 1 (trace axes)
+            v = AngularMomentum.nmode_mul(v, _wigner_d(fcache, slots[j].factor.l, 1), j)
+        end
+        for p2 in eachindex(tens[ai]), Mf2 = 1:(2Lf + 1)
+            c = _frobenius_inner(_mf_slice(tens[ai][p2], Mf2), v)
+            abs(c) < _ROUNDOFF_RTOL && continue
+            to_cartesian[colidx[(ai, p2, Mf2)], k] = c
+        end
+    end
+    W = to_cartesian * _canonical_basis(to_cartesian' * V1)
 
     blocks = Vector{Tuple{Int,Array{Float64}}}[]
     for b = 1:size(W, 2)
@@ -556,7 +614,7 @@ end
 function _orbit_salcs_decors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
                              orbit_id::Int, O::ClusterOrbit,
                              labels::Vector{Vector{SiteDecor}}, soc::Bool,
-                             wcache::_WigCache;
+                             wcache::_WigCache, fcache::_WigCache;
                              lmax_by_species::Union{Nothing,Vector{Int}} = nothing,
                              pmax_by_species::Union{Nothing,Vector{Int}} = nothing,
                              admit::Union{Nothing,Function} = nothing)::Vector{SALC}
@@ -623,7 +681,7 @@ function _orbit_salcs_decors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
             blockset = sort(unique((ls, lf) for cbo in cbs for (ls, lf, _) in cbo))
             for (L_S, Lf) in blockset
                 blocks = _project_and_fold_decors(stab, assignments, slotlists,
-                                                  cbs, L_S, Lf, wcache)
+                                                  cbs, L_S, Lf, wcache, fcache)
                 for terms_rep in blocks
                     isempty(terms_rep) && continue
                     members = SALCMember[]
@@ -809,7 +867,7 @@ end
 # unit of parallelism in `build_salc_basis`.
 function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id::Int,
                       O::ClusterOrbit, lmax::Vector{Int}, lsumN::Int, scalar_only::Bool,
-                      wcache::_WigCache)::Vector{SALC}
+                      wcache::_WigCache, fcache::_WigCache)::Vector{SALC}
     out = SALC[]
     rep = O.representative
     stab = _stabilizer(crystal, spacegroup, rep)
@@ -832,7 +890,7 @@ function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id
         Lfset = sort(unique(cb.Lf for cbo in cbs for cb in cbo))
         lab = sort(collect(t))
         for Lf in Lfset
-            blocks = _project_and_fold(stab, orderings, cbs, Lf, wcache)
+            blocks = _project_and_fold(stab, orderings, cbs, Lf, wcache, fcache)
             for terms_rep in blocks
                 isempty(terms_rep) && continue
                 members = SALCMember[]
@@ -907,7 +965,9 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::Cl
                             "the clusters reach body order $maxbody"))
     lsumN(N) = lsum_by_body === nothing ? LSUM_UNCAPPED : Int(lsum_by_body[N])
     # Precompute the Wigner-D cache serially so it is read-only (race-free) below.
-    wcache = _build_wig_cache(spacegroup, isempty(lmax) ? 0 : maximum(lmax))
+    maxl = isempty(lmax) ? 0 : maximum(lmax)
+    wcache = _build_wig_cache(spacegroup, maxl)
+    fcache = _build_frame_cache(crystal, spacegroup, maxl)
     # Flatten the orbits into one work list, keeping `(N, orbit_id)` for the SALC keys.
     # Orbits are independent; the final `sort!` by key makes the result identical at any
     # thread count, so the parallel order is irrelevant.
@@ -920,8 +980,10 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::Cl
     parts = Vector{Vector{SALC}}(undef, length(work))
     Threads.@threads for w in eachindex(work)
         (N, orbit_id, O) = work[w]
-        parts[w] = _orbit_salcs(crystal, spacegroup, N, orbit_id, O, lmax, lsumN(N),
-                                scalar_only, wcache)
+        parts[w] = _regauge_vanishing(_orbit_salcs(crystal, spacegroup, N, orbit_id, O,
+                                                   lmax, lsumN(N), scalar_only, wcache,
+                                                   fcache),
+                                      _energy_block_signature, _no_class)
     end
     salcs = isempty(parts) ? SALC[] : reduce(vcat, parts)
     sort!(salcs; by = s -> s.key)

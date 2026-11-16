@@ -411,7 +411,8 @@ function penalty_metric(basis::SLCEBasis; torque_weight::Real = 0.0,
     (isfinite(w) && 0 <= w <= 1) ||
         throw(ArgumentError("torque_weight must be in [0, 1]; got $torque_weight"))
     nat = n_atoms(basis.crystal)
-    cfgs = _reference_configs(nat, Int(nconfig), Int(seed))
+    cfgs = _reference_configs(nat, Int(nconfig), Int(seed),
+                              _crystal_frame(basis.crystal, basis.spacegroup))
     sal = salcs(basis)
     p = length(sal)
     K = length(cfgs)
@@ -465,7 +466,54 @@ function penalty_metric(basis::SLCEBasis; torque_weight::Real = 0.0,
         varj = max(0.0, s2 / K - (s1 / K)^2)
         m[j] = (1 - w) * varj + w * (st / K) / (3 * nat)
     end
-    _refuse_zero_metric(m, "penalty_metric(::SLCEBasis)")
+    # The frozen columns are held at exactly zero by every fit on this cell, so they
+    # are exempt (weight 0). A vanishing one (face (a)) has zero reference norm, which
+    # used to be refused; an undetermined one (face (b)) is nonzero but frozen all the
+    # same. A basis the classification cannot read (an AllImages template) has nothing
+    # frozen; the dataset door refuses such a basis anyway. The zero refusal reads the
+    # MEASURED norms, before the block average, so a vanishing column the
+    # classification missed is still caught rather than averaged into a block weight.
+    frozen = try
+        unresolvable_columns(basis)
+    catch err
+        err isa UnclassifiableBasis || rethrow()
+        Int[]
+    end
+    _refuse_zero_metric(m, "penalty_metric(::SLCEBasis)"; exempt = frozen)
+    _blockwise_metric!(m, sal, frozen, _no_class)
+    return m
+end
+
+# One weight per block (the columns sharing every label but `block`, refined by
+# `class`): the mean of the measured norms over the block's columns that are not
+# `exempt`, i.e. the trace of the block's reference Gram over its live columns divided
+# by their number. The columns of a block are a gauge — the symmetry fixes their span,
+# not the columns — and a weight per column would make the penalty depend on that
+# choice: inside a block whose reference Gram is not a multiple of the identity a
+# per-column weight is not rotation invariant, and on a cell that freezes part of the
+# block it moved the penalized solution with the gauge (measured 8.8 % of β on the
+# turned hcp pure-spin basis before 2026-11-16). The trace does not depend on the
+# gauge. `exempt` columns get exactly 0. A single-column block keeps its own value bit
+# for bit.
+function _blockwise_metric!(m::Vector{Float64}, sal::AbstractVector{SALC},
+                            exempt::AbstractVector{Int}, class::Function)
+    groups = Dict{Any,Vector{Int}}()
+    for (j, s) in enumerate(sal)
+        push!(get!(groups, (_block_key(s), class(s)), Int[]), j)
+    end
+    eset = Set(exempt)
+    for cols in values(groups)
+        live = [j for j in cols if !(j in eset)]
+        if length(cols) > 1 && !isempty(live)
+            weight = sum(m[live]) / length(live)
+            for j in live
+                m[j] = weight
+            end
+        end
+    end
+    for j in exempt
+        m[j] = 0.0
+    end
     return m
 end
 
@@ -615,7 +663,12 @@ end
 # q is small for joint bases, so the primal q × q eigenproblem suffices.
 function _effective_dof_nullspace(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64},
                   Z::Matrix{Float64})::Float64
-    all(>(0.0), w) ||
+    # A column whose row of `Z` is dead (frozen, or excluded by the sum rule) does not
+    # enter `Z'DZ` at all, so its weight is irrelevant — and it is exactly zero by
+    # design when the metric exempts frozen columns (`penalty_metric`). Only the LIVE
+    # rows have to be penalized for the compressed penalty to be positive definite.
+    live = [norm(view(Z, j, :)) >= _ASR_DEAD_ROW for j in axes(Z, 1)]
+    all(>(0.0), w[live]) ||
         throw(ArgumentError("effective_dof/gcv: the penalty diagonal has a " *
                             "nonpositive weight — the compressed penalty Z'DZ must " *
                             "be positive definite. A zero comes from either a zero " *
@@ -626,8 +679,9 @@ function _effective_dof_nullspace(X::Matrix{Float64}, lambda::Float64, w::Vector
                             "unpenalized β column is not a γ direction, so the two " *
                             "have to be combined deliberately rather than by " *
                             "accident. No channel produces the combination today — " *
-                            "`penalty_metric(::SLCEBasis)` refuses a zero and the " *
-                            "pointed channel carries no reparameterization."))
+                            "`penalty_metric(::SLCEBasis)` gives a zero only to frozen " *
+                            "columns, whose rows of `Z` are dead, and the pointed " *
+                            "channel carries no reparameterization."))
     P = Symmetric(Z' * (w .* Z))
     C = cholesky(P)
     G = X' * X
@@ -1126,9 +1180,12 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
     rep = _resolve_asr_rep(dataset, asr)
     # What the path cannot honour is a CONSTRAINT (rows of `A`), not a reparameterization
     # as such. A freeze-only one — the unresolvable-column exclusion, which every fit
-    # carries whatever `asr` says — is a pure column selection on columns whose design
-    # entries are identically zero, so the cached β-space Gram is already the right one
-    # and the path only has to hold those entries at exact zero (done below). Gating on
+    # carries whatever `asr` says — is a pure column selection (`Z` holds unit vectors
+    # of the free columns), so the path solves in its coordinates exactly as `fit` does:
+    # the frozen columns are not in the solve at all. They are NOT all identically zero
+    # in the design — face (b) of a tie freezes nonzero, aliased columns — and the
+    # penalty metric gives every frozen column weight 0, so solving them in β space
+    # would hand the solver unpenalized, possibly collinear columns. Gating on
     # `rep === nothing` instead would refuse every Wigner-Seitz-tied crystal outright.
     rep === nothing || size(rep.A, 1) == 0 ||
         throw(ArgumentError("select_fit under an ASR reparameterization is not " *
@@ -1191,6 +1248,15 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
     XtX = Matrix{Float64}(X' * X)
     Xty = Vector{Float64}(X' * y)
     colnorms = [norm(view(X, :, j)) for j = 1:size(X, 2)]
+    # The coordinates of the solve: the free columns of a freeze-only reparameterization
+    # (`Zf` the selection matrix), or β itself when nothing is frozen — then every
+    # quantity below is the one this driver always computed, bit for bit.
+    Zf = isempty(frozen_cols) ? nothing : Matrix{Float64}((rep::ASRReparam).Z)
+    Xs = Zf === nothing ? X : X * Zf
+    XtXs = Zf === nothing ? XtX : Matrix{Float64}(Zf' * XtX * Zf)
+    Xtys = Zf === nothing ? Xty : Vector{Float64}(Zf' * Xty)
+    lift(g) = Zf === nothing ? g : Zf * g
+    lower(b) = Zf === nothing ? b : Zf' * b
     # The penalty metric, resolved once for the whole path: every solve, every GCV
     # weight, the per-fold solves, and the cold re-solve of the selected point must see
     # the SAME diagonal, or the returned fit and the score attached to it would
@@ -1213,10 +1279,11 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
     nf_total = Ref(0)
     betas = Vector{Vector{Float64}}(undef, nl)
     for i = 1:nl
-        b = lams[i] == 0.0 ? (X \ y) :
-            _solve_gar(XtX, Xty, lams[i], estimator.column_groups, estimator.group_weights,
-                       estimator.group_sizes, metric, estimator.epsilon,
-                       estimator.max_iter, estimator.tol; nonconvergent = nonconv_path)
+        b = lams[i] == 0.0 ? lift(Xs \ y) :
+            lift(_solve_gar(XtXs, Xtys, lams[i], estimator.column_groups,
+                            estimator.group_weights, estimator.group_sizes, metric,
+                            estimator.epsilon, estimator.max_iter, estimator.tol;
+                            nullspace = Zf, nonconvergent = nonconv_path))
         isempty(frozen_cols) || (b[frozen_cols] .= 0.0)
         betas[i] = b
     end
@@ -1279,14 +1346,14 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
         normsq = Vector{Float64}(undef, G)
         for i = 1:nl
             if lams[i] == 0.0
-                score[i], edof[i] = _gcv_score(X, y, betas[i], 0.0, nothing;
+                score[i], edof[i] = _gcv_score(Xs, y, lower(betas[i]), 0.0, nothing;
                                                n_eff = neff, intercept = icpt)
             else
                 _group_adaptive_weights!(wv, betas[i], estimator.column_groups,
                               estimator.group_weights, estimator.group_sizes, metric,
                               estimator.epsilon, normsq)
-                score[i], edof[i] = _gcv_score(X, y, betas[i], lams[i], wv;
-                                               XtX = XtX, n_eff = neff,
+                score[i], edof[i] = _gcv_score(Xs, y, lower(betas[i]), lams[i], wv;
+                                               XtX = XtXs, Z = Zf, n_eff = neff,
                                                intercept = icpt)
             end
         end
@@ -1349,16 +1416,20 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
             # training Gram by downdating the cached full Gram — no per-fold X pass
             XtX_tr = XtX .- Xho' * Xho
             Xty_tr = Xty .- Xho' * yho
+            if Zf !== nothing
+                XtX_tr = Matrix{Float64}(Zf' * XtX_tr * Zf)
+                Xty_tr = Vector{Float64}(Zf' * Xty_tr)
+            end
             for i = 1:nl
                 bf = if lams[i] == 0.0
                     tr_rows = findall(!=(k), folds)
-                    X[tr_rows, :] \ y[tr_rows]
+                    lift(Xs[tr_rows, :] \ y[tr_rows])
                 else
-                    _solve_gar(XtX_tr, Xty_tr, lams[i], estimator.column_groups,
-                               estimator.group_weights, estimator.group_sizes, metric,
-                               estimator.epsilon,
-                               estimator.max_iter, estimator.tol;
-                               nonconvergent = nonconv_fold)
+                    lift(_solve_gar(XtX_tr, Xty_tr, lams[i], estimator.column_groups,
+                                    estimator.group_weights, estimator.group_sizes, metric,
+                                    estimator.epsilon,
+                                    estimator.max_iter, estimator.tol;
+                                    nullspace = Zf, nonconvergent = nonconv_fold))
                 end
                 # Same frozen-column zeroing as the full-data path: the two paths
                 # must state the same thing about identically-zero design columns
@@ -1415,7 +1486,7 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
     n_alive[sel], cost[sel], t_sel = alive_stats!(alive, fsel.jphi)
     if criterion === :gcv
         if lams[sel] == 0.0
-            score[sel], edof[sel] = _gcv_score(X, y, fsel.jphi, 0.0, nothing;
+            score[sel], edof[sel] = _gcv_score(Xs, y, lower(fsel.jphi), 0.0, nothing;
                                                n_eff = neff, intercept = icpt)
         else
             wv = Vector{Float64}(undef, length(Xty))
@@ -1423,8 +1494,8 @@ function select_fit(dataset::SLCEDataset, estimator::GroupAdaptiveRidge;
             _group_adaptive_weights!(wv, fsel.jphi, estimator.column_groups,
                           estimator.group_weights, estimator.group_sizes, metric,
                           estimator.epsilon, normsq)
-            score[sel], edof[sel] = _gcv_score(X, y, fsel.jphi, lams[sel], wv;
-                                               XtX = XtX, n_eff = neff,
+            score[sel], edof[sel] = _gcv_score(Xs, y, lower(fsel.jphi), lams[sel], wv;
+                                               XtX = XtXs, Z = Zf, n_eff = neff,
                                                intercept = icpt)
         end
     end

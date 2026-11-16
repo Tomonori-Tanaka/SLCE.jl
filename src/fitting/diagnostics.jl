@@ -34,7 +34,11 @@ constraint (`fit(...; asr = true)` on a joint basis) the `rank(A)` exactly-enfor
 equalities are not free, so `dof = p − rank(A) + 1`; a staged fit
 (`frozen` / `sector_mask`) counts only the columns that stage fits, minus the
 constraints binding them. All three are one expression — the column count of the
-reparameterization the fit actually solved under. This is the parametric count,
+reparameterization the fit actually solved under — less the directions of it that
+vanish identically on this reference cell: a frozen column is not in the
+reparameterization at all, and a combination of columns of different blocks that
+vanishes (which nothing freezes; `build_asr` names it) is not a parameter any data on
+this cell can determine, so it is not counted either. This is the parametric count,
 not an effective / selected count, even for a sparse estimator.
 
 !!! note "On a `refit` result this is the PRE-refit count"
@@ -44,8 +48,28 @@ not an effective / selected count, even for a sparse estimator.
     caveat applies to [`identifiability`](@ref), which states it for itself. Count a
     refit's free parameters from its support (`count(!iszero, coef(f))`) instead.
 """
-dof(f::SLCEFit)::Int =
-    (f.reparam === nothing ? length(f.jphi) : size((f.reparam::ASRReparam).Z, 2)) + 1
+function dof(f::SLCEFit)::Int
+    f.reparam === nothing && return length(f.jphi) + 1
+    Z = (f.reparam::ASRReparam).Z
+    return size(Z, 2) - _flat_in_span(f.dataset.basis, Z) + 1
+end
+
+# The directions of `span(Z)` that vanish identically on the reference cell of `basis`:
+# the nullity of the structural expansion restricted to them, at `identifiability`'s
+# cut. Zero on a cell without a boundary tie (no expansion is built), and zero for a
+# basis the expansion cannot classify (the dataset door refuses those anyway).
+function _flat_in_span(basis::SLCEBasis, Z::AbstractMatrix{Float64})::Int
+    size(Z, 2) == 0 && return 0
+    _has_boundary_tie(basis) || return 0
+    S = try
+        first(_signature_matrix(basis))
+    catch err
+        err isa UnclassifiableBasis || rethrow()
+        return 0
+    end
+    isempty(S) && return size(Z, 2)
+    return size(Z, 2) - _struct_rank(S * Z)
+end
 
 """
     residuals_energy(f::SLCEFit) -> Vector{Float64}

@@ -195,6 +195,7 @@ unidentifiable, not physically zero. The cause is a Wigner–Seitz boundary tie;
 
 ```@docs
 unresolvable_columns
+regauged_columns
 UnclassifiableBasis
 ```
 

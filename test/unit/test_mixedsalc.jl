@@ -196,6 +196,7 @@ end
     trs = [SVector{3,Float64}(0, 0, 0) for _ in rots]
     sg = _assemble_spacegroup(xtal, rots, trs, "Pm-3m", 221; tol = 1e-5)
     wc = _build_wig_cache(sg, 4)
+    fc = SLCE._build_frame_cache(xtal, sg, 4)
     cs1 = build_clusters(xtal, build_neighbor_list(xtal, 2.1), sg; nbody = 1)
     O1 = cs1.by_body[1][1]
 
@@ -209,14 +210,15 @@ end
     trsB = [SVector{3,Float64}(0, 0, 0) for _ in rotsB]
     sgB = _assemble_spacegroup(xtalB, rotsB, trsB, "P4/mmm", 123; tol = 1e-5)
     wcB = _build_wig_cache(sgB, 4)
+    fcB = SLCE._build_frame_cache(xtalB, sgB, 4)
     csB = build_clusters(xtalB, build_neighbor_list(xtalB, 1.1), sgB; nbody = 2)
     O2 = csB.by_body[2][1]                      # the 1.0-long x bond orbit
 
     @testset "engines agree on pure spin (anti-drift gate)" begin
         # 1-body l = 2 and the bond pair (1,1) / (2,2) labels, on the O_h crystal.
-        old1 = _orbit_salcs(xtal, sg, 1, 1, O1, [4], SLCE.LSUM_UNCAPPED, false, wc)
+        old1 = _orbit_salcs(xtal, sg, 1, 1, O1, [4], SLCE.LSUM_UNCAPPED, false, wc, fc)
         new1 = _orbit_salcs_decors(xtal, sg, 1, 1, O1,
-                                   [spin_decors([l]) for l = [2, 4]], true, wc)
+                                   [spin_decors([l]) for l = [2, 4]], true, wc, fc)
         # pure-spin enumeration gives l = 2, 4 (l = 1, 3 die under O_h; Σl even)
         @test [spin_ls(s.key) for s in old1] == [spin_ls(s.key) for s in new1]
         @test all(s.key.L_S == s.key.Lf for s in new1)
@@ -224,10 +226,10 @@ end
             @test a.key == b.key
             @test same_members(a.members, b.members)
         end
-        old2 = _orbit_salcs(xtalB, sgB, 2, 1, O2, [2], SLCE.LSUM_UNCAPPED, false, wcB)
+        old2 = _orbit_salcs(xtalB, sgB, 2, 1, O2, [2], SLCE.LSUM_UNCAPPED, false, wcB, fcB)
         new2 = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
                                    [spin_decors([1, 1]), spin_decors([2, 2])],
-                                   true, wcB)
+                                   true, wcB, fcB)
         @test [s.key for s in old2] == [s.key for s in new2]
         for (a, b) in zip(old2, new2)
             @test same_members(a.members, b.members)
@@ -239,12 +241,13 @@ end
         # required, not just span equality).
         for (xt, st) in (_mx_triangle_cs(), _mx_triangle_c3v())
             wc3 = SLCE._build_wig_cache(st, 2)
+            fc3 = SLCE._build_frame_cache(xt, st, 2)
             cs3 = build_clusters(xt, build_neighbor_list(xt, 2.2), st; nbody = 3)
             O3 = cs3.by_body[3][1]
             old3 = _orbit_salcs(xt, st, 3, 1, O3, [2], SLCE.LSUM_UNCAPPED, false,
-                                wc3)
+                                wc3, fc3)
             new3 = _orbit_salcs_decors(xt, st, 3, 1, O3, [spin_decors([1, 1, 2])],
-                                       true, wc3)
+                                       true, wc3, fc3)
             old112 = [s for s in old3 if SLCE.spin_ls(s.key) == [1, 1, 2]]
             @test length(new3) == length(old112) > 0
             @test [s.key for s in old112] == [s.key for s in new3]
@@ -257,14 +260,14 @@ end
     @testset "gate (e): cubic single-site l=2 × p=2 blocks" begin
         # Traceless (k=0, L=2) block: exactly 2 invariants (E_g ⊕ T_2g squares).
         lab_e = [SiteDecor(; spin = 2, disp = (0, 2))]
-        se = _orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], true, wc)
+        se = _orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], true, wc, fc)
         @test length(se) == 2
         @test all(s.key.L_S == 2 for s in se)
         # |u|² trace channel: rank-2 spin ⊗ scalar ⇒ 0 invariants.
         lab_t = [SiteDecor(; spin = 2, disp = (1, 0))]
-        @test isempty(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_t], true, wc))
+        @test isempty(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_t], true, wc, fc))
         # soc = false kills the whole L_S = 2 sector.
-        @test isempty(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], false, wc))
+        @test isempty(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], false, wc, fc))
     end
 
     @testset "gate (g)/(g2): decorated bond count ≡ oracle, twist sector" begin
@@ -273,13 +276,13 @@ end
         # number fills the paper's counting table).
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
-        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true, wcB)
+        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true, wcB, fcB)
         @test length(sall) == 9
         # Gate (g2): the chirality twist (ê₁×ê₂)·(u₁×u₂) lives in L_S = 1 — the
         # SOC-carrying sector survives the centrosymmetric bond...
         @test any(s.key.L_S == 1 for s in sall)
         # ...and soc = false (L_S = 0 only) removes it.
-        s0 = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], false, wcB)
+        s0 = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], false, wcB, fcB)
         @test all(s.key.L_S == 0 for s in s0)
         # soc = false is BITWISE the L_S = 0 subset of the soc = true build
         subset = [s for s in sall if s.key.L_S == 0]
@@ -308,12 +311,12 @@ end
         # coupling machinery's conventions. These projectors share nothing with
         # either; the three counts must agree.
         lab_e = [SiteDecor(; spin = 2, disp = (0, 2))]
-        @test length(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], true, wc)) ==
+        @test length(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], true, wc, fc)) ==
               _count_single_site_l2_invariants(rots, 2)
         @test _count_single_site_l2_invariants(rots, 1) == 0      # the |u|² channel
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
-        @test length(_orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true, wcB)) ==
+        @test length(_orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true, wcB, fcB)) ==
               _count_bond_1111_invariants(rotsB, R -> R[1, 1] < 0)
         # Burnside by hand, NOT redundant with the projector: `rotsB` feeds both
         # the space group and the oracle, so a broken op list would put them in
@@ -329,7 +332,7 @@ end
     @testset "gate (i) core: u = 0 degeneracy and pure-spin consistency" begin
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
-        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true, wcB)
+        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true, wcB, fcB)
         e = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:2])
         u0 = zeros(3, 2)
         for s in sall
@@ -337,7 +340,7 @@ end
         end
         # pure-spin SALCs evaluate identically through the joint form, ∀u
         pure = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [spin_decors([1, 1])],
-                                   true, wcB)
+                                   true, wcB, fcB)
         u = randn(rng, 3, 2) * 0.3
         for s in pure
             @test evaluate_salc(s, e, u) === evaluate_salc(s, e)
@@ -351,15 +354,15 @@ end
         lab2 = [SiteDecor(; spin = 1, disp = (0, 1)),
                 SiteDecor(; spin = 1, disp = (0, 1))]
         @test_throws ArgumentError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-                                                       [lab2, lab2], true, wcB)
+                                                       [lab2, lab2], true, wcB, fcB)
     end
 
     @testset "mixed space-group invariance + time reversal" begin
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
-        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true, wcB)
+        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true, wcB, fcB)
         lab1 = [SiteDecor(; spin = 2, disp = (0, 2))]
-        s1 = _orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab1], true, wc)
+        s1 = _orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab1], true, wc, fc)
         for _ = 1:6
             # bond crystal: ops with x → −x swap the two atom columns
             e = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:2])
@@ -405,15 +408,16 @@ end
         # invariant, just not the same basis.
         xt3, st3 = _mx_triangle_c3v()
         wc3 = SLCE._build_wig_cache(st3, 2)
+        fc3 = SLCE._build_frame_cache(xt3, st3, 2)
         cs3 = build_clusters(xt3, build_neighbor_list(xt3, 2.2), st3; nbody = 3)
         O3 = cs3.by_body[3][1]
         pre = [[findfirst(==(a), view(st3.map_sym, :, g)) for a = 1:3]
                for g = 1:SLCE.n_ops(st3)]
         @test any(p -> p[p] != 1:3, pre)               # teeth: a real 3-cycle is present
-        old3 = _orbit_salcs(xt3, st3, 3, 1, O3, [2], SLCE.LSUM_UNCAPPED, false, wc3)
+        old3 = _orbit_salcs(xt3, st3, 3, 1, O3, [2], SLCE.LSUM_UNCAPPED, false, wc3, fc3)
         old222 = [s for s in old3 if SLCE.spin_ls(s.key) == [2, 2, 2]]
         new222 = _orbit_salcs_decors(xt3, st3, 3, 1, O3, [spin_decors([2, 2, 2])],
-                                     true, wc3)
+                                     true, wc3, fc3)
         @test length(new222) == length(old222) > 0
         @test [s.key for s in old222] == [s.key for s in new222]
         for (a, b) in zip(old222, new222)
@@ -422,7 +426,7 @@ end
         # and the mixed label with equal l per channel is invariant (the projector
         # side of the same convention, which the idempotency guard also covers)
         lab = [SiteDecor(; spin = 2, disp = (0, 1)) for _ = 1:3]
-        ss = _orbit_salcs_decors(xt3, st3, 3, 1, O3, [lab], true, wc3)
+        ss = _orbit_salcs_decors(xt3, st3, 3, 1, O3, [lab], true, wc3, fc3)
         @test !isempty(ss)
         for _ = 1:3
             e = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:3])
@@ -474,11 +478,12 @@ end
         # the full-space rank equals the engine's emitted SALC count
         @test r == 9
         @test r == length(_orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true,
-                                              wcB))
+                                              wcB, fcB))
         # 3-body mixed label on the Cs triangle: two assignment orbits, a
         # nontrivial site permutation, and L_S ∈ {0, 1, 2} paths
         xt, st = _mx_triangle_cs()
         wc3 = SLCE._build_wig_cache(st, 2)
+        fc3 = SLCE._build_frame_cache(xt, st, 2)
         cs3 = build_clusters(xt, build_neighbor_list(xt, 2.2), st; nbody = 3)
         O3 = cs3.by_body[3][1]
         lab3 = sort([SiteDecor(; spin = 1), SiteDecor(; spin = 1),
@@ -486,7 +491,7 @@ end
         off3, r3 = _ls_block_stats(xt, st, O3, lab3, wc3)
         @test off3 < 1e-9
         @test r3 == length(_orbit_salcs_decors(xt, st, 3, 1, O3, [lab3], true,
-                                               wc3))
+                                               wc3, fc3))
         @test r3 > 0
     end
 
@@ -498,7 +503,7 @@ end
         nlB = build_neighbor_list(xtalB, 1.1)
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
-        engine = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true, wcB)
+        engine = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true, wcB, fcB)
         spec = BasisSpec(["Fe"]; lmax = 1, pmax = 1, sectors = [
             Sector(spin = [1, 1], disp = (degree = 2,), sites = 2, cutoff = 1.1)])
         sb = SLCE.build_salc_basis(xtalB, sgB, csB, spec; neighbors = nlB)
@@ -528,11 +533,11 @@ end
 
     @testset "label validation" begin
         @test_throws ArgumentError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-            [[SiteDecor(; spin = 1), SiteDecor(; spin = 2)]], true, wcB)  # Σl odd
+            [[SiteDecor(; spin = 1), SiteDecor(; spin = 2)]], true, wcB, fcB)  # Σl odd
         @test_throws ArgumentError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-            [[SiteDecor(; spin = 1)]], true, wcB)                         # wrong N
+            [[SiteDecor(; spin = 1)]], true, wcB, fcB)                         # wrong N
         @test_throws ArgumentError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
             [[SiteDecor(; spin = 2), SiteDecor(; spin = 1, disp = (0, 1))]],
-            true, wcB)                                                    # unsorted
+            true, wcB, fcB)                                                    # unsorted
     end
 end

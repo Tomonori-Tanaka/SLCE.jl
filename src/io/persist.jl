@@ -45,8 +45,14 @@ const _LEGACY_SCHEMA_TAGS = Dict("scefitting/sce-basis" => _SCHEMA_BASIS,
 #     COUNT, never the BasisSpec-style body-order cap), and the schema tags moved
 #     from "scefitting/sce-*" to "slce/*". Early-v5 documents are read through the
 #     legacy key and the legacy tags.
-const PERSIST_SCHEMA_VERSION = 7
-const _PERSIST_READABLE_VERSIONS = (2, 3, 4, 5, 6, 7)
+# v7: (see the CHANGELOG) the space group intersected with the declared periodicity.
+# v8: SALC columns gauged along axes fixed to the crystal, with the subspace of a block
+#     that vanishes on the reference cell given columns of its own. The stored tensors
+#     are read verbatim either way; older documents are tagged gauge convention 1, so
+#     their fingerprint differs from a fresh build of the same crystal and their
+#     coefficients are never paired with the new columns.
+const PERSIST_SCHEMA_VERSION = 8
+const _PERSIST_READABLE_VERSIONS = (2, 3, 4, 5, 6, 7, 8)
 
 # Normalize -0.0 → +0.0 so two builds of the same object serialize byte-identically
 # (eigensolvers on different BLAS can flip a sign of zero); -0.0 == 0.0 anyway.
@@ -401,7 +407,8 @@ function _basis_from_doc(d)::SLCEBasis
     end
     allunique(keyvec) ||
         throw(ArgumentError("loaded SALC keys are not injective (duplicate design-matrix columns)"))
-    sb = SALCBasis(salcs, keyvec)
+    gauge = Int(d["schema_version"]) < 8 ? 1 : SALC_GAUGE_CONVENTION
+    sb = SALCBasis(salcs, keyvec; gauge)
     return SLCEBasis(crystal, sg, sb, spec)
 end
 

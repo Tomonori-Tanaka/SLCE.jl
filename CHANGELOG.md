@@ -6,6 +6,113 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed (BREAKING) — the columns inside a block are chosen along the crystal axes, and the vanishing subspace of a block is frozen whole (2026-11-16, S-3 points 1, 3 and 4)
+
+The columns that share every label of their key but `block` (a **block**) span a space the
+symmetry fixes; the columns themselves are a gauge. Two things depended on that gauge and
+should not have.
+
+- **The gauge followed the Cartesian axes** (ported from SphericalTensorFC `c7b9957`).
+  `_project_and_fold` and its decor twin now choose `W = to_cartesian·canon(to_cartesianᵀ·V1)`
+  with `to_cartesian` the action of the crystal frame `_crystal_frame` (the vectors of the
+  symmetrized lattice made orthonormal in order) on every slot — spin slots too: an even
+  `Σl_spin` makes the polar and the axial action agree, and on an `L_S = 0` path the spin
+  slots are a scalar the frame cannot move (gated). Projection, transport, member fold and
+  the sum rule are untouched. Columns of a crystal turned by any orthogonal matrix, proper or
+  not, are the turned columns (≤ 1e-10 through the evaluator, gated). Columns change for every
+  lattice whose matrix is not upper triangular with a positive diagonal (fcc primitive,
+  rhombohedral); for the others the change is round-off (≤ 1.5e-15 on the five pinned
+  crystals). The gauge still follows the lattice VECTORS: `(a1, a2, a1 + a3)` gives other
+  columns, the same span and the same model.
+- **A vanishing combination of columns was frozen only if it happened to be a column.** On a
+  tied reference cell the build now expands every block with a tie symbolically, takes the
+  subspace `N0` that vanishes on every cell-periodic configuration (rank at
+  `_CANCELLATION_RTOL` of the block's largest gross mass; a singular value in
+  `(1e-10, 1e-6]` is refused — measured margins 3.1e-16 and 1.9e-2, gated), and re-gauges the
+  block as `[canon(N1) canon(N0)]` (`basis/regauge.jl`). The existing per-column freeze
+  (route A) then holds the whole vanishing subspace at exactly 0. Same step in the pointed
+  moment basis, per mark class (mark classes are never mixed). Keys do not change; the
+  functions behind the keys of a re-gauged block do. A block without a tie is never
+  expanded, so a cell without a boundary tie builds the S-3 basis bit for bit.
+- Measured on the cells of the S-3 debate, 0add649 → now (sampled vanishing subspace V from
+  `predict_energy` on 400 random fields; truth ⟂ V; estimators through the real `Z`; "drops" =
+  free columns a constrained refit can drop at zero in-cell cost):
+
+  | cell | frozen (axes / turned / a1+a3) | `residual_flat` | AdaptiveRidge ‖P_V β‖/‖β‖ | drops | ‖ΔΦ‖ AdaptiveRidge, turned vs axes |
+  |---|---|---|---|---|---|
+  | hcp (2,2,2) degree 2 | 3/1/3 → 3/3/3 | 0/2/0 → 0 | 0 / 8.2e-3 / 0 → 0 | 0/3/0 → 0 | 1.3e-2 → 3.3e-12 |
+  | hcp (2,2,2) degree 3 | 1/0/1 → 5/5/5 | 4/5/4 → 0 | ≤ 1.5e-16 → 0 | 8/3/2 → 0 | 1.1e-3 → 2.0e-15 |
+  | hcp (2,2,2) degree 4 | 5/4/5 → 11/11/11 | 6/7/6 → 0 | 0.20 / 0.20 / 0.20 → 0 | 12/17/12 → 0 | 0.14 → 1.4e-10 |
+  | rhombohedral 80° (2,2,2), degree 2 | 0/0/0 → 2/2/2 | 2/2/2 → 0 | 0.13 → 0 | 3/3/3 → 0 | 0.26 → 7.2e-12 |
+  | fcc primitive (2,2,2), degree 2 | 1/1/1 → 1/1/1 | 0 → 0 | 0 → 0 | 0 → 0 | 4.3e-5 → 1.1e-15 |
+
+  Ridge and GroupAdaptiveRidge put nothing in V before or after (≤ 2.5e-13); OLS did not
+  either except on the hcp degree-3 cell with lattice vectors `(a1, a2, a1 + a3)`, where the
+  pivoted QR put 0.85 of β into V and moved Φ by 1.6 against the other descriptions (now 0
+  and 1.3e-15). GroupAdaptiveRidge's group weights come from `cost_weights`, which count
+  nonzero tensor entries in Cartesian components, so a turned crystal still gets other
+  weights and other force constants (1.6e-3 relative on hcp degree 2) — that is the cost
+  model, not the gauge, and is left as it is. The
+  pure-spin hcp cell (l ≤ 2, SOC): frozen 12 along the axes and 5 turned before, equal now;
+  metric Ridge was refused along the axes and leaked 8.8 % of β turned before, 0 now. After
+  the change `residual_flat` (combinations across blocks) is 0 on every cell tried: the cells
+  above, hcp three-body (degree 1–3 and 3), joint hcp spin × displacement with SOC, pure-spin
+  three-body hcp, rhombohedral and fcc at degree 2–4, along the axes and turned, and the six
+  crystals of the integration tier.
+- **Conditions that came with it.** `penalty_metric` gives one weight per block (the mean
+  over its live columns — the trace of the block's reference Gram over their number, which
+  does not depend on the gauge) and exactly 0 to frozen columns instead of refusing a basis
+  that has them, on both channels; its reference ensemble is drawn along the crystal axes,
+  so a turned crystal gets the same metric (it used to be a second Monte-Carlo estimate: a
+  metric Ridge moved per-instance energies by 1.7e-5 relative between orientations).
+  `_effective_dof_nullspace` ignores the weight of a dead `Z` row (it threw on such a
+  metric), and `select_fit`'s λ path and folds solve in the free coordinates of a
+  freeze-only reparameterization exactly as `fit` does (in β space a frozen column's
+  weight 0 handed the solver an unpenalized column, and face-(b) frozen columns are not
+  zero in the design). `build_asr` no longer returns `nothing` when nothing is frozen
+  but a combination across blocks vanishes, so that case is announced and kept out of
+  `dof` too. `dof` leaves out directions of the reparameterization that vanish on the cell
+  (`_flat_in_span`). The OLS rank warning names the real causes. `build_asr` announces a
+  vanishing combination across blocks per orbit (`_unresolvable_split(...).residual_groups`,
+  SphericalTensorFC G-ASR-4 shape); the two "measured never to happen" comments now state
+  what was measured. `regauged_columns(basis | moment_basis)` (exported) lists the columns
+  of blocks whose gauge the cell chose, and `coeftable` carries it as a new `regauged`
+  column (between `block` and `J`) — those coefficients are not comparable across cells.
+  `symmetrized_lattice(basis)` gains `crystal_axes`. Frozen means "not fitted from data":
+  it is 0 because the folded sum rule never touches a frozen column, and the docstrings now
+  say a sum rule written with lattice shifts (S-4) may complete it instead.
+- **What moves.** Every basis on a non-upper-triangular lattice; every tied basis with a
+  partly vanishing block; `coeftable`'s schema; every penalized metric fit (block weights,
+  crystal-frame ensemble). Persisted models load unchanged — the basis is stored verbatim,
+  so an old file keeps its own gauge and predicts what it predicted before. The TOML
+  schema is now 8, and `SALCBasis` carries a `gauge` convention (`SALC_GAUGE_CONVENTION`
+  = 2 for fresh builds, 1 for documents before schema 8) that seeds its `fingerprint`:
+  an old and a new basis of one crystal share their keys but not their columns, so every
+  fingerprint check (metric provenance, model combination, evaluation sets) now refuses
+  to pair their coefficients instead of silently mixing gauges.
+  **Regression pins (recaptured with this change, owner-confirmed):** S-3 alone moves all five fixtures (they are
+  upper-triangular lattices) at round-off only — L1 `folded` ≤ 1.5e-15 relative, L2
+  ≤ 1.4e-15; with the re-gauge, L0 (structure) is unchanged on all five, L0′ (sign /
+  support) moves on 16/48 terms (bcc Fe), 16/56 (B2 FeRh), 66/80 (hcp Co), 18/34 (wz GaN),
+  168/216 (rs MnO), L1 `folded` moves by O(1) (0.95–1.4 of the largest entry), L2 `coef`
+  by O(1) (0.04–1.2) while the gauge-free L2 entries (`design_frob2`, `r2`, held-out
+  energies) agree to ≤ 1.5e-15. L0′ moving is the designed change (more columns frozen),
+  not the bug the runner's rule would call it. Real-data parity with SCEFitting
+  (`SCEFitting.jl/test/parity`, re-measured on this tree; SCEFitting has not received the
+  change): FeGe B20 2×2×2 columns ≤ 2.2e-15 (lsum2, full, nbody4), FeRh B2 4×4×4 7.5e-16,
+  acceptance σ / CV / held-out within 0.15 % of reference — both cubic, so their columns
+  do not move. **Downstream** (SLCEMonteCarlo
+  f675d0e, SLCEDynamics 3dfb257, SLCETools c92f912, run from `git archive` copies against
+  this tree): 19765 / 3678 / 779 assertions, all green — nothing breaks.
+- Tests: `test/unit/test_gauge.jl` (new; 647 assertions) with oracles outside the
+  construction (evaluator on turned configurations, sampled design, force constants
+  mapped by Cartesian position, per-instance energies); `test_coeftable.jl` follows the
+  new schema. Mutation-checked (failures in `test_gauge.jl`): re-gauge skipped 52
+  (frozen-count, leak, zero-cost drop, covariance and pointed gates); Cartesian frame
+  in place of the crystal frame 16; per-column metric 21; dead-row weights refused in
+  `_effective_dof_nullspace` 6 errors; metric ensemble in the lab frame 1; rank cut
+  raised to 0.1 41.
+
 ### Fixed — `select_fit` called every group alive at a λ where the fit explained nothing; the path is no longer warm-started; `select_support` can select the empty support (2026-11-15, S-14)
 
 On a target with no coupling (i.i.d. noise energies, the test fixture's P1 basis, 3 seeds ×

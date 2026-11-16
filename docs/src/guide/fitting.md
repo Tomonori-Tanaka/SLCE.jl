@@ -291,6 +291,16 @@ m_j(w) = (1-w)\,\mathrm{Var}[\Phi_j]
 configurations — removes that, leaving only the prior you state deliberately through
 `cost_exponent`.
 
+The metric carries **one weight per block** — the columns sharing every key label but
+`block` — namely the mean of ``m_j`` over the block's live columns (the trace of the
+block's reference Gram divided by their number). The columns inside a block are a gauge
+(see [the basis guide](basis.md)), and a weight per column would make the penalty, and
+with it a penalized fit, depend on that choice. Frozen columns
+([`unresolvable_columns`](@ref)) get exactly `0`: every fit, `refit` and `select_fit`
+solves without them and holds them at 0. The
+reference configurations are drawn along the crystal axes, so a turned crystal gets the
+same metric rather than a second Monte-Carlo estimate of it.
+
 ```julia
 est = GroupAdaptiveRidge(basis; lambda = 1e-5, cost_exponent = 1.0)  # metric attached
 m   = penalty_metric(basis; torque_weight = 0.3)                     # or build it yourself
@@ -338,7 +348,8 @@ Four things follow from that definition and are worth knowing:
   not move under a column rescaling at all, so the metric does not touch it. The two
   knobs are independent by construction rather than by tuning.
 
-An entry of exactly `0` marks a column **unpenalized**. That is how the pointed moment
+An entry of exactly `0` marks a column **unpenalized** (or, for a frozen column, one no
+fit moves). That is how the pointed moment
 channel's ``\mu_0`` intercepts are kept out of the penalty — `Ridge(mb; lambda)` and its
 siblings carry `penalty_metric(mb)`, which zeroes them — for every estimator rather
 than only the group form. Under an ASR / freeze reparameterization the penalty is

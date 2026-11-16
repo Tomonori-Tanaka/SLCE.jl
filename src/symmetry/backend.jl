@@ -293,6 +293,56 @@ function _symmetric_lattice(A::AbstractMatrix{<:Real},
     return (orientation.U * orientation.Vt) * shape
 end
 
+"""
+    _crystal_frame(A, fractional_rotations) -> SMatrix{3,3,Float64}
+
+Three orthonormal axes fixed to the crystal, as the columns of an orthogonal matrix
+`Q`: the lattice vectors of the symmetrized lattice `A_s` (`_symmetric_lattice`), made
+orthonormal one after the other (Gram–Schmidt). The first axis is along `a₁`, the
+second lies in the plane of `a₁` and `a₂` on the side of `a₂`, the third is normal to
+that plane on the side of `a₃`. A vector with components `v` along these axes has the
+Cartesian components `Q·v` (ported from SphericalTensorFC `c7b9957`).
+
+The axes exist to make one choice independent of how the crystal is turned: the basis
+inside a block of several columns with the same labels (`_project_and_fold` and its
+decor twin). Three properties are used.
+
+- **They turn with the crystal.** For an orthogonal `R`, proper or not, the crystal
+  with lattice `R·A` has the axes `R·Q`. So `Qᵀ·A_s`, the lattice seen from its own
+  axes, is the same for every orientation: an upper triangular matrix with a positive
+  diagonal that depends on the lengths of the lattice vectors and the angles between
+  them only.
+- **`Q` is improper for a left-handed lattice** (`det A < 0`), because the third axis
+  follows `a₃`. A mirror image of a crystal therefore gets the mirrored axes, like any
+  other turned copy. Spin slots are rotated by the same polar matrices: a coupled
+  tensor with even `Σl_spin` picks up `det(Q)^{Σl_spin} = +1` from the axial sign, so
+  the polar and the axial action agree on every block the basis builds.
+- **A distortion inside the tolerance of the symmetry search moves them only as far as
+  it moves `A_s`**, which averages out the part of the distortion that breaks the
+  symmetry.
+
+The axes belong to the lattice vectors as given. The same crystal described by another
+choice of lattice vectors gets other axes. They are the Cartesian axes when the matrix
+of the symmetrized lattice is upper triangular with a positive diagonal.
+"""
+function _crystal_frame(A::AbstractMatrix{<:Real},
+                        fractional_rotations::AbstractVector)::SMatrix{3,3,Float64,9}
+    lattice = _symmetric_lattice(A, fractional_rotations)
+    axes = zeros(Float64, 3, 3)
+    for i = 1:3
+        remainder = lattice[:, i]
+        for j = 1:(i - 1)
+            remainder -= dot(axes[:, j], lattice[:, i]) * axes[:, j]
+        end
+        axes[:, i] = remainder / norm(remainder)
+    end
+    return SMatrix{3,3,Float64,9}(axes)
+end
+
+# The crystal frame of the basis built on `crystal` under `spacegroup`.
+_crystal_frame(crystal::Crystal, spacegroup::SpaceGroup) =
+    _crystal_frame(crystal.lattice.vectors, [op.rotation_frac for op in spacegroup.ops])
+
 # `tol` is a length in Å, and two things bound it. It must be positive and finite to
 # be a distance at all; and it must stay below half the smallest interplanar spacing,
 # because every image search here folds a fractional offset axis by axis (`round`), and

@@ -118,12 +118,13 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         @test all(k -> k.body == 1, tiny.salc_basis.keys)
         # caps and an admit predicate are mutually exclusive at the engine door
         wc = _build_wig_cache(sg, 1)
+        fc = SLCE._build_frame_cache(xt, sg, 1)
         nl = SLCE.build_neighbor_list(xt, 3.0)
         cs = SLCE.build_clusters(xt, nl, sg; nbody = 2)
         O = cs.by_body[2][1]
         lab = [sort([SiteDecor(spin = 1), SiteDecor(spin = 1, disp = (1, 0))])]
         @test_throws ArgumentError _orbit_salcs_decors(xt, sg, 2, 1, O, lab, false,
-                                                       wc; lmax_by_species = [1, 1],
+                                                       wc, fc; lmax_by_species = [1, 1],
                                                        pmax_by_species = [2, 2],
                                                        admit = _ -> true)
     end

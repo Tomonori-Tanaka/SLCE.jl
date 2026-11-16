@@ -280,6 +280,20 @@ function _reference_configs(nat::Int, nconfig::Int, seed::Int)::Vector{Matrix{Fl
     return cfgs
 end
 
+# The reference ensemble seen from the crystal: each direction, drawn as components
+# along the crystal frame `Q` (`_crystal_frame`), turned to Cartesian components as an
+# axial vector, `det(Q)·Q·e`. The distribution is uniform either way, so the expectation
+# the metric estimates is unchanged; what changes is the SAMPLE: a crystal turned by `R`
+# (frame `R·Q`) now draws the turned sample, so its metric is the same numbers, not a
+# second Monte-Carlo estimate of them — the residual seed noise (a few per cent per
+# column) used to make a metric fit depend on how the crystal was turned (measured
+# 1.7e-5 relative on the per-instance energies of a turned hcp pure-spin fit).
+function _reference_configs(nat::Int, nconfig::Int, seed::Int,
+                            frame::AbstractMatrix{<:Real})::Vector{Matrix{Float64}}
+    turn = det(frame) * Matrix{Float64}(frame)
+    return [turn * e for e in _reference_configs(nat, nconfig, seed)]
+end
+
 # An accidental zero in a metric would silently unpenalize a column. Zero is reserved
 # for a STRUCTURAL exemption — an intercept, an identically vanishing column — so a
 # numerically-zero estimate is refused rather than floored. `exempt` names the columns

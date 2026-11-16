@@ -72,6 +72,7 @@ include("slce/model.jl")          # pipeline types + constructors + config valid
 include("basis/sectorbasis.jl")   # sector-table → decor-engine basis construction
 include("basis/resolvability.jl")  # which SALCs a finite reference cell can resolve
 include("basis/momentbasis.jl")    # pointed (site-marked) basis for adiabatic moments
+include("basis/regauge.jl")        # the vanishing subspace of a block as its own columns
 include("fitting/asr.jl")        # ASR constraint builder + null-space machinery
 include("fitting/design.jl")     # design-matrix assembly (X_E / X_T / X_F)
 include("fitting/staged.jl")     # sector selectors + staged (frozen) reparameterization
@@ -159,7 +160,7 @@ export BasisSpec, Sector, SLCEBasis, SLCEDataset, SLCEModel, SLCEFit, fit, refit
     n_salcs, read_setup
 export predict_energy, predict_torque, predict_force, has_torque, has_force
 export asr_residual
-export unresolvable_columns
+export unresolvable_columns, regauged_columns
 # affine-field evaluation and the rotational-invariance diagnostic (NOT a constraint)
 export affine_energy, rotational_residual, rotation_transfer_residual
 # estimators

@@ -223,7 +223,11 @@ end
         @test m2.basis.salc_basis.keys == model.basis.salc_basis.keys
         @test all(k.L_S == k.Lf && SLCE.is_pure_spin(k)
                   for k in m2.basis.salc_basis.keys)
-        @test m2.basis.salc_basis.fingerprint == model.basis.salc_basis.fingerprint
+        # a pre-v8 document carries the legacy gauge tag: same keys, different
+        # fingerprint (the columns are compared verbatim just below)
+        @test m2.basis.salc_basis.gauge == 1
+        @test m2.basis.salc_basis.fingerprint ==
+              hash(model.basis.salc_basis.keys, hash(1))
         @test m2.jphi == model.jphi
         @test _basis_identical(m2.basis, model.basis)
         @test predict_energy(m2, testcfgs) == predict_energy(model, testcfgs)
@@ -444,5 +448,30 @@ end
                                                    lmax = [1], soc = false)))
         pdoc["schema_version"] = 6
         @test MR._basis_from_doc(pdoc) isa SLCEBasis
+    end
+
+    # Documents written before schema 8 hold columns chosen in the Cartesian lab frame.
+    # They load verbatim (same tensors, same predictions) but must carry the legacy
+    # gauge tag, so their fingerprint never matches a fresh build of the same crystal
+    # and no fingerprint check pairs their coefficients with the new columns.
+    @testset "pre-v8 documents carry the legacy gauge tag" begin
+        cube = Crystal(Lattice(Matrix(3.0 * I(3))), [0.0 0.5; 0.0 0.5; 0.0 0.5],
+                       [1, 1], ["Fe"])
+        fresh = SLCEBasis(cube, BasisSpec(; nbody = 2, cutoff = 3.2, lmax = [1],
+                                          soc = true))
+        @test fresh.salc_basis.gauge == MR.SALC_GAUGE_CONVENTION
+        doc = MR._to_doc(fresh)
+        now = MR._basis_from_doc(doc)
+        @test now.salc_basis.gauge == MR.SALC_GAUGE_CONVENTION
+        @test now.salc_basis.fingerprint == fresh.salc_basis.fingerprint
+        old = copy(doc)
+        old["schema_version"] = 7
+        legacy = MR._basis_from_doc(old)
+        @test legacy.salc_basis.gauge == 1
+        @test _basis_identical(legacy, fresh)            # the tensors load verbatim
+        @test legacy.salc_basis.keys == fresh.salc_basis.keys
+        @test legacy.salc_basis.fingerprint != fresh.salc_basis.fingerprint
+        @test_throws ArgumentError MR.SALCBasis(fresh.salc_basis.salcs,
+                                                fresh.salc_basis.keys; gauge = 3)
     end
 end

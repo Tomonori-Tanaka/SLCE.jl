@@ -157,8 +157,16 @@ capability consumed by both the introspection and the Sunny interop.
   **combined (ordering × path × `Mf`) space**: each op acts by rotating every site axis
   (`wignerD_real(l_i, R)`) and relabeling axes by `invperm(perm)`, with the action
   matrix read off by contraction against the orthonormal coupled tensors. Deterministic
-  axis-pivoted gauge; per-ordering fold into a multi-term SALC (one `SALCTerm` per
-  ordering). `SALCKey` (canonical, injective column address — `block` runs across split
+  axis-pivoted gauge, **taken along the crystal axes** (`_crystal_frame`: the vectors of
+  the symmetrized lattice made orthonormal in order; spin and displacement slots turn
+  with the same matrices), so the columns of a turned crystal are the turned columns
+  (gated in `test/unit/test_gauge.jl`); the gauge still follows the lattice vectors.
+  On a tied reference cell a block (columns sharing every key label but `block`) whose
+  proper part vanishes is re-gauged as `[canon(N1) canon(N0)]` so the vanishing part is
+  columns of its own (`basis/regauge.jl`, rank at `_CANCELLATION_RTOL` of the block's
+  gross mass, refusal in the band up to `_REGAUGE_BAND_TOP = 1e-6`); same step in the
+  pointed basis, per mark class. Per-ordering fold into a multi-term SALC (one `SALCTerm`
+  per ordering). `SALCKey` (canonical, injective column address — `block` runs across split
   ordering orbits) + `SALCBasis` (sorted keys + fingerprint). `evaluate_salc(salc, e)`.
   Since M2a the key carries the **joint decoration label**: a sorted
   `Vector{SiteDecor}` (per-site `isbits` combination of at most one factor per
@@ -365,7 +373,13 @@ capability consumed by both the introspection and the Sunny interop.
 - **Periodic resolvability — the freeze (`basis/resolvability.jl`)**:
   `unresolvable_columns(basis)` names the coefficients no data on this reference cell can
   determine, and `build_asr` holds them at exactly zero (excluded from `free`, under
-  `asr = false` too). A Wigner–Seitz boundary tie has **two faces** and both are frozen:
+  `asr = false` too). Face (a) below is the whole vanishing subspace of each block (the
+  build re-gauges blocks so it is columns); `regauged_columns(basis)` (also
+  `::MomentBasis`) lists the blocks whose gauge the cell chose, and a vanishing
+  combination across blocks is announced per orbit by `build_asr`
+  (`_unresolvable_split(...).residual_groups`) and left out of `dof`. "Held at zero" is a
+  property of the folded sum rule; under a sum rule written with lattice shifts a frozen
+  coefficient will mean "not fitted from data". A Wigner–Seitz boundary tie has **two faces** and both are frozen:
   (a) the point group permutes the tied images, so they share one orbit whose sum weights
   them equally and the odd content cancels — an identically zero column (`vanishing`);
   (b) in low symmetry no operation relates them, so they sit in *different* orbits with
@@ -841,8 +855,9 @@ capability consumed by both the introspection and the Sunny interop.
   keyword arguments override the file's backend/tol. Training data and the estimator
   stay in Julia (mirrors the basis/data separation).
 - **Tabular results** (`slce/coeftable.jl`): `coeftable(fit | model) -> SLCECoefficients`
-  is a **Tables.jl** source — one row per SALC (`body`, `orbit_id`, `ls` as a comma
-  string, `Lf`, `block`, `J`) — so it drops into `DataFrame` / `CSV.write` /
+  is a **Tables.jl** source — one row per SALC (`body`, `orbit_id`, `decors` as a comma
+  string, `L_S`, `Lf`, `block`, `regauged`, `J`; `regauged` flags the columns of a block
+  whose gauge the reference cell chose — not comparable across cells) — so it drops into `DataFrame` / `CSV.write` /
   `Arrow.write`. The library owns the internal-storage → labeled-row mapping; the caller
   brings the table/IO package. `j0` is the intercept (`intercept(c)`), not a row.
   Tables.jl is a lightweight core dep.
@@ -995,8 +1010,15 @@ capability consumed by both the introspection and the Sunny interop.
   compresses to `Z'·Diagonal(D)·Z`, so `metric` stays indexed by the **basis** columns
   exactly as `column_groups` is; with no metric the uniform penalty stays `λ·I` in γ
   space (Z orthonormal), which keeps every unweighted fit bit-identical.
+- **One weight per block.** Within a block (columns sharing every key label but
+  `block`; per mark class in the pointed basis) every live column gets the mean of the
+  block's measured norms — the trace of the block's reference Gram over its live columns
+  divided by their number, which does not depend on the gauge inside the block; frozen
+  columns (`unresolvable_columns` / the pointed vanishing set) get exactly 0. The
+  reference ensemble is drawn along the crystal axes, so a turned crystal gets the same
+  metric, not a second Monte-Carlo estimate.
 - **`mⱼ = 0` ⇒ unpenalized.** Reserved for a STRUCTURAL exemption — the pointed μ₀
-  intercepts and the identically-vanishing columns — and never inferred from a sample
+  intercepts and the identically-vanishing (frozen) columns — and never inferred from a sample
   (`_refuse_zero_metric`). The unpenalized block must have full column rank or the solve
   is refused by name (`_check_free_block`, an eigenvalue cut at `κ ≲ 6.7e7` on its Gram);
   `_effective_dof_free` gives the split-block dof `p_F + Σ sᵢ/(sᵢ+λ)`.

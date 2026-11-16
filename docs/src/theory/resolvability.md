@@ -144,6 +144,59 @@ axis is not automatically enough — describing bcc with a cell doubled along ``
 reduces the corner tie from eight images to four, and the dead channels stay dead, whereas a
 ``2\times2\times2`` cell puts the cross pair strictly inside the WS cell and resolves it.
 
+### A vanishing part of a block
+
+The columns sharing every label of their [`SALCKey`](@ref) but `block` form a **block**;
+symmetry fixes the space a block spans, and the columns inside it are a gauge, chosen
+along the axes of the crystal (see [the basis guide](../guide/basis.md)). A tie does not
+care about that gauge: what cancels is a *subspace* of the block, and whether that
+subspace happens to be spanned by single columns depends on how the columns were chosen.
+Measured on hcp ``(2,2,2)`` with displacement pairs of degree 3: the vanishing subspace
+of one block has dimension 5, and along the crystal axes only one of those directions
+was a column; the four others were combinations of nonzero columns, which a per-column
+test cannot see.
+
+Left free, such a combination is not a harmless gauge freedom. Ordinary least squares and
+plain ridge put nothing in it (their penalty is the same in every direction of a block),
+but an estimator that weighs columns individually does: the adaptive ridge placed 20 % of
+``\beta`` there on hcp at degree 4, a support selection or `refit` could drop up to 17
+columns at no cost in the cell while ``\Phi`` changed by up to a factor 1.8, and the pure-spin
+metric ridge leaked 8.8 % — content the cell cannot see and a supercell or a
+``\boldsymbol q \neq \boldsymbol 0`` read-out does.
+
+So the build re-chooses the columns of every block a proper part of which vanishes: it
+expands the block symbolically (the expansion [`unresolvable_columns`](@ref) judges
+with), decides the block's rank against its gross mass at the same cut as the
+per-column test, and takes as columns first an orthonormal basis of the part that does
+not vanish and then one of the part that does, each chosen along the crystal axes. The
+vanishing columns are then frozen by the per-column test exactly as before. A block with
+no vanishing part, and every block on a cell without a tie, keeps the columns the
+projection produced.
+
+Two consequences to keep in mind:
+
+- **The columns of a re-gauged block depend on the cell.** The same crystal on a
+  ``(3,3,3)`` cell, or described by other lattice vectors, has other columns in that
+  block, so their coefficients are not comparable column by column.
+  [`regauged_columns`](@ref) lists them and [`coeftable`](@ref) flags them; compare
+  models across cells through [`force_constants`](@ref), [`bilinear_terms`](@ref) or
+  predicted energies.
+- **A combination across blocks** — two labels, or two ``(L_S, L_f)`` of one label, of
+  one orbit — is out of reach of any gauge inside a block. None has been measured since
+  the re-gauge (hcp, rhombohedral and fcc cells at degree 2 to 4, three-body and joint
+  spin ``\times`` displacement bases, and the six crystals of the integration tier), but
+  [`build_asr`](@ref SLCE.build_asr) announces any it finds, orbit by orbit, and `dof`
+  does not count them.
+
+!!! note "What "frozen" will mean once the sum rule is written on the supercell"
+    The translation sum rule is imposed today in its folded form, which a frozen column
+    never touches, so a frozen coefficient is held at exactly 0. Written for the
+    infinite crystal — each row carrying the lattice shift of its sites — the rule does
+    reach some frozen columns. Once it is imposed in that form, a frozen coefficient will
+    mean **not fitted from data**: it may carry the completion the sum rule requires
+    rather than 0. Ask [`unresolvable_columns`](@ref) which columns are frozen; do not
+    infer it from `coef == 0`.
+
 ### When symmetry does not fuse the tie
 
 Everything above needed the point group to permute the tied images, which is what puts them

@@ -727,7 +727,8 @@ function penalty_metric(mb::MomentBasis; free_intercepts::Bool = true,
     measured = setdiff(1:p, structural)
 
     nat = n_atoms(mb.crystal)
-    cfgs = _reference_configs(nat, Int(nconfig), Int(seed))
+    cfgs = _reference_configs(nat, Int(nconfig), Int(seed),
+                              _crystal_frame(mb.crystal, mb.spacegroup))
     nmark = max(1, length(mb.marked_atoms))
     # Accumulate over configuration chunks rather than building the whole reference
     # design: the full `nconfig · n_marked × p` block is ~100 MB for a 3x3x3 supercell
@@ -757,6 +758,8 @@ function penalty_metric(mb::MomentBasis; free_intercepts::Bool = true,
     _refuse_zero_metric(m, "penalty_metric(::MomentBasis)"; exempt = structural,
                         hint = " `moment_resolvability` should have named it, and " *
                                "that it did not is worth understanding before fitting.")
+    # after the refusal, which must read the measured norms (see the energy side)
+    _blockwise_metric!(m, salcs(mb), structural, _mark_class)
     return m
 end
 

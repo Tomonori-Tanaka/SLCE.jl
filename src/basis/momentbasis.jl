@@ -512,6 +512,7 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
 
     maxl = max(spec.lmax_mark, maximum(spec.lmax_env; init = 0))
     wcache = _build_wig_cache(sg, maxl)
+    fcache = _build_frame_cache(crystal, sg, maxl)
     cart = cartesian_positions(crystal)
     A = Matrix(crystal.lattice.vectors)
     fac = 1.0 + tie_tol
@@ -581,8 +582,10 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
             end
             return true
         end
-        got = _orbit_salcs_decors(crystal, sg, body, oid, O, labels, spec.soc,
-                                  wcache; admit = admit)
+        got = _regauge_vanishing(_orbit_salcs_decors(crystal, sg, body, oid, O, labels,
+                                                     spec.soc, wcache, fcache;
+                                                     admit = admit),
+                                 _moment_block_signature, _mark_class)
         edgetuple = Tuple(sort([round(edges[a, b]; digits = 6)
                                 for a = 1:body for b = (a + 1):body]))
         parts[w] = got
@@ -878,48 +881,7 @@ function _moment_resolvability(mb::MomentBasis, rtol::Float64)
                                       "or use a reference " *
                                       "cell in which the images are distinct atoms"))
     end
-    rows = Dict{_MomentRowKey,Int}()
-    entries = Vector{Vector{Tuple{Int,Float64}}}()   # per row: (col, weight)
-    gross = zeros(length(sal))
-    for (j, s) in enumerate(sal)
-        scale = (4π)^(count(has_spin, s.decors) / 2)
-        for mem in s.members, t in mem.terms
-            slots = t.slots
-            mslot = findfirst(sl -> sl.factor.channel == DISP, slots)
-            mslot === nothing && error("pointed SALC without a mark slot")
-            mark_site = slots[mslot].site
-            mark_atom = mem.atoms[mark_site]
-            for index in CartesianIndices(t.folded)
-                w = t.folded[index] * scale
-                w == 0.0 && continue
-                mark_lm = (0, 0)
-                env = Tuple{Int,Int,Int}[]
-                for i in eachindex(slots)
-                    sl = slots[i]
-                    if sl.factor.channel == DISP
-                        continue                     # the mark's |u|²R₀₀ ≡ const
-                    elseif sl.site == mark_site
-                        mark_lm = (sl.factor.l, index[i] - sl.factor.l - 1)
-                    else
-                        push!(env, (mem.atoms[sl.site], sl.factor.l,
-                                    index[i] - sl.factor.l - 1))
-                    end
-                end
-                sort!(env)
-                key = _MomentRowKey(mark_atom, mark_lm, env)
-                r = get!(rows, key) do
-                    push!(entries, Tuple{Int,Float64}[])
-                    length(entries)
-                end
-                push!(entries[r], (j, w))
-                gross[j] += abs(w)
-            end
-        end
-    end
-    S = zeros(length(entries), length(sal))
-    for (r, es) in enumerate(entries), (j, w) in es
-        S[r, j] += w
-    end
+    S, gross = _moment_signature_of(sal)
     colnorm = [norm(@view S[:, j]) for j = 1:length(sal)]
     vanishing = [j for j = 1:length(sal)
                  if gross[j] > 0.0 && colnorm[j] <= _CANCELLATION_RTOL * gross[j]]
@@ -977,4 +939,55 @@ function _moment_resolvability(mb::MomentBasis, rtol::Float64)
     census = NamedTuple[(; body = k[1], orbit_id = k[2],
                           n_mark_atoms = length(marks_by_key[k])) for k in order]
     return (; vanishing, rank, kept, null_combinations, census)
+end
+
+# The pointed signature expansion of a list of SALCs: `S[r, j]` is the weight of row
+# function `r` (mark atom, the mark's own `(l, m)`, the sorted environment symbols) in
+# column `j`, `gross[j]` the absolute mass accumulated into it. Shared by
+# `moment_resolvability` and the basis build (`_regauge_vanishing`, which calls it on
+# the columns of one block).
+function _moment_signature_of(sal::AbstractVector{SALC})
+    rows = Dict{_MomentRowKey,Int}()
+    entries = Vector{Vector{Tuple{Int,Float64}}}()   # per row: (col, weight)
+    gross = zeros(length(sal))
+    for (j, s) in enumerate(sal)
+        scale = (4π)^(count(has_spin, s.decors) / 2)
+        for mem in s.members, t in mem.terms
+            slots = t.slots
+            mslot = findfirst(sl -> sl.factor.channel == DISP, slots)
+            mslot === nothing && error("pointed SALC without a mark slot")
+            mark_site = slots[mslot].site
+            mark_atom = mem.atoms[mark_site]
+            for index in CartesianIndices(t.folded)
+                w = t.folded[index] * scale
+                w == 0.0 && continue
+                mark_lm = (0, 0)
+                env = Tuple{Int,Int,Int}[]
+                for i in eachindex(slots)
+                    sl = slots[i]
+                    if sl.factor.channel == DISP
+                        continue                     # the mark's |u|²R₀₀ ≡ const
+                    elseif sl.site == mark_site
+                        mark_lm = (sl.factor.l, index[i] - sl.factor.l - 1)
+                    else
+                        push!(env, (mem.atoms[sl.site], sl.factor.l,
+                                    index[i] - sl.factor.l - 1))
+                    end
+                end
+                sort!(env)
+                key = _MomentRowKey(mark_atom, mark_lm, env)
+                r = get!(rows, key) do
+                    push!(entries, Tuple{Int,Float64}[])
+                    length(entries)
+                end
+                push!(entries[r], (j, w))
+                gross[j] += abs(w)
+            end
+        end
+    end
+    S = zeros(length(entries), length(sal))
+    for (r, es) in enumerate(entries), (j, w) in es
+        S[r, j] += w
+    end
+    return S, gross
 end

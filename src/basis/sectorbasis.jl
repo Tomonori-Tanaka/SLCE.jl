@@ -65,7 +65,7 @@ end
 function _orbit_salcs_sectors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
                               orbit_id::Int, O::ClusterOrbit, spec::BasisSpec,
                               gates::Vector{Tuple{Int,Int,Float64}}, tol::Float64,
-                              wcache::_WigCache)::Vector{SALC}
+                              wcache::_WigCache, fcache::_WigCache)::Vector{SALC}
     lsumN = spec.lsum[N]
     soc_by_label = Dict{Vector{SiteDecor},Bool}()
     for rule in spec.sector_rules
@@ -82,11 +82,11 @@ function _orbit_salcs_sectors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
     for (labels, soc) in ((l_soc, true), (l_nosoc, false))
         isempty(labels) && continue
         append!(out, _orbit_salcs_decors(crystal, spacegroup, N, orbit_id, O,
-                                         labels, soc, wcache;
+                                         labels, soc, wcache, fcache;
                                          lmax_by_species = spec.lmax,
                                          pmax_by_species = spec.pmax))
     end
-    return out
+    return _regauge_vanishing(out, _energy_block_signature, _no_class)
 end
 
 
@@ -115,6 +115,7 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup,
     maxl = max(maximum(spec.lmax; init = 0),
                maximum(r.disp_degree[2] for r in spec.sector_rules; init = 0))
     wcache = _build_wig_cache(spacegroup, maxl)
+    fcache = _build_frame_cache(crystal, spacegroup, maxl)
     use_minimage = selection isa MinimumImage
     dmin2 = use_minimage ? _dmin2_matrix(neighbors, n_atoms(crystal)) :
             Matrix{Float64}(undef, 0, 0)
@@ -130,7 +131,7 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup,
         (N, orbit_id, O) = work[w]
         gates = _orbit_edge_gates(crystal, O, cart, dmin2, use_minimage)
         parts[w] = _orbit_salcs_sectors(crystal, spacegroup, N, orbit_id, O, spec,
-                                        gates, neighbors.tol, wcache)
+                                        gates, neighbors.tol, wcache, fcache)
     end
     salcs = isempty(parts) ? SALC[] : reduce(vcat, parts)
     sort!(salcs; by = s -> s.key)

@@ -452,11 +452,12 @@ end
 # produce false NEGATIVES (near-deficiency without a small diagonal), i.e. the
 # pre-gate behavior. The structural cases this package understands are frozen
 # UPSTREAM of the estimator (`unresolvable_columns` → `build_asr`'s
-# reparameterization removes them from the γ-space design), so a deficiency that
-# still reaches this solve is one the classification could not certify: cross-orbit
-# supercell aliasing, or too few / degenerate training rows. (The `AllImages`
-# self-image route that used to arrive here with `asr = false` — the one route with no
-# loud gate at all — is now refused at the `SLCEDataset` door.) Not a refusal: OLS still returns the QR solution (the documented
+# reparameterization removes them from the γ-space design; since 2026-11-16 that
+# includes every vanishing combination INSIDE a block, which the build turns into
+# columns), so a deficiency that still reaches this solve is either too few /
+# degenerate training rows or a vanishing combination across blocks, which `build_asr`
+# announces per orbit. (The `AllImages` self-image route that used to arrive here with
+# `asr = false` is refused at the `SLCEDataset` door.) Not a refusal: OLS still returns the QR solution (the documented
 # min-norm behavior on exact deficiency), but silently returning non-unique
 # coefficients is the bug this warns about.
 # [Ported from the spin-only SCEFitting.jl fix.]
@@ -488,11 +489,12 @@ function solve_coefficients(::OLS, X::AbstractMatrix, y::AbstractVector;
                   "coefficients (and anything read off them — coeftable, " *
                   "decorated_terms, force_constants, bilinear_terms) are one " *
                   "arbitrary representative; predicted energies are still " *
-                  "well-defined. Causes: a redundancy the resolvability " *
-                  "classification could not certify (an AllImages basis fitted " *
-                  "with asr = false), or too few / degenerate training " *
-                  "configurations. Consider Ridge(lambda > 0), more data, or a " *
-                  "smaller basis." maxlog = 4
+                  "well-defined. Causes: too few or degenerate training " *
+                  "configurations (the usual one); a combination of columns of " *
+                  "different blocks that vanishes on this reference cell, which the " *
+                  "freeze cannot reach (`build_asr` names the orbits when it builds " *
+                  "the dataset); or a hand-assembled design outside the dataset " *
+                  "door. Consider Ridge(lambda > 0), more data, or a smaller basis." maxlog = 4
         end
     end
     return F \ y   # QR-based least squares (more robust than the normal equations)

@@ -288,7 +288,7 @@ function restrict(model::SLCEModel, sector::Symbol)::SLCEModel
         spec = _lattice_spec(basis.spec)
     end
     ks = basis.salc_basis.keys[keep]
-    sb = SALCBasis(basis.salc_basis.salcs[keep], ks)
+    sb = SALCBasis(basis.salc_basis.salcs[keep], ks; gauge = basis.salc_basis.gauge)
     b2 = SLCEBasis(basis.crystal, basis.spacegroup, sb, spec)
     return SLCEModel(b2, model.j0, model.jphi[keep], ks)
 end

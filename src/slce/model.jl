@@ -395,8 +395,8 @@ end
     symmetrized_lattice(basis::SLCEBasis) -> NamedTuple
 
 How the lattice of `basis.crystal` is treated for symmetry: `(; input_lattice,
-symmetric_lattice, lattice_shift, metric_change)` (field names shared with
-SphericalTensorFC's `symmetry_report`).
+symmetric_lattice, lattice_shift, metric_change, crystal_axes)` (the first four field
+names shared with SphericalTensorFC's `symmetry_report`).
 
 - `input_lattice` — the lattice vectors as you passed them (columns `aᵢ`, Å).
 - `symmetric_lattice` — the **symmetrized lattice** the rotations of the symmetry
@@ -410,6 +410,11 @@ SphericalTensorFC's `symmetry_report`).
   in Å.
 - `metric_change` — `max|Ḡ − G| / max|G|` with `G = AᵀA`, the relative size of the
   asymmetry the averaging removed.
+- `crystal_axes` — the orthogonal matrix whose columns are the axes the columns of a
+  block are chosen along: the vectors of `symmetric_lattice` made orthonormal in their
+  order (`a₁`, then the `a₁a₂` plane on the side of `a₂`, then the normal on the side of
+  `a₃`). A crystal turned by `R` has the axes `R·crystal_axes`; the identity for an
+  upper-triangular lattice with a positive diagonal.
 
 **Only the rotations come from `symmetric_lattice`.** Distances, neighbour shells,
 displacements, forces, strains and every readout use the crystal exactly as given, and
@@ -437,7 +442,9 @@ function _symmetrized_lattice(crystal::Crystal, spacegroup::SpaceGroup)
     lattice_shift = maximum(norm(symmetric_lattice[:, i] - input_lattice[:, i])
                             for i = 1:3)
     metric_change = maximum(abs, averaged - metric) / maximum(abs, metric)
-    return (; input_lattice, symmetric_lattice, lattice_shift, metric_change)
+    crystal_axes = Matrix{Float64}(_crystal_frame(input_lattice, rotations))
+    return (; input_lattice, symmetric_lattice, lattice_shift, metric_change,
+            crystal_axes)
 end
 
 # Above this relative asymmetry of the metric the given lattice is not exactly symmetric

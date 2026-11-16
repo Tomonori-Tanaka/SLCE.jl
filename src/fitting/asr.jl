@@ -408,10 +408,17 @@ facts about the basis, kept in separate fields so neither is mistaken for the ot
     can express, so any value a fit returns for them is an estimator artifact — and one
     a Monte-Carlo supercell (where the tie is resolved, so the function is nonzero) or a
     `q ≠ 0` dynamical matrix would amplify into physics the data never constrained. This
-    part is applied whatever `translation` says, and on pure-spin bases too.
+    part is applied whatever `translation` says, and on pure-spin bases too. Because the
+    build makes the vanishing subspace of every block columns of its own, this freezes
+    every vanishing combination inside a block; one across blocks is announced (one
+    warning naming the orbits) and left to the estimator. "Held at 0" is a property of
+    the folded sum rule, which a frozen column never touches: a sum rule written for the
+    infinite crystal (rows carrying the lattice shift of their sites) reaches some frozen
+    columns, and under it a frozen coefficient means "not fitted from data", completed
+    from the rule rather than held at 0.
 
 Returns `nothing` only when there is nothing to encode: a basis with no displacement
-columns and no unresolvable ones (the structural fast path, bitwise identical to an
+columns, no unresolvable ones and no vanishing combination across blocks (the structural fast path, bitwise identical to an
 unconstrained fit). Called once at `SLCEDataset` construction and stored on
 `dataset.asr` (the `force_cols` discipline).
 
@@ -462,10 +469,16 @@ function build_asr(basis::SLCEBasis; translation::Bool = true,
                       "$(err.reason). Nothing is frozen, so a fit may return values " *
                       "for columns no data can determine" maxlog = 1
         (; columns = Int[], vanishing = Int[], undetermined = Int[],
-         multisets = Vector{Int}[], residual_flat = 0)
+         multisets = Vector{Int}[], residual_flat = 0,
+         residual_groups = _ResidualGroup[])
     end
     frozen = split.columns
-    (isempty(frozen) && !(translation && hasdisp)) && return nothing
+    # `nothing` only when there is nothing to encode AND nothing to announce: a
+    # vanishing combination across blocks (`residual_flat`) with nothing frozen still
+    # gets its warning below and a freeze-only reparameterization (the identity
+    # selection), so `dof` can leave it out.
+    (isempty(frozen) && split.residual_flat == 0 && !(translation && hasdisp)) &&
+        return nothing
     free = isempty(frozen) ? collect(1:p) : setdiff(1:p, frozen)
     # TWO reasons, TWO messages. Face (a) is "this column is the zero function"; face (b)
     # is "these couplings are real but only their sum is determined, and no split is
@@ -500,15 +513,27 @@ function build_asr(basis::SLCEBasis; translation::Bool = true,
               "crystal with a cell in which that group's minimum image is unique " *
               "(never a wider cutoff — see the Periodic resolvability chapter)" atoms =
             first(split.multisets, 5) columns = first(split.undetermined, 10) maxlog = 1
-    # Orbit granularity can in principle leave a flat combination behind (two orbits that
-    # share nothing but are still dependent). Measured never to happen, but a silent
-    # residue here is exactly the failure the freeze exists to end, so it is reported.
+    # What the freeze cannot reach: a combination of columns of DIFFERENT blocks of one
+    # orbit (two labels, or two `(L_S, Lf)` of one label) that vanishes on this cell.
+    # The build re-gauges every block so that its own vanishing subspace is frozen, which
+    # removed the in-block case (hcp (2,2,2) at degree 3 left four of five vanishing
+    # directions free before 2026-11-16); a gauge inside a block cannot touch a
+    # combination across blocks. None has been measured since (the CHANGELOG lists the
+    # cells), but a silent residue here is exactly the failure the freeze exists to end,
+    # so it is announced per orbit, in the shape of SphericalTensorFC's G-ASR-4.
     split.residual_flat == 0 || !warn ||
-        @warn "after dropping the tied orbits, $(split.residual_flat) flat " *
-              "direction(s) remain in the structural expansion: some coefficient " *
-              "combination is still undetermined on this cell. Run " *
-              "`identifiability` on the fit and treat q ≠ 0 readouts as " *
-              "unconstrained" maxlog = 1
+        @warn "after the freeze, $(split.residual_flat) combination(s) of columns of " *
+              "DIFFERENT blocks (labels or (L_S, Lf)) of one cluster orbit still vanish " *
+              "on every configuration this reference cell can express. Nothing is frozen " *
+              "for them: along those that the sum rule does not forbid, no data on this " *
+              "cell determines the coefficients, a fit returns the estimator's choice, " *
+              "and `dof` already leaves them out. Each entry below is one orbit: its " *
+              "columns, the number of independent vanishing combinations of them, how " *
+              "many columns are frozen, and how many flat directions remain. Predictions " *
+              "on this cell are not affected; a supercell or a q ≠ 0 readout is. Describe " *
+              "the crystal with a cell in which the minimum image is unique, or drop one " *
+              "of the labels (`identifiability` on a fit gives the directions)" groups =
+            split.residual_groups maxlog = 1
     # Freeze-only: no constraint rows at all (a pure-spin basis, or `translation =
     # false`). `_stage_reparam`'s `A === nothing` path gives the plain selection
     # matrix of the free columns — orthonormal, so every estimator's γ-space contract

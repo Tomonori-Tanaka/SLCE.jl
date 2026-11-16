@@ -157,7 +157,13 @@ function _signature_matrix(basis::SLCEBasis)
         throw(ArgumentError("the resolvability expansion predates disp_scale ≠ 1 " *
                             "support — its monomial expansion must be rescaled per " *
                             "degree when that guard lifts"))
-    ss = salcs(basis)
+    return _signature_of(salcs(basis))
+end
+
+# `_signature_matrix` over any list of SALCs: the rows are those the listed columns
+# reach, in sorted row-key order. The basis build calls it on the columns of one block
+# (`_regauge_vanishing`, `basis/regauge.jl`), where no `SLCEBasis` exists yet.
+function _signature_of(ss::AbstractVector{SALC})
     p = length(ss)
     polycache = Dict{NTuple{3,Int},SolidHarmonics._Poly}()
     rows = Dict{_FuncRowKey,Dict{Int,Float64}}()
@@ -297,6 +303,22 @@ reached `rmse_energy = 4e-16` with a clean `asr_residual` and an exact `D(0)`, w
 themselves are kept, because the basis describes the infinite crystal and a
 Monte-Carlo supercell consumes them.
 
+**Face 1 is the whole vanishing subspace of each block, not only the part of it that
+happens to be a column.** The columns sharing every label but `block` are a gauge, and a
+tie cancels a subspace of the block, not a column; the build chooses the columns of every
+block a proper part of which vanishes so that the vanishing part is columns of its own
+(`basis/regauge.jl`; [`regauged_columns`](@ref) lists such blocks). The test here is then
+per column and still exact. A combination of columns of different blocks is not reached;
+`build_asr` announces any.
+
+!!! note "Frozen means \"not fitted from data\", and will not always mean 0"
+    The translation sum rule is imposed in its folded form, which a frozen column never
+    touches, so today a frozen coefficient is held at exactly zero. Written for the
+    infinite crystal — each row carrying the lattice shift of its sites — the rule does
+    reach some frozen columns; once it is imposed in that form, a frozen coefficient may
+    carry the completion the sum rule requires instead of 0. Use this function, not
+    `coef == 0`, to find them.
+
 The classification is exact and deterministic — a symbolic expansion into a common
 monomial basis, not a numerical probe of the evaluator. A cheap structural pre-check
 (is any atom multiset reached twice — by two members of one orbit, or by two orbits?)
@@ -372,37 +394,45 @@ end
 
 """
     _unresolvable_split(basis) -> (; columns, vanishing, undetermined, multisets,
-                                     residual_flat)
+                                     residual_flat, residual_groups)
 
 The freeze, with the two reasons kept apart because their messages differ:
 
 - `vanishing` — tie face (a): identically zero on every configuration this cell can
-  express (the null-column test);
+  express (the null-column test). Since the build re-gauges every block whose
+  vanishing subspace is a proper part of it (`_regauge_vanishing`, `basis/regauge.jl`),
+  this is the whole vanishing subspace of every block, not only the part of it that
+  happened to be a column;
 - `undetermined` — tie face (b): a column of an orbit that shares an atom multiset with
   another orbit, so only the sum of their couplings is determined and no split is
   justified. The whole interaction is dropped;
 - `columns` — what `fit` freezes, the union in ascending order;
 - `multisets` — the offending atom multisets, for the message;
 - `residual_flat` — flat directions LEFT after the freeze, computed whenever the
-  expansion ran. A nonzero value is reported rather than swallowed.
+  expansion ran. A nonzero value is reported rather than swallowed;
+- `residual_groups` — the same count per cluster orbit, one entry
+  `(; orbit, columns, zero_dimension, n_frozen, n_flat)` for every orbit that leaves a
+  flat direction: its columns, the number of independent combinations of them that
+  vanish, how many of them are frozen, and how many flat directions remain among the
+  rest.
 
-It used to be computed only when face (b) fired, on the argument that whole-orbit
-granularity is the only thing that can under- or over-shoot. That argument is sound and
-covers only ONE of the two routes to a leftover flat direction. The other needs no second
-orbit at all: two channels of a SINGLE orbit, each individually nonzero, can become
-dependent once the tie collapses their arguments. A per-column test cannot see that by
-construction, and under the old condition nothing else looked either — so the one
-diagnostic that could have caught it was switched off in exactly the case it was needed.
-No basis has yet produced a nonzero value (about 70 were tried: real crystals and
-hand-grouped fixtures, `N = 1..4`, degree ≤ 6, tie multiplicities 2/4/6/8, `frozen` equal
-to the sampled nullity every time), which is a reason to keep the check cheap, not a
-reason to skip it. `S` is already built by the time we get here and the rank costs about
-2 % of building it.
+What can remain is a combination of columns of DIFFERENT blocks of one orbit (two
+labels, or two `(L_S, Lf)` of one label), which no gauge inside a block reaches. Two
+orbits cannot share a flat direction once face (b) has frozen every orbit over a shared
+atom multiset, because rows are keyed by per-atom content. Measured after the re-gauge
+(2026-11-16): zero on every tied cell tried — hcp (2,2,2) at displacement degree 2, 3, 4
+and 1–3 with three-body clusters, a joint spin × displacement hcp basis with SOC, pure
+spin with three-body clusters, the rhombohedral (80°) and fcc primitive (2,2,2) cells at
+degree 2–4, each along the axes and turned, and the six crystals of the integration
+tier. Before it, hcp (2,2,2) at degree 3 reported 4 here (one vanishing direction of
+five was a column) and the turned hcp cell at degree 4 reported 7. A nonzero value is
+a statement about the truncation, and `build_asr` names the orbits.
 """
 function _unresolvable_split(basis::SLCEBasis)
     orbits, multisets = _shared_multisets(basis)
     empty_result = (; columns = Int[], vanishing = Int[], undetermined = Int[],
-                    multisets = Vector{Int}[], residual_flat = 0)
+                    multisets = Vector{Int}[], residual_flat = 0,
+                    residual_groups = _ResidualGroup[])
     # One pre-check for both faces: `_has_boundary_tie` is true when a single SALC
     # repeats an atom multiset (face a) or when `orbits` is nonempty (face b).
     _has_boundary_tie(basis) || return empty_result
@@ -421,13 +451,43 @@ function _unresolvable_split(basis::SLCEBasis)
     # channels of ONE orbit going dependent, which face (a) alone reaches — see the
     # docstring. `S` is already built, so this is the cheap half of the step.
     residual_flat = 0
+    residual_groups = _ResidualGroup[]
     if !isempty(S)
         kept = setdiff(1:p, columns)
         # `identifiability`'s cut, on the structural expansion instead of the design:
         # relative to σ_max at `min(size)·eps`, so the two reports are read the same way.
         residual_flat = isempty(kept) ? 0 : length(kept) - _struct_rank(S[:, kept])
+        residual_flat > 0 && (residual_groups = _residual_groups(basis, S, columns))
     end
-    return (; columns, vanishing, undetermined, multisets, residual_flat)
+    return (; columns, vanishing, undetermined, multisets, residual_flat,
+            residual_groups)
+end
+
+const _ResidualGroup = @NamedTuple{orbit::Tuple{Int,Int},columns::Vector{Int},
+                                   zero_dimension::Int,n_frozen::Int,n_flat::Int}
+
+# The leftover flat directions, orbit by orbit (`_unresolvable_split`'s
+# `residual_groups`). Columns of different orbits share no row once face (b) has frozen
+# every orbit over a shared atom multiset, so the orbits are independent blocks of `S`.
+function _residual_groups(basis::SLCEBasis, S::Matrix{Float64},
+                          frozen::Vector{Int})::Vector{_ResidualGroup}
+    by_orbit = Dict{Tuple{Int,Int},Vector{Int}}()
+    for (j, s) in enumerate(salcs(basis))
+        push!(get!(by_orbit, _orbit_of(s), Int[]), j)
+    end
+    fset = Set(frozen)
+    out = _ResidualGroup[]
+    for orbit in sort!(collect(keys(by_orbit)))
+        cols = by_orbit[orbit]
+        kept = [j for j in cols if !(j in fset)]
+        isempty(kept) && continue
+        n_flat = length(kept) - _struct_rank(S[:, kept])
+        n_flat > 0 || continue
+        zero_dimension = length(cols) - _struct_rank(S[:, cols])
+        push!(out, (; orbit, columns = cols, zero_dimension,
+                    n_frozen = count(in(fset), cols), n_flat))
+    end
+    return out
 end
 
 # A TIE IS NECESSARY, and cheap to rule out. Columns interact only through shared rows,
