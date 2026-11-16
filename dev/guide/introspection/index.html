@@ -24,7 +24,19 @@ for s in unique(sig.(terms))
             rpad(round(t.scale; sigdigits = 5), 10),
             round((4π)^(t.body / 2); sigdigits = 5),
             t.scale ≈ (4π)^(t.body / 2) ? &quot;&quot; : &quot;   ← differs&quot;)
-end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">body  slots                             scale     (4π)^(body/2)
+end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">┌ Warning: decorated_terms: the model carries a NONZERO coefficient on 10 column(s) this reference cell cannot resolve, and decorated_terms does see them: these readouts differentiate the individual cluster members, where the tie does not cancel, so the value reaches Φ and every q ≠ 0 of D(q) even though it is identically zero in the energy of any configuration this cell can express. No data on this cell can have determined it. Legal — a hand-built or externally fixed coefficient — but nothing here validates it
+│   columns =
+│    10-element Vector{Int64}:
+│     12
+│     14
+│     16
+│     18
+│      ⋮
+│     26
+│     31
+│     35
+└ @ SLCE ~/work/SLCE.jl/SLCE.jl/src/slce/forceconstants.jl:300
+body  slots                             scale     (4π)^(body/2)
 1     [:DISP]                           1.0       3.5449   ← differs
 2     [:DISP, :DISP]                    1.0       12.566   ← differs
 2     [:SPIN, :SPIN]                    12.566    12.566
@@ -53,7 +65,31 @@ println(&quot;pruned:    equal length = &quot;,
 println(&quot;keep_zero: same map = &quot;,
         ident.(decorated_terms(zeroed; keep_zero = true)) ==
         ident.(decorated_terms(other; keep_zero = true)))</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">zeroing SALC 5 in one model and 6 in the other (same orbit, same slots)
+┌ Warning: decorated_terms: the model carries a NONZERO coefficient on 10 column(s) this reference cell cannot resolve, and decorated_terms does see them: these readouts differentiate the individual cluster members, where the tie does not cancel, so the value reaches Φ and every q ≠ 0 of D(q) even though it is identically zero in the energy of any configuration this cell can express. No data on this cell can have determined it. Legal — a hand-built or externally fixed coefficient — but nothing here validates it
+│   columns =
+│    10-element Vector{Int64}:
+│     12
+│     14
+│     16
+│     18
+│      ⋮
+│     26
+│     31
+│     35
+└ @ SLCE ~/work/SLCE.jl/SLCE.jl/src/slce/forceconstants.jl:300
 pruned:    equal length = true,  same map = false
+┌ Warning: decorated_terms: the model carries a NONZERO coefficient on 10 column(s) this reference cell cannot resolve, and decorated_terms does see them: these readouts differentiate the individual cluster members, where the tie does not cancel, so the value reaches Φ and every q ≠ 0 of D(q) even though it is identically zero in the energy of any configuration this cell can express. No data on this cell can have determined it. Legal — a hand-built or externally fixed coefficient — but nothing here validates it
+│   columns =
+│    10-element Vector{Int64}:
+│     12
+│     14
+│     16
+│     18
+│      ⋮
+│     26
+│     31
+│     35
+└ @ SLCE ~/work/SLCE.jl/SLCE.jl/src/slce/forceconstants.jl:300
 keep_zero: same map = true</code></pre><p>Equal length, different map — every length check a consumer could write passes while each coefficient lands on a neighbouring interaction. With <code>keep_zero = true</code> the map is a property of the SALC basis alone, which is exactly the object a <a href="../../api/#SLCE.StrainedModels"><code>StrainedModels</code></a> grid asserts identical across its points. The default stays <code>false</code> so existing consumers are untouched.</p><h2 id="restrict-is-not-a-refit"><a class="docs-heading-anchor" href="#restrict-is-not-a-refit"><code>restrict</code> is not a refit</a><a id="restrict-is-not-a-refit-1"></a><a class="docs-heading-anchor-permalink" href="#restrict-is-not-a-refit" title="Permalink"></a></h2><p><a href="../../api/#SLCE.restrict"><code>restrict(model, :spin)</code></a> returns the joint model evaluated at <code>u = 0</code> — the clamped-ion sub-model. It is exact: <code>predict_energy(restrict(m, :spin), e)</code> equals <code>predict_energy(m, e, zeros(3, n))</code> bitwise, and the result is an ordinary pure-spin model that every spin-only surface accepts.</p><div class="admonition is-warning" id="Clamped-ion-couplings-are-not-spin-only-fit-couplings-40c86c641cdf18db"><header class="admonition-header">Clamped-ion couplings are not spin-only-fit couplings<a class="admonition-anchor" href="#Clamped-ion-couplings-are-not-spin-only-fit-couplings-40c86c641cdf18db" title="Permalink"></a></header><div class="admonition-body"><p>The couplings <code>restrict</code> hands back are the values each spin interaction takes with every atom at its <strong>ideal reference site</strong>. They are <em>not</em> the couplings you get by fitting a spin-only model to the same data, and not the ones a relaxed or finite-temperature structure exhibits.</p><p>A spin-only model has no displacement coordinate to attribute anything to, so whatever the lattice was doing in the training structures is absorbed into its spin couplings: the fitted <code>J</code> silently carries a <code>⟨u⟩</code>- and <code>⟨uu⟩</code>-renormalized contribution. <code>restrict</code> drops exactly that. The gap between the two is the physics the joint model exists to separate — not a discrepancy to reconcile. If you want renormalized couplings at some displacement state, that is a thermodynamic average over the joint model, not a restriction of it.</p></div></div><p>Here is the difference, measured. We generate data from a known joint model on displaced structures, then fit two models to the <em>same</em> energies — one joint, one spin-only:</p><pre><code class="language-julia hljs">fp = crystal_fingerprint(cr)
 prov = DatumProvenance(; reference_id = &quot;ref&quot;, reference_fingerprint = fp)
 rng = MersenneTwister(7)
@@ -79,10 +115,18 @@ sonly = SLCEModel(fit(SLCEFit, SLCEDataset(sbasis, [d.directions for d in data],
 println(&quot;clamped-ion (restrict):  &quot;, round.(coef(clamped); sigdigits = 3))
 println(&quot;spin-only refit:         &quot;, round.(coef(sonly); sigdigits = 3))
 println(&quot;max |difference|:        &quot;,
-        round(maximum(abs, coef(clamped) .- coef(sonly)); sigdigits = 3))</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">┌ Warning: after dropping the tied orbits, 10 flat direction(s) remain in the structural expansion: some coefficient combination is still undetermined on this cell. Run `identifiability` on the fit and treat q ≠ 0 readouts as unconstrained
-└ @ SLCE ~/work/SLCE.jl/SLCE.jl/src/fitting/asr.jl:507
-┌ Warning: OLS design matrix is rank deficient or severely ill-conditioned: only 61 of 71 columns are independent at a 1e-10 diagonal threshold (κ ≳ 1e10). The least-squares solution is non-unique or unstable, so the returned coefficients (and anything read off them — coeftable, decorated_terms, force_constants, bilinear_terms) are one arbitrary representative; predicted energies are still well-defined. Causes: a redundancy the resolvability classification could not certify (an AllImages basis fitted with asr = false), or too few / degenerate training configurations. Consider Ridge(lambda &gt; 0), more data, or a smaller basis.
-└ @ SLCE ~/work/SLCE.jl/SLCE.jl/src/fitting/estimators.jl:484
+        round(maximum(abs, coef(clamped) .- coef(sonly)); sigdigits = 3))</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">┌ Warning: this reference cell cannot resolve 10 of its 71 columns: they are identically zero on every configuration it can express, so the fit holds them at exactly zero. They are UNIDENTIFIABLE, not physically zero: tiling this cell maps the tied images onto DISTINCT atoms, so nothing cancels in a Monte-Carlo supercell and a fitted value would become physics the data never constrained there. (A uniform strain reveals some of them as well, but never a pure-spin one — it has no displacement slot for a strain to act on.) The cause is a Wigner-Seitz boundary tie; to determine these coefficients, describe the crystal with a cell in which the offending pair&#39;s minimum image is unique (`unresolvable_columns` for the columns, the Periodic resolvability chapter for the remedy)
+│   columns =
+│    10-element Vector{Int64}:
+│     12
+│     14
+│     16
+│     18
+│      ⋮
+│     26
+│     31
+│     35
+└ @ SLCE ~/work/SLCE.jl/SLCE.jl/src/fitting/asr.jl:489
 clamped-ion (restrict):  [0.257, -0.633]
-spin-only refit:         [0.208, -0.685]
-max |difference|:        0.0517</code></pre><p>The spin-only fit reproduces the <em>energies</em> it was given about as well as the joint one does, and lands on different couplings — which is the whole point: those two numbers answer different questions, and only the joint model can tell you which part of the coupling came from the lattice.</p><h2 id="Where-the-derived-quantities-live"><a class="docs-heading-anchor" href="#Where-the-derived-quantities-live">Where the derived quantities live</a><a id="Where-the-derived-quantities-live-1"></a><a class="docs-heading-anchor-permalink" href="#Where-the-derived-quantities-live" title="Permalink"></a></h2><p>The term views above are the <em>model</em>. Its derivatives each have their own page:</p><table><tr><th style="text-align: left">you want</th><th style="text-align: left">page</th></tr><tr><td style="text-align: left">force constants, <code>D(q)</code>, phonopy / ALAMODE export</td><td style="text-align: left"><a href="../lattice_dynamics/">Force constants and phonons</a></td></tr><tr><td style="text-align: left">strain response, magnetoelastic constants, magnon–phonon vertices, volume grids</td><td style="text-align: left"><a href="../strain/">Strain, magnetoelasticity and volume grids</a></td></tr><tr><td style="text-align: left">a <code>Sunny.System</code> for spin-wave theory</td><td style="text-align: left"><a href="../sunny/">Sunny export</a></td></tr><tr><td style="text-align: left">how the pieces fit together on a joint model</td><td style="text-align: left"><a href="../joint/">A joint spin–lattice model, end to end</a></td></tr></table></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../joint/">« A joint spin–lattice model, end to end</a><a class="docs-footer-nextpage" href="../lattice_dynamics/">Force constants and phonons »</a><div class="flexbox-break"></div><p class="footer-message">Built with <a href="https://documenter.juliadocs.org">Documenter.jl</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.20.0 on <span class="colophon-date" title="Sunday 15 November 2026 12:28">Sunday 15 November 2026</span>. Using Julia version 1.12.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+spin-only refit:         [0.235, -0.657]
+max |difference|:        0.0235</code></pre><p>The spin-only fit reproduces the <em>energies</em> it was given about as well as the joint one does, and lands on different couplings — which is the whole point: those two numbers answer different questions, and only the joint model can tell you which part of the coupling came from the lattice.</p><h2 id="Where-the-derived-quantities-live"><a class="docs-heading-anchor" href="#Where-the-derived-quantities-live">Where the derived quantities live</a><a id="Where-the-derived-quantities-live-1"></a><a class="docs-heading-anchor-permalink" href="#Where-the-derived-quantities-live" title="Permalink"></a></h2><p>The term views above are the <em>model</em>. Its derivatives each have their own page:</p><table><tr><th style="text-align: left">you want</th><th style="text-align: left">page</th></tr><tr><td style="text-align: left">force constants, <code>D(q)</code>, phonopy / ALAMODE export</td><td style="text-align: left"><a href="../lattice_dynamics/">Force constants and phonons</a></td></tr><tr><td style="text-align: left">strain response, magnetoelastic constants, magnon–phonon vertices, volume grids</td><td style="text-align: left"><a href="../strain/">Strain, magnetoelasticity and volume grids</a></td></tr><tr><td style="text-align: left">a <code>Sunny.System</code> for spin-wave theory</td><td style="text-align: left"><a href="../sunny/">Sunny export</a></td></tr><tr><td style="text-align: left">how the pieces fit together on a joint model</td><td style="text-align: left"><a href="../joint/">A joint spin–lattice model, end to end</a></td></tr></table></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../joint/">« A joint spin–lattice model, end to end</a><a class="docs-footer-nextpage" href="../lattice_dynamics/">Force constants and phonons »</a><div class="flexbox-break"></div><p class="footer-message">Built with <a href="https://documenter.juliadocs.org">Documenter.jl</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.20.0 on <span class="colophon-date" title="Monday 16 November 2026 00:28">Monday 16 November 2026</span>. Using Julia version 1.12.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
